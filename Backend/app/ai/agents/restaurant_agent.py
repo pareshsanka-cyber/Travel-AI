@@ -196,6 +196,7 @@ def fetch_real_restaurants_overpass(destination: str):
                 "rating": "4.5",
                 "address": address,
                 "popular_dish": popular_dish,
+                "description": f"Immerse yourself in authentic flavors at {name}. Known for its exquisite {cuisine} cuisine, this highly-rated dining spot offers a fantastic culinary experience in {destination.title()}. A must-try local specialty here is the {popular_dish}, which perfectly captures the vibrant taste of the region.",
                 "lat": float(element.get("lat") or coords["lat"]),
                 "lon": float(element.get("lon") or coords["lon"])
             })

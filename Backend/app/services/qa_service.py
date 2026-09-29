@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional
 from app.ai.llm import llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.ai.agents.weather_agent import fetch_realtime_weather_openmeteo
-from app.ai.agents.attraction_agent import fetch_real_attractions_overpass
+
 from app.ai.agents.restaurant_agent import fetch_real_restaurants_overpass
 from app.ai.rag.retriever import retrieve_travel_knowledge
 

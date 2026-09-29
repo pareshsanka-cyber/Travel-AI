@@ -99,40 +99,8 @@ export function resolvePlaceImage(act: ActivitySegment, destination?: string): s
     }
   }
 
-  // 3. Destination-aware fallback
-  const destLower = (destination || '').toLowerCase();
-  if (destLower.includes('delhi')) {
-    return act.timeOfDay === 'Morning' 
-      ? 'https://images.unsplash.com/photo-1598324789736-4861f89564a0?auto=format&fit=crop&w=1000&q=80'
-      : act.timeOfDay === 'Afternoon'
-      ? 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&w=1000&q=80'
-      : 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80';
-  }
-
-  if (destLower.includes('agra')) {
-    return act.timeOfDay === 'Morning'
-      ? 'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1000&q=80'
-      : 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&w=1000&q=80';
-  }
-
-  if (destLower.includes('jaipur')) {
-    return act.timeOfDay === 'Morning'
-      ? 'https://images.unsplash.com/photo-1609137144822-1d54f85e43a9?auto=format&fit=crop&w=1000&q=80'
-      : 'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=1000&q=80';
-  }
-
-  if (destLower.includes('goa')) {
-    return act.timeOfDay === 'Morning'
-      ? 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?auto=format&fit=crop&w=1000&q=80'
-      : 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=1000&q=80';
-  }
-
   // 4. Default high-res travel fallback
-  return act.timeOfDay === 'Morning'
-    ? 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1000&q=80'
-    : act.timeOfDay === 'Afternoon'
-    ? 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1000&q=80'
-    : 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80';
+  return `https://picsum.photos/seed/${encodeURIComponent(act.title.trim())}/1000/600`;
 }
 
 function StatusBadge({ status }: { status?: string }) {

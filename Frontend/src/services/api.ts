@@ -2079,7 +2079,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
               timeOfDay,
               time: sIdx === 0 ? '09:00' : sIdx === 1 ? '13:30' : '18:00',
               title,
-              description: (isObj && stop.description) ? stop.description : (d.travel_tips || `Curated stop in ${destName}.`),
+              description: (isObj && stop.description) ? stop.description : `Curated stop in ${destName}.`,
               categoryColor,
               location: destName,
               thumbnail: isObj ? stop.image_url : undefined,

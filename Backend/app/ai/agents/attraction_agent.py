@@ -29,7 +29,7 @@ GROK_DISCOVERY_PROMPT = ChatPromptTemplate.from_messages([
         "    {{\n"
         '      "name": "Exact Place Name",\n'
         '      "category": "category type (e.g., landmark, museum, park)",\n'
-        '      "description": "Short factual non-real-time description (2-3 sentences max).",\n'
+        '      "description": "A rich, immersive, and highly detailed description covering history, significance, and what to expect (5-7 sentences).",\n'
         '      "why_visit": "Why this is a great fit for the user preferences.",\n'
         '      "estimated_visit_duration_minutes": 120,\n'
         '      "best_time_of_day": "morning|afternoon|evening",\n'
@@ -187,11 +187,9 @@ def attraction_node(state: TravelState) -> dict:
     budget = state.get("budget", 500.0)
     preferences = state.get("preferences", "General tourist")
     
-    print(f"--- ATTRACTION AGENT: Starting Grok Discovery for {destination} ---")
+    print(f"--- ATTRACTION AGENT: Starting Groq Discovery for {destination} ---")
     
-    if not grok_llm:
-        print("CONFIGURATION ERROR: XAI_API_KEY is missing. Cannot perform attraction discovery.")
-        raise ValueError("Configuration Error: XAI_API_KEY is missing. Please configure XAI_API_KEY in the backend .env file to use the Grok-based attraction discovery.")
+    
     
     # 1. Grok Discovery Call
     prompt_val = GROK_DISCOVERY_PROMPT.format_messages(
@@ -202,7 +200,7 @@ def attraction_node(state: TravelState) -> dict:
     )
     
     try:
-        response = grok_llm.invoke(prompt_val)
+        response = llm.invoke(prompt_val)
         data = json.loads(response.content.strip())
         candidates = data.get("attractions", [])
         print(f"--- ATTRACTION AGENT: Discovery yielded {len(candidates)} candidate attractions ---")

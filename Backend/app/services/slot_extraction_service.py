@@ -15,11 +15,8 @@ ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
         "- Previous Assistant Message: {previous_assistant_message}\n"
         "- Has Generated Itinerary: {has_current_trip}\n\n"
         "Supported Intents:\n"
-        "1. UPDATE_CONTEXT: User is providing or modifying trip details (destination, duration, budget, travel style, flight/hotel preferences, interests, constraints).\n"
-        "   - Note: Words like 'business class', '5 star hotel', 'cheap trip', 'give me the rich one', 'money doesn't matter', 'budget is your choice' are UPDATE_CONTEXT.\n"
-        "2. TRAVEL_QA: User is asking informational or Q&A questions about a destination (weather, food, places to visit, general tips).\n"
-        "3. GENERATE_ITINERARY: User explicitly requests creating/planning the itinerary, OR replies 'Yes/Sure/Do it' when the previous assistant message asked if they should build/create the itinerary.\n"
-        "4. MODIFY_ITINERARY: When Has Generated Itinerary is True and the user asks to change, edit, or adjust the existing trip or a day (e.g. 'Change day 2 to focus on watersports', 'Make day 2 more relaxed', 'Remove that restaurant'), intent MUST be MODIFY_ITINERARY.\n\n"
+        "1. UPDATE_CONTEXT: User is ONLY providing or modifying trip details. BUT if they explicitly command you to plan or generate the itinerary, do NOT use UPDATE_CONTEXT. Use GENERATE_ITINERARY instead!\n"        "2. TRAVEL_QA: User is asking informational or Q&A questions about a destination (weather, food, places to visit, general tips).\n"
+        "3. GENERATE_ITINERARY: User explicitly requests creating or planning the itinerary. This SUPERSEDES UPDATE_CONTEXT if both apply!\n"        "4. MODIFY_ITINERARY: When Has Generated Itinerary is True and the user asks to change, edit, or adjust the existing trip or a day (e.g. 'Change day 2 to focus on watersports', 'Make day 2 more relaxed', 'Remove that restaurant'), intent MUST be MODIFY_ITINERARY.\n\n"
         "Q&A Categories (only for TRAVEL_QA):\n"
         "- 'WEATHER': Questions about climate, temperature, weather.\n"
         "- 'ATTRACTION': Questions about places to see, landmarks, activities.\n"
@@ -282,6 +279,9 @@ def analyze_user_message(
                 analysis["slots"][k] = v
 
     # Deterministic override for itinerary modifications when trip exists
+    if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', user_message, re.IGNORECASE):
+        analysis['intent'] = 'GENERATE_ITINERARY'
+
     if has_current_trip:
         mod_pattern = r'\b(?:day\s*\d+|change|modify|replace|remove|swap|adjust|update day|instead of)\b'
         if re.search(mod_pattern, user_message, re.IGNORECASE):

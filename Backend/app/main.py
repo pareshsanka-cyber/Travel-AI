@@ -1,13 +1,12 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import os
 from app.api.trips import router as trips_router
 from app.api.chat import router as chat_router
 from app.api.auth import router as auth_router
-
-# Load environment variables from .env
-load_dotenv()
 
 app = FastAPI(title="TravelAI API")
 
@@ -27,14 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register API routes
-app.include_router(trips_router, prefix="/api/trips")
-app.include_router(chat_router)
-app.include_router(auth_router, prefix="/api/auth")
+app.include_router(trips_router, prefix="/api/trips", tags=["Trips"])
+app.include_router(chat_router, tags=["Chat"])
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 
 @app.get("/")
 def read_root():
-    return {
-        "status": "online",
-        "message": "TravelAI Backend is running successfully!"
-    }
+    return {"status": "ok", "message": "TravelAI API is running."}
