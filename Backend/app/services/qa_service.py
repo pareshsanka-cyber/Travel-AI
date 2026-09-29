@@ -2,7 +2,6 @@ from typing import Dict, Any, Optional
 from app.ai.llm import llm
 from langchain_core.prompts import ChatPromptTemplate
 from app.ai.agents.weather_agent import fetch_realtime_weather_openmeteo
-from app.ai.agents.attraction_agent import fetch_real_attractions_overpass
 from app.ai.agents.restaurant_agent import fetch_real_restaurants_overpass
 from app.ai.rag.retriever import retrieve_travel_knowledge
 
@@ -40,12 +39,7 @@ def handle_travel_qa(
             context_str = retrieve_travel_knowledge(f"{destination} weather temperature season climate monsoons", k=2)
 
     elif category == "ATTRACTION" and travel_context.get("destination"):
-        attr_res = fetch_real_attractions_overpass(travel_context["destination"])
-        if attr_res:
-            places = ", ".join([f"{a['name']} ({a['description']})" for a in attr_res[:4]])
-            context_str = f"Live Attraction Data for {destination}: {places}"
-        else:
-            context_str = retrieve_travel_knowledge(f"{destination} attractions landmarks places to visit sightseeing", k=2)
+        context_str = retrieve_travel_knowledge(f"{destination} attractions landmarks places to visit sightseeing", k=4)
 
     elif category == "RESTAURANT" and travel_context.get("destination"):
         rest_res = fetch_real_restaurants_overpass(travel_context["destination"])
