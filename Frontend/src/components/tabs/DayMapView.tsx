@@ -65,19 +65,12 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Filter valid coordinates or default to city coordinates if available
-    const waypoints: Array<{
-      name: string;
-      timeOfDay: string;
-      lat: number;
-      lon: number;
-      thumbnail?: string;
-      status?: string;
-      location?: string;
-    }> = [];
-
+    // Extended fallback — only used when backend sends no coordinates.
+    // Backend-provided lat/lon always takes priority.
     const fallbackCoords: Record<string, [number, number]> = {
+      // India
       delhi: [28.6139, 77.2090],
+      'new delhi': [28.6139, 77.2090],
       goa: [15.2993, 74.1240],
       jaipur: [26.9124, 75.7873],
       mumbai: [19.0760, 72.8777],
@@ -90,27 +83,88 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       kochi: [9.9312, 76.2673],
       manali: [32.2432, 77.1892],
       shimla: [31.1048, 77.1734],
+      hyderabad: [17.3850, 78.4867],
+      chennai: [13.0827, 80.2707],
+      kolkata: [22.5726, 88.3639],
+      // Australia & Oceania
+      sydney: [-33.8688, 151.2093],
+      melbourne: [-37.8136, 144.9631],
+      brisbane: [-27.4698, 153.0251],
+      perth: [-31.9505, 115.8605],
+      adelaide: [-34.9285, 138.6007],
+      auckland: [-36.8509, 174.7645],
+      // International
+      london: [51.5074, -0.1278],
+      paris: [48.8566, 2.3522],
+      dubai: [25.2048, 55.2708],
+      singapore: [1.3521, 103.8198],
+      tokyo: [35.6762, 139.6503],
+      bangkok: [13.7563, 100.5018],
+      'kuala lumpur': [3.1390, 101.6869],
+      bali: [-8.3405, 115.0920],
+      'new york': [40.7128, -74.0060],
+      'new york city': [40.7128, -74.0060],
+      'los angeles': [34.0522, -118.2437],
+      toronto: [43.6532, -79.3832],
+      seoul: [37.5665, 126.9780],
+      beijing: [39.9042, 116.4074],
+      shanghai: [31.2304, 121.4737],
+      rome: [41.9028, 12.4964],
+      barcelona: [41.3851, 2.1734],
+      amsterdam: [52.3676, 4.9041],
+      berlin: [52.5200, 13.4050],
     };
 
     const destKey = (destination || '').toLowerCase().split(',')[0].trim();
-    const defaultCenter = fallbackCoords[destKey] || [28.6139, 77.2090];
+    const defaultCenter: [number, number] | null =
+      fallbackCoords[destKey] ||
+      fallbackCoords[destKey.split(' ')[0]] ||
+      null;
+
+    // Validate coordinate
+    function isValidCoord(lat: number | undefined, lon: number | undefined): boolean {
+      return (
+        typeof lat === 'number' &&
+        typeof lon === 'number' &&
+        !isNaN(lat) && !isNaN(lon) &&
+        lat >= -90 && lat <= 90 &&
+        lon >= -180 && lon <= 180 &&
+        !(lat === 0 && lon === 0)
+      );
+    }
+
+    const waypoints: Array<{
+      name: string;
+      timeOfDay: string;
+      lat: number;
+      lon: number;
+      thumbnail?: string;
+      status?: string;
+      location?: string;
+    }> = [];
 
     activities.forEach((act, idx) => {
       let lat = act.lat;
       let lon = act.lon;
 
-      if (!lat || !lon || lat === 0 || lon === 0) {
-        const offsetLat = (idx === 0 ? 0.02 : idx === 1 ? -0.015 : 0.01) + (Math.sin(dayNumber + idx) * 0.008);
-        const offsetLon = (idx === 0 ? -0.015 : idx === 1 ? 0.02 : 0.015) + (Math.cos(dayNumber + idx) * 0.008);
+      if (isValidCoord(lat, lon)) {
+        // Use real backend coordinates — no override
+      } else if (defaultCenter) {
+        // Fallback to correct destination city with small offset
+        const offsetLat = (idx === 0 ? 0.008 : idx === 1 ? -0.006 : 0.004) + (Math.sin(dayNumber + idx) * 0.003);
+        const offsetLon = (idx === 0 ? -0.006 : idx === 1 ? 0.008 : 0.006) + (Math.cos(dayNumber + idx) * 0.003);
         lat = defaultCenter[0] + offsetLat;
         lon = defaultCenter[1] + offsetLon;
+      } else {
+        // No valid coords at all — skip this waypoint rather than place it in Delhi
+        return;
       }
 
       waypoints.push({
         name: act.title,
         timeOfDay: act.timeOfDay,
-        lat,
-        lon,
+        lat: lat!,
+        lon: lon!,
         thumbnail: act.thumbnail,
         status: act.operatingStatus,
         location: act.location,
@@ -125,7 +179,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       mapInstanceRef.current = null;
     }
 
-    // Initialize Map with smooth rendering
+    // Initialize Map
     const map = L.map(mapContainerRef.current, {
       zoomControl: true,
       scrollWheelZoom: false,
@@ -133,7 +187,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
     mapInstanceRef.current = map;
 
-    // Add initial razor-sharp tile layer
+    // Add initial tile layer
     const config = MAP_TILE_CONFIGS[mapLayer];
     const initialTileLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
@@ -144,16 +198,71 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
     const allRoutePoints: L.LatLngTuple[] = [];
 
-    // 1. Draw Real Street-level OSRM Road Geometry if available
+    // Helper: draw a curved flight arc between two coordinate points
+    function drawFlightArc(fromC: [number, number], toC: [number, number]) {
+      // Bezier curve via a midpoint offset (arc curves upward / northward)
+      const latDiff = toC[0] - fromC[0];
+      const lonDiff = toC[1] - fromC[1];
+      // Perpendicular offset — push mid-point "up" relative to the line
+      const midLat = (fromC[0] + toC[0]) / 2 - Math.abs(latDiff) * 0.3;
+      const midLon = (fromC[1] + toC[1]) / 2 - lonDiff * 0.05;
+
+      const arcPoints: L.LatLngTuple[] = [];
+      for (let t = 0; t <= 1; t += 0.02) {
+        const lat =
+          (1 - t) * (1 - t) * fromC[0] +
+          2 * (1 - t) * t * midLat +
+          t * t * toC[0];
+        const lon =
+          (1 - t) * (1 - t) * fromC[1] +
+          2 * (1 - t) * t * midLon +
+          t * t * toC[1];
+        arcPoints.push([lat, lon]);
+        allRoutePoints.push([lat, lon]);
+      }
+
+      // Draw dashed arc line
+      L.polyline(arcPoints, {
+        color: '#0ea5e9',
+        weight: 3,
+        dashArray: '10, 7',
+        opacity: 0.9,
+        lineCap: 'round',
+      }).addTo(map);
+
+      // ✈️ plane icon at midpoint of arc
+      const midIdx = Math.floor(arcPoints.length / 2);
+      const midPoint = arcPoints[midIdx];
+      L.marker(midPoint, {
+        icon: L.divIcon({
+          html: '<div style="font-size:22px;line-height:1;">✈️</div>',
+          className: '',
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        }),
+        interactive: false,
+      }).addTo(map);
+    }
+
+    // 1. Draw routes (road or flight arc)
     if (legs && legs.length > 0) {
       legs.forEach((leg, idx) => {
         const isSelectedLeg = activeLegIndex === -1 || idx === activeLegIndex;
-        const polyCoords: L.LatLngTuple[] = leg.geometry.map((c) => [c[0], c[1]]);
 
+        if (leg.isFlightLeg || leg.status === 'flight') {
+          // Draw curved flight arc instead of road polyline
+          if (leg.fromCoords && leg.toCoords &&
+              isValidCoord(leg.fromCoords[0], leg.fromCoords[1]) &&
+              isValidCoord(leg.toCoords[0], leg.toCoords[1])) {
+            drawFlightArc(leg.fromCoords, leg.toCoords);
+          }
+          return;
+        }
+
+        const polyCoords: L.LatLngTuple[] = leg.geometry.map((c) => [c[0], c[1]]);
         polyCoords.forEach((p) => allRoutePoints.push(p));
 
         if (polyCoords.length > 0) {
-          // Outer subtle glow for active leg
           if (isSelectedLeg) {
             L.polyline(polyCoords, {
               color: '#0284c7',
@@ -164,7 +273,6 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
             }).addTo(map);
           }
 
-          // Main road route line
           const line = L.polyline(polyCoords, {
             color: isSelectedLeg ? '#0284c7' : '#64748b',
             weight: isSelectedLeg ? 5 : 3.5,
@@ -178,7 +286,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
         }
       });
     } else {
-      // Fallback: draw connecting path across waypoints
+      // Fallback: draw connecting path across waypoints (local only)
       const simpleCoords: L.LatLngTuple[] = waypoints.map((w) => [w.lat, w.lon]);
       simpleCoords.forEach((p) => allRoutePoints.push(p));
 
@@ -236,10 +344,12 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
         .bindPopup(popupContent);
     });
 
-    // 3. Fit Bounds to entire road route
+    // 3. Fit Bounds to show all route points
     if (allRoutePoints.length > 1) {
       const bounds = L.latLngBounds(allRoutePoints);
       map.fitBounds(bounds, { padding: [45, 45], maxZoom: 15 });
+    } else if (waypoints.length === 1) {
+      map.setView([waypoints[0].lat, waypoints[0].lon], 13);
     }
 
     setTimeout(() => {
@@ -253,6 +363,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       }
     };
   }, [activities, destination, dayNumber, legs, activeLegIndex, onSelectLeg]);
+
 
   return (
     <div className="relative w-full h-full min-h-[350px] lg:min-h-[500px] rounded-2xl overflow-hidden shadow-lg border border-surface-container-highest/60">

@@ -71,9 +71,11 @@ export interface RouteLeg {
   geometry: Array<[number, number]>; // Real street road coordinates [lat, lon]
   steps: RouteStep[];
   googleMapsUrl: string;
-  status: 'ok' | 'no_route' | 'fallback' | 'error';
+  status: 'ok' | 'no_route' | 'fallback' | 'error' | 'flight';
+  isFlightLeg?: boolean;  // true when this leg represents an international flight
   errorMessage?: string;
 }
+
 
 export interface ItineraryDay {
   dayNumber: number;

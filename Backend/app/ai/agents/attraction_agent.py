@@ -1,91 +1,173 @@
+import os
 import json
 import httpx
-from app.ai.llm import llm
+import urllib.parse
+from app.ai.llm import grok_llm, llm
 from app.ai.orchestrator.state import TravelState
 from langchain_core.prompts import ChatPromptTemplate
-from app.ai.rag.retriever import retrieve_travel_knowledge
 
-OVERPASS_API_URL = "https://overpass-api.de/api/interpreter"
+SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
 
-# Coordinates map for Indian and Global travel destinations
-CITY_COORDINATES = {
-    "delhi": {"lat": 28.6139, "lon": 77.2090},
-    "new delhi": {"lat": 28.6139, "lon": 77.2090},
-    "jaipur": {"lat": 26.9124, "lon": 75.7873},
-    "goa": {"lat": 15.2993, "lon": 74.1240},
-    "mumbai": {"lat": 19.0760, "lon": 72.8777},
-    "bengaluru": {"lat": 12.9716, "lon": 77.5946},
-    "bangalore": {"lat": 12.9716, "lon": 77.5946},
-    "agra": {"lat": 27.1767, "lon": 78.0081},
-    "varanasi": {"lat": 25.3176, "lon": 82.9739},
-    "udaipur": {"lat": 24.5854, "lon": 73.7125},
-    "leh": {"lat": 34.1526, "lon": 77.5771},
-    "ladakh": {"lat": 34.1526, "lon": 77.5771},
-    "amritsar": {"lat": 31.6340, "lon": 74.8723},
-    "kerala": {"lat": 9.9312, "lon": 76.2673},
-    "kochi": {"lat": 9.9312, "lon": 76.2673},
-    "darjeeling": {"lat": 27.0410, "lon": 88.2663},
-    "shimla": {"lat": 31.1048, "lon": 77.1734},
-    "manali": {"lat": 32.2432, "lon": 77.1892},
-    "ooty": {"lat": 11.4102, "lon": 76.6950},
-    "hyderabad": {"lat": 17.3850, "lon": 78.4867},
-    "chennai": {"lat": 13.0827, "lon": 80.2707},
-    "kolkata": {"lat": 22.5726, "lon": 88.3639},
-    "paris": {"lat": 48.8566, "lon": 2.3522},
-    "london": {"lat": 51.5074, "lon": -0.1278},
-    "tokyo": {"lat": 35.6762, "lon": 139.6503},
-    "dubai": {"lat": 25.2048, "lon": 55.2708},
-    "singapore": {"lat": 1.3521, "lon": 103.8198},
-    "rome": {"lat": 41.9028, "lon": 12.4964},
-    "bangkok": {"lat": 13.7563, "lon": 100.5018}
-}
+enrichment_cache = {}
 
-AUTHENTIC_DESTINATION_ATTRACTIONS = {
-    "delhi": [
-        {"name": "Red Fort", "description": "Iconic 17th-century Mughal fortress in Old Delhi constructed in red sandstone.", "entrance_fee": 35.0, "rating": "4.6", "recommended_time_spent": "2 hours", "lat": 28.6562, "lon": 77.2410},
-        {"name": "Qutub Minar", "description": "UNESCO World Heritage 73-meter minaret surrounded by intricate Indo-Islamic architecture.", "entrance_fee": 35.0, "rating": "4.7", "recommended_time_spent": "2 hours", "lat": 28.5244, "lon": 77.1855},
-        {"name": "India Gate", "description": "Grand 42-meter triumphal arch war memorial situated along the stately Kartavya Path.", "entrance_fee": 0.0, "rating": "4.8", "recommended_time_spent": "1.5 hours", "lat": 28.6129, "lon": 77.2295},
-        {"name": "Humayun's Tomb", "description": "Majestic 16th-century Persian-style garden tomb and precursor to Mughal architecture.", "entrance_fee": 35.0, "rating": "4.7", "recommended_time_spent": "2 hours", "lat": 28.5933, "lon": 77.2507},
-        {"name": "Lotus Temple", "description": "Award-winning Bahá'í House of Worship shaped like a blooming white lotus flower.", "entrance_fee": 0.0, "rating": "4.6", "recommended_time_spent": "1.5 hours", "lat": 28.5535, "lon": 77.2588}
-    ],
-    "agra": [
-        {"name": "Taj Mahal", "description": "World-renowned ivory-white marble mausoleum on the south bank of Yamuna river.", "entrance_fee": 50.0, "rating": "4.9", "recommended_time_spent": "3 hours", "lat": 27.1751, "lon": 78.0421},
-        {"name": "Agra Fort", "description": "Historic red sandstone fortress and main residence of Mughal emperors until 1638.", "entrance_fee": 35.0, "rating": "4.7", "recommended_time_spent": "2.5 hours", "lat": 27.1795, "lon": 78.0211},
-        {"name": "Fatehpur Sikri", "description": "Magnificent fortified ancient city with grand palaces and the soaring Buland Darwaza.", "entrance_fee": 35.0, "rating": "4.6", "recommended_time_spent": "3 hours", "lat": 27.0945, "lon": 77.6679},
-        {"name": "Mehtab Bagh", "description": "Charbagh garden complex perfectly aligned across the river offering stunning Taj views.", "entrance_fee": 25.0, "rating": "4.5", "recommended_time_spent": "1.5 hours", "lat": 27.1800, "lon": 78.0425}
-    ],
-    "jaipur": [
-        {"name": "Amber Palace", "description": "Majestic hilltop fort featuring ornate Hindu-Rajput architecture and the Sheesh Mahal.", "entrance_fee": 100.0, "rating": "4.8", "recommended_time_spent": "3 hours", "lat": 26.9855, "lon": 75.8513},
-        {"name": "Hawa Mahal", "description": "Stunning 5-story pink sandstone 'Palace of Winds' with 953 intricately carved windows.", "entrance_fee": 50.0, "rating": "4.7", "recommended_time_spent": "1.5 hours", "lat": 26.9239, "lon": 75.8267},
-        {"name": "City Palace Jaipur", "description": "Royal palace complex boasting courtyards, gardens, and rich Rajputana museums.", "entrance_fee": 200.0, "rating": "4.6", "recommended_time_spent": "2.5 hours", "lat": 26.9258, "lon": 75.8237},
-        {"name": "Jantar Mantar", "description": "UNESCO-listed astronomical observatory featuring the world's largest stone sundial.", "entrance_fee": 50.0, "rating": "4.6", "recommended_time_spent": "1.5 hours", "lat": 26.9248, "lon": 75.8246}
-    ],
-    "goa": [
-        {"name": "Aguada Fort", "description": "Well-preserved 17th-century Portuguese fortress and lighthouse overlooking the Arabian Sea.", "entrance_fee": 0.0, "rating": "4.6", "recommended_time_spent": "2 hours", "lat": 15.4920, "lon": 73.7737},
-        {"name": "Basilica of Bom Jesus", "description": "UNESCO World Heritage baroque church containing the sacred relics of St. Francis Xavier.", "entrance_fee": 0.0, "rating": "4.7", "recommended_time_spent": "1.5 hours", "lat": 15.5009, "lon": 73.9116},
-        {"name": "Chapora Fort", "description": "Historic clifftop fort offering breathtaking panoramic vistas of Vagator Beach.", "entrance_fee": 0.0, "rating": "4.5", "recommended_time_spent": "1.5 hours", "lat": 15.6059, "lon": 73.7360},
-        {"name": "Calangute & Baga Coast", "description": "Lively coastal stretch famed for water sports, beach shacks, and golden sands.", "entrance_fee": 0.0, "rating": "4.5", "recommended_time_spent": "3 hours", "lat": 15.5439, "lon": 73.7553}
-    ],
-    "mumbai": [
-        {"name": "Gateway of India", "description": "20th-century triumphal arch monument overlooking Mumbai harbour.", "entrance_fee": 0.0, "rating": "4.7", "recommended_time_spent": "1.5 hours", "lat": 18.9220, "lon": 72.8347},
-        {"name": "Marine Drive", "description": "Iconic 3.6-kilometer seaside promenade known as the Queen's Necklace.", "entrance_fee": 0.0, "rating": "4.8", "recommended_time_spent": "2 hours", "lat": 18.9432, "lon": 72.8230},
-        {"name": "Elephanta Caves", "description": "UNESCO World Heritage rock-cut cave temples dedicated to Lord Shiva on Elephanta Island.", "entrance_fee": 40.0, "rating": "4.6", "recommended_time_spent": "3.5 hours", "lat": 18.9633, "lon": 72.9315},
-        {"name": "Chhatrapati Shivaji Maharaj Terminus", "description": "Historic Victorian Gothic railway station and UNESCO World Heritage masterpiece.", "entrance_fee": 0.0, "rating": "4.7", "recommended_time_spent": "1 hour", "lat": 18.9400, "lon": 72.8354}
-    ]
-}
+GROK_DISCOVERY_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        "You are an expert travel discovery assistant. Your role is to discover and recommend a diverse list of candidate attractions "
+        "for a given destination, tailored to the traveler's preferences, budget, and trip duration.\n\n"
+        "RULES:\n"
+        "- Return ONLY a structured JSON response matching the schema below.\n"
+        "- Discover 15 to 25 real, highly relevant attractions.\n"
+        "- Do NOT invent or hallucinate attractions. Only use real-world places.\n"
+        "- Provide diverse categories (e.g., landmark, museum, park, viewpoint, cultural).\n"
+        "- Provide non-real-time descriptive information.\n"
+        "- Do NOT provide coordinates (lat/lon), image URLs, live prices, or live opening hours.\n"
+        "- Order by relevance and popularity.\n\n"
+        "EXPECTED JSON SCHEMA:\n"
+        "{{\n"
+        '  "attractions": [\n'
+        "    {{\n"
+        '      "name": "Exact Place Name",\n'
+        '      "category": "category type (e.g., landmark, museum, park)",\n'
+        '      "description": "Short factual non-real-time description (2-3 sentences max).",\n'
+        '      "why_visit": "Why this is a great fit for the user preferences.",\n'
+        '      "estimated_visit_duration_minutes": 120,\n'
+        '      "best_time_of_day": "morning|afternoon|evening",\n'
+        '      "interests": ["culture", "history"]\n'
+        "    }}\n"
+        "  ]\n"
+        "}}"
+    ),
+    (
+        "human",
+        "Destination: {destination}\n"
+        "Trip Duration: {days} days\n"
+        "Budget: {budget}\n"
+        "Preferences/Interests: {preferences}\n"
+        "Please discover candidate attractions."
+    )
+])
 
-def resolve_destination_coordinates(destination: str):
+def enrich_place_nominatim(name: str, destination: str) -> dict:
+    # Rate limited fallback for Nominatim (not for bulk, but single fallback)
     dest_clean = destination.lower().strip()
-    
-    # 1. Check exact or substring match in CITY_COORDINATES
-    for key, coords in CITY_COORDINATES.items():
-        if key in dest_clean or dest_clean in key:
-            return coords
-            
-    # 2. Try Nominatim Geocoding API for any city worldwide
+    query = f"{name}, {dest_clean}"
     try:
         resp = httpx.get(
-            f"https://nominatim.openstreetmap.org/search?q={dest_clean}&format=json&limit=1",
+            f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1",
+            headers={"User-Agent": "TravelAI_Agent/1.0 (contact: info@travelai.local)"},
+            timeout=5.0
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data and len(data) > 0:
+                print(f"MATCH: Nominatim fallback verified '{name}'")
+                return {
+                    "lat": float(data[0]["lat"]),
+                    "lon": float(data[0]["lon"]),
+                    "address": data[0].get("display_name"),
+                }
+    except Exception:
+        pass
+    print(f"REJECT: Nominatim fallback failed for '{name}'")
+    return None
+
+def verify_and_enrich_place(name: str, destination: str) -> dict:
+    """Uses SerpApi Google Maps to verify place and grab coordinates/images."""
+    cache_key = f"{name}_{destination}".lower()
+    if cache_key in enrichment_cache:
+        return enrichment_cache[cache_key]
+
+    query = f"{name} {destination}"
+    url = f"https://serpapi.com/search.json?engine=google_maps&q={urllib.parse.quote(query)}&api_key={SERPAPI_API_KEY}"
+    
+    print(f"--- ATTRACTION ENRICHMENT: Searching SerpApi for '{name}' ---")
+    
+    try:
+        resp = httpx.get(url, timeout=10.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            local_results = data.get("local_results", [])
+            place_results = data.get("place_results", {})
+            
+            result = None
+            if "title" in place_results:
+                result = place_results
+            elif len(local_results) > 0:
+                result = local_results[0]
+                
+            if result:
+                result_title = result.get("title", "")
+                
+                # Basic Match Confidence Check
+                name_words = set(name.lower().split())
+                title_words = set(result_title.lower().split())
+                
+                # If there's an intersection or it returned a solid data_id, accept it
+                if len(name_words.intersection(title_words)) > 0 or result.get("data_id") or result.get("gps_coordinates"):
+                    coords = result.get("gps_coordinates", {})
+                    lat = coords.get("latitude")
+                    lon = coords.get("longitude")
+                    
+                    if lat and lon:
+                        hours_str = None
+                        op_hours = result.get("operating_hours")
+                        if isinstance(op_hours, dict):
+                            for k, v in op_hours.items():
+                                if isinstance(v, str):
+                                    hours_str = v
+                                    break
+                                
+                        enriched = {
+                            "lat": lat,
+                            "lon": lon,
+                            "place_id": result.get("place_id"),
+                            "data_id": result.get("data_id"),
+                            "rating": result.get("rating"),
+                            "review_count": result.get("reviews"),
+                            "address": result.get("address"),
+                            "opening_hours": hours_str,
+                            "image_url": result.get("thumbnail") or result.get("serpapi_thumbnail") or result.get("photos_link"),
+                            "image_source": "google_maps" if result.get("thumbnail") else None,
+                            "photos_link": result.get("photos_link")
+                        }
+                        
+                        enrichment_cache[cache_key] = enriched
+                        print(f"MATCH: '{name}' -> '{result_title}' (lat:{lat}, lon:{lon})")
+                        return enriched
+                        
+                print(f"REJECT: '{name}' matched weakly with '{result_title}' or missing coords.")
+            else:
+                print(f"NOT FOUND: No SerpApi results for '{name}'")
+        else:
+            print(f"API ERROR: SerpApi status {resp.status_code}")
+    except Exception as e:
+        print(f"EXCEPTION: SerpApi error: {e}")
+
+    # Fallback to Nominatim if SerpApi fails or rejects
+    print(f"--- ATTRACTION ENRICHMENT: Falling back to Nominatim for '{name}' ---")
+    nom_result = enrich_place_nominatim(name, destination)
+    if nom_result:
+        nom_result["image_url"] = None
+        nom_result["image_source"] = None
+        nom_result["photos_link"] = None
+        nom_result["rating"] = None
+        nom_result["review_count"] = None
+        nom_result["opening_hours"] = None
+        nom_result["place_id"] = None
+        nom_result["data_id"] = None
+        enrichment_cache[cache_key] = nom_result
+        return nom_result
+        
+    enrichment_cache[cache_key] = None
+    return None
+
+def resolve_destination_coordinates(destination: str) -> dict:
+    # Keep this helper available for route_agent fallbacks
+    dest_clean = destination.lower().strip()
+    try:
+        resp = httpx.get(
+            f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(dest_clean)}&format=json&limit=1",
             headers={"User-Agent": "TravelAI_Agent/1.0 (contact: info@travelai.local)"},
             timeout=5.0
         )
@@ -96,121 +178,83 @@ def resolve_destination_coordinates(destination: str):
     except Exception:
         pass
         
-    return {"lat": 28.6139, "lon": 77.2090} # Default to Delhi
+    return {"lat": 28.6139, "lon": 77.2090}
 
-def get_authentic_fallback_attractions(destination: str):
-    dest_clean = destination.lower().strip()
-    for key, attractions in AUTHENTIC_DESTINATION_ATTRACTIONS.items():
-        if key in dest_clean or dest_clean in key:
-            return attractions
-            
-    # Dynamic realistic fallback
-    city = destination.split(',')[0].title()
-    return [
-        {"name": f"{city} Heritage Monument", "description": f"Renowned cultural landmark and architectural highlight of {city}.", "entrance_fee": 25.0, "rating": "4.7", "recommended_time_spent": "2 hours", "lat": 28.6139, "lon": 77.2090},
-        {"name": f"{city} Grand Museum & Gallery", "description": f"Cultural exhibition showcasing regional history, art, and artifacts of {city}.", "entrance_fee": 20.0, "rating": "4.6", "recommended_time_spent": "2 hours", "lat": 28.6140, "lon": 77.2100},
-        {"name": f"{city} Botanical Gardens & Lake", "description": f"Scenic nature gardens, promenade, and peaceful lakeside viewpoints.", "entrance_fee": 0.0, "rating": "4.5", "recommended_time_spent": "1.5 hours", "lat": 28.6150, "lon": 77.2110}
-    ]
-
-def fetch_real_attractions_overpass(destination: str):
-    """
-    Fetch real-time tourist attractions, museums, and historical landmarks from OpenStreetMap Overpass API.
-    Returns a list of attraction dicts or None on failure.
-    """
-    coords = resolve_destination_coordinates(destination)
-    print(f"--- ATTRACTION AGENT: Querying Overpass OpenStreetMap API for '{destination}' ({coords['lat']}, {coords['lon']}) ---")
-    
-    # Overpass QL query: find attractions, museums, historic forts, monuments, and viewpoints within 10000m
-    overpass_query = f"""
-    [out:json][timeout:15];
-    (
-      node["tourism"="attraction"](around:10000, {coords['lat']}, {coords['lon']});
-      node["tourism"="museum"](around:10000, {coords['lat']}, {coords['lon']});
-      node["tourism"="viewpoint"](around:10000, {coords['lat']}, {coords['lon']});
-      node["historic"="monument"](around:10000, {coords['lat']}, {coords['lon']});
-      node["historic"="castle"](around:10000, {coords['lat']}, {coords['lon']});
-      node["historic"="fort"](around:10000, {coords['lat']}, {coords['lon']});
-    );
-    out center 20;
-    """
-    
-    headers = {
-        "User-Agent": "TravelAI_AttractionBot/1.0 (contact: dev@travelai.local)",
-        "Accept": "application/json"
-    }
-    
-    try:
-        response = httpx.post(
-            OVERPASS_API_URL, 
-            data={"data": overpass_query}, 
-            headers=headers,
-            timeout=15.0
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        elements = data.get("elements", [])
-        if not elements:
-            print("--- ATTRACTION AGENT: No attraction elements found from Overpass API. ---")
-            return None
-            
-        formatted_attractions = []
-        for element in elements:
-            tags = element.get("tags", {})
-            name = tags.get("name")
-            if not name or len(name) < 3:
-                continue # Skip unnamed landmarks
-                
-            historic_type = tags.get("historic", "")
-            tourism_type = tags.get("tourism", "tourist spot")
-            description = tags.get("description")
-            
-            if not description:
-                if historic_type:
-                    description = f"Historical {historic_type.title()} in {destination.title()} known for its architecture and heritage."
-                elif tourism_type == "museum":
-                    description = f"Renowned cultural museum showcasing regional artifacts and exhibits."
-                elif tourism_type == "viewpoint":
-                    description = f"Scenic viewpoint offering panoramic vistas across {destination.title()}."
-                else:
-                    description = f"Must-visit landmark and popular tourist destination in {destination.title()}."
-                    
-            fee = tags.get("fee", "no")
-            entrance_fee = 35.0 if fee == "yes" else 0.0
-            time_spent = "2 hours" if tourism_type in ["museum", "attraction"] else "1.5 hours"
-
-            formatted_attractions.append({
-                "name": name,
-                "description": description,
-                "entrance_fee": entrance_fee,
-                "rating": "4.7",
-                "recommended_time_spent": time_spent,
-                "lat": float(element.get("lat") or coords["lat"]),
-                "lon": float(element.get("lon") or coords["lon"])
-            })
-            
-            if len(formatted_attractions) >= 6:
-                break
-                
-        if formatted_attractions:
-            print(f"--- ATTRACTION AGENT: Successfully retrieved {len(formatted_attractions)} live attractions from OpenStreetMap! ---")
-            return formatted_attractions
-        return None
-        
-    except Exception as e:
-        print(f"--- ATTRACTION AGENT: Overpass API error: {e}. Falling back to authentic knowledge base. ---")
-        return None
 
 def attraction_node(state: TravelState) -> dict:
-    destination = state.get("destination", "Delhi")
-    print(f"--- ATTRACTION AGENT: Finding attractions in {destination} ---")
+    destination = state.get("destination", "Unknown")
+    days = state.get("days", 3)
+    budget = state.get("budget", 500.0)
+    preferences = state.get("preferences", "General tourist")
     
-    # 1. Try Live OpenStreetMap Overpass API first
-    live_attractions = fetch_real_attractions_overpass(destination)
-    if live_attractions and len(live_attractions) > 0:
-        return {"attractions": live_attractions}
+    print(f"--- ATTRACTION AGENT: Starting Grok Discovery for {destination} ---")
     
-    # 2. Use authentic real-world landmarks for destination
-    print(f"--- ATTRACTION AGENT: Using authentic curated landmarks for {destination} ---")
-    authentic_attractions = get_authentic_fallback_attractions(destination)
-    return {"attractions": authentic_attractions}
+    if not grok_llm:
+        print("CONFIGURATION ERROR: XAI_API_KEY is missing. Cannot perform attraction discovery.")
+        raise ValueError("Configuration Error: XAI_API_KEY is missing. Please configure XAI_API_KEY in the backend .env file to use the Grok-based attraction discovery.")
+    
+    # 1. Grok Discovery Call
+    prompt_val = GROK_DISCOVERY_PROMPT.format_messages(
+        destination=destination,
+        days=days,
+        budget=budget,
+        preferences=preferences
+    )
+    
+    try:
+        response = grok_llm.invoke(prompt_val)
+        data = json.loads(response.content.strip())
+        candidates = data.get("attractions", [])
+        print(f"--- ATTRACTION AGENT: Discovery yielded {len(candidates)} candidate attractions ---")
+    except Exception as e:
+        print(f"--- ATTRACTION AGENT: Discovery failed: {e} ---")
+        candidates = []
+        
+    final_attractions = []
+    
+    # 2. Factual Enrichment & Verification
+    for idx, candidate in enumerate(candidates):
+        name = candidate.get("name")
+        if not name:
+            continue
+            
+        print(f"Verifying [{idx+1}/{len(candidates)}]: {name}")
+        enriched_data = verify_and_enrich_place(name, destination)
+        
+        if enriched_data:
+            # Construct the final normalized object
+            final_obj = {
+                "name": name,
+                "type": "attraction",
+                "category": candidate.get("category"),
+                "description": candidate.get("description"),
+                "why_visit": candidate.get("why_visit"),
+                "estimated_visit_duration_minutes": candidate.get("estimated_visit_duration_minutes", 120),
+                "best_time_of_day": candidate.get("best_time_of_day", "morning"),
+                "interests": candidate.get("interests", []),
+                "lat": enriched_data.get("lat"),
+                "lon": enriched_data.get("lon"),
+                "image_url": enriched_data.get("image_url"),
+                "image_source": enriched_data.get("image_source"),
+                "photos_link": enriched_data.get("photos_link"),
+                "rating": enriched_data.get("rating"),
+                "review_count": enriched_data.get("review_count"),
+                "address": enriched_data.get("address"),
+                "opening_hours": enriched_data.get("opening_hours"),
+                "place_id": enriched_data.get("place_id"),
+                "data_id": enriched_data.get("data_id")
+            }
+            final_attractions.append(final_obj)
+        else:
+            print(f"⚠️ DISCARDED: {name} (Could not verify factually)")
+            
+        # Optimization: Stop enriching once we have enough verified places (e.g. 2 per day)
+        target_count = min(15, int(days) * 2 + 2)
+        if len(final_attractions) >= target_count:
+            print(f"--- ATTRACTION AGENT: Reached target of {target_count} verified attractions. Halting enrichment. ---")
+            break
+            
+    if not final_attractions:
+        print("--- ATTRACTION AGENT: No verified attractions found! Returning empty list. ---")
+        
+    return {"attractions": final_attractions, "completed_steps": state.get("completed_steps", []) + ["attractions"]}

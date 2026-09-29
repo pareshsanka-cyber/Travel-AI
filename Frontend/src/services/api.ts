@@ -8,6 +8,7 @@
 import {
   TripSummary,
   ItineraryDay,
+  ActivitySegment,
   FlightOption,
   HotelOption,
   WeatherCondition,
@@ -17,6 +18,7 @@ import {
   ConversationHistoryItem,
   ApiStatusState
 } from '../types';
+
 
 // Environment variable with runtime local-storage override capability
 const ENV_API_URL = (typeof import.meta !== 'undefined' && import.meta?.env ? (import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL) : undefined) || 'http://localhost:8000';
@@ -2050,24 +2052,58 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
   const formattedDates = computeTripDates(trip, daysNum);
   const destName = trip.destination ? trip.destination.split(',')[0] : 'Destination';
 
-  // If route_details is available from backend LLM
-  if (Array.isArray(trip.route_details) && trip.route_details.length > 0) {
-    return trip.route_details.map((d: any, idx: number) => ({
-      ...d,
-      dayNumber: idx + 1,
-      date: formattedDates[idx] || `Day ${idx + 1}`,
-    }));
+  const parseCoord = (val: any): number | undefined => {
+    if (val === undefined || val === null || val === '') return undefined;
+    const num = Number(val);
+    return isNaN(num) ? undefined : num;
+  };
+
+  // 1. If route_details is available from backend LLM / route_agent
+  const dailyRoutes = Array.isArray(trip.route_details)
+    ? trip.route_details
+    : (trip.route_details?.day_by_day_route || trip.route_details?.days);
+
+  if (Array.isArray(dailyRoutes) && dailyRoutes.length > 0) {
+    return dailyRoutes.map((d: any, idx: number) => {
+      // If stops exist as normalized objects {name, lat, lon, type} or strings
+      const activities: ActivitySegment[] = Array.isArray(d.stops) && d.stops.length > 0
+        ? d.stops.map((stop: any, sIdx: number) => {
+            const isObj = typeof stop === 'object' && stop !== null;
+            const title = isObj ? (stop.name || stop.title || 'Scheduled Stop') : String(stop);
+            const lat = isObj ? parseCoord(stop.lat) : undefined;
+            const lon = isObj ? parseCoord(stop.lon) : undefined;
+            const timeOfDay: 'Morning' | 'Afternoon' | 'Evening' = sIdx === 0 ? 'Morning' : sIdx === 1 ? 'Afternoon' : 'Evening';
+            const categoryColor: 'primary' | 'secondary' | 'tertiary' = sIdx === 0 ? 'primary' : sIdx === 1 ? 'secondary' : 'tertiary';
+
+            return {
+              timeOfDay,
+              time: sIdx === 0 ? '09:00' : sIdx === 1 ? '13:30' : '18:00',
+              title,
+              description: (isObj && stop.description) ? stop.description : (d.travel_tips || `Curated stop in ${destName}.`),
+              categoryColor,
+              location: destName,
+              thumbnail: isObj ? stop.image_url : undefined,
+              rating: isObj && stop.rating ? Number(stop.rating) : undefined,
+              reviews: isObj && stop.review_count ? Number(stop.review_count) : undefined,
+              operatingHours: isObj ? stop.opening_hours : undefined,
+              lat,
+              lon,
+            };
+          })
+        : (Array.isArray(d.activities) ? d.activities : []);
+
+      return {
+        ...d,
+        dayNumber: idx + 1,
+        date: formattedDates[idx] || `Day ${idx + 1}`,
+        title: d.title || `Day ${idx + 1}: ${destName} Exploration & Sightseeing`,
+        transitBadge: d.is_flight_day ? '✈️ Flight Day' : 'Curated Private Chauffeur',
+        activities,
+      };
+    });
   }
 
-  if (trip.route_details && typeof trip.route_details === 'object' && Array.isArray(trip.route_details.days)) {
-    return trip.route_details.days.map((d: any, idx: number) => ({
-      ...d,
-      dayNumber: idx + 1,
-      date: formattedDates[idx] || `Day ${idx + 1}`,
-    }));
-  }
-
-  // Parse attractions, restaurants, and hotels into structured days
+  // 2. Fallback: Parse attractions, restaurants, and hotels into structured days
   const attractions = Array.isArray(trip.attractions) ? trip.attractions : [];
   const restaurants = Array.isArray(trip.restaurants) ? trip.restaurants : [];
   const hotels = Array.isArray(trip.hotels) ? trip.hotels : [];
@@ -2104,8 +2140,8 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           categoryColor: 'primary',
           location: dayAttraction?.address || destName,
           thumbnail: dayAttraction?.thumbnail || dayAttraction?.image || dayAttraction?.image_url,
-          lat: dayAttraction?.lat ? Number(dayAttraction.lat) : undefined,
-          lon: dayAttraction?.lon ? Number(dayAttraction.lon) : undefined,
+          lat: parseCoord(dayAttraction?.lat),
+          lon: parseCoord(dayAttraction?.lon),
           rating: dayAttraction?.rating || 4.7,
           reviews: dayAttraction?.reviews || (dayAttraction?.rating ? 342 : undefined),
           recommendedTimeSpent: dayAttraction?.recommended_time_spent || '1.5 - 2 Hours',
@@ -2124,8 +2160,8 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           categoryColor: 'secondary',
           location: dayDining?.address || destName,
           thumbnail: dayDining?.thumbnail || dayDining?.image || dayDining?.image_url,
-          lat: dayDining?.lat ? Number(dayDining.lat) : undefined,
-          lon: dayDining?.lon ? Number(dayDining.lon) : undefined,
+          lat: parseCoord(dayDining?.lat),
+          lon: parseCoord(dayDining?.lon),
           rating: dayDining?.rating || 4.6,
           cuisine: dayDining?.cuisine || 'Regional Delicacies',
           recommendedTimeSpent: '1 - 1.5 Hours',
@@ -2138,8 +2174,8 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           categoryColor: 'tertiary',
           location: dayHotel?.location || destName,
           thumbnail: dayHotel?.imageUrl || dayHotel?.thumbnail,
-          lat: dayHotel?.lat ? Number(dayHotel.lat) : undefined,
-          lon: dayHotel?.lon ? Number(dayHotel.lon) : undefined,
+          lat: parseCoord(dayHotel?.lat),
+          lon: parseCoord(dayHotel?.lon),
           rating: dayHotel?.rating || 4.8,
           recommendedTimeSpent: 'Evening Leisure',
         },

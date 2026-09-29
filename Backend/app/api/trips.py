@@ -11,6 +11,7 @@ router = APIRouter()
 # Input validation schemas for API requests
 class PlanRequest(BaseModel):
     user_message: Optional[str] = None # Used for Chat UI
+    origin: Optional[str] = None       # Used for Form UI
     destination: Optional[str] = None  # Used for Form UI
     days: Optional[int] = None         # Used for Form UI
     budget: Optional[float] = None     # Used for Form UI
@@ -23,6 +24,7 @@ def plan_trip(request: PlanRequest, x_user_id: Optional[str] = Header(None)):
     # 1. Prepare initial state for LangGraph
     initial_state = {
         "user_message": request.user_message,
+        "origin": request.origin,
         "destination": request.destination,
         "days": request.days,
         "budget": request.budget,
@@ -44,6 +46,7 @@ def plan_trip(request: PlanRequest, x_user_id: Optional[str] = Header(None)):
     # 3. Create a clean dictionary to save to MongoDB
     trip_data = {
         "user_message": final_state.get("user_message"),
+        "origin": final_state.get("origin") or "Unknown",
         "destination": final_state.get("destination") or "Unknown",
         "days": int(final_state.get("days", 3)),
         "budget": float(final_state.get("budget", 500.0)),

@@ -20,7 +20,8 @@ import {
 import { TripSummary, ItineraryDay, ActivitySegment, RouteLeg, TravelMode } from '../../types';
 import { DayMapView } from './DayMapView';
 import { RouteDirectionsDrawer } from './RouteDirectionsDrawer';
-import { fetchLegDirections } from '../../services/routingService';
+import { fetchLegDirections, calculateHaversineKm } from '../../services/routingService';
+
 
 interface DayDetailViewProps {
   trip: TripSummary | null;
@@ -360,8 +361,12 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
 
       setIsLoadingRoutes(true);
 
+      // Extended fallback coordinate map — only used when backend provides no coordinates.
+      // Priority: backend lat/lon > this map > no marker (never fake Delhi).
       const fallbackCoords: Record<string, [number, number]> = {
+        // India
         delhi: [28.6139, 77.2090],
+        'new delhi': [28.6139, 77.2090],
         goa: [15.2993, 74.1240],
         jaipur: [26.9124, 75.7873],
         mumbai: [19.0760, 72.8777],
@@ -374,10 +379,74 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
         kochi: [9.9312, 76.2673],
         manali: [32.2432, 77.1892],
         shimla: [31.1048, 77.1734],
+        hyderabad: [17.3850, 78.4867],
+        chennai: [13.0827, 80.2707],
+        kolkata: [22.5726, 88.3639],
+        // Australia & Oceania
+        sydney: [-33.8688, 151.2093],
+        melbourne: [-37.8136, 144.9631],
+        brisbane: [-27.4698, 153.0251],
+        perth: [-31.9505, 115.8605],
+        adelaide: [-34.9285, 138.6007],
+        auckland: [-36.8509, 174.7645],
+        // International
+        london: [51.5074, -0.1278],
+        paris: [48.8566, 2.3522],
+        dubai: [25.2048, 55.2708],
+        singapore: [1.3521, 103.8198],
+        tokyo: [35.6762, 139.6503],
+        bangkok: [13.7563, 100.5018],
+        'kuala lumpur': [3.1390, 101.6869],
+        bali: [-8.3405, 115.0920],
+        'new york': [40.7128, -74.0060],
+        'new york city': [40.7128, -74.0060],
+        'los angeles': [34.0522, -118.2437],
+        toronto: [43.6532, -79.3832],
+        seoul: [37.5665, 126.9780],
+        beijing: [39.9042, 116.4074],
+        shanghai: [31.2304, 121.4737],
+        rome: [41.9028, 12.4964],
+        barcelona: [41.3851, 2.1734],
+        amsterdam: [52.3676, 4.9041],
+        berlin: [52.5200, 13.4050],
       };
 
+      // Resolve the destination-level fallback (only used if activity has no backend coords)
       const destKey = (trip?.destination || '').toLowerCase().split(',')[0].trim();
-      const defaultCenter = fallbackCoords[destKey] || [28.6139, 77.2090];
+      // Try multi-word match first (e.g. "new york"), then single word
+      const defaultCenter: [number, number] =
+        fallbackCoords[destKey] ||
+        fallbackCoords[destKey.split(' ')[0]] ||
+        null as any;
+
+      // Helper: validate a coordinate pair
+      function isValidCoord(lat: number, lon: number): boolean {
+        return (
+          typeof lat === 'number' &&
+          typeof lon === 'number' &&
+          !isNaN(lat) && !isNaN(lon) &&
+          lat >= -90 && lat <= 90 &&
+          lon >= -180 && lon <= 180 &&
+          !(lat === 0 && lon === 0)
+        );
+      }
+
+      // Helper: resolve coords for a single activity
+      function resolveCoords(act: ActivitySegment, idx: number): [number, number] | null {
+        // Priority 1: backend-provided real coordinates
+        if (act.lat && act.lon && isValidCoord(act.lat, act.lon)) {
+          return [act.lat, act.lon];
+        }
+        // Priority 2: destination fallback (correct city)
+        if (defaultCenter) {
+          // Small offset so markers don't stack exactly on top of each other
+          const offsetLat = (idx === 0 ? 0.008 : idx === 1 ? -0.006 : 0.004);
+          const offsetLon = (idx === 0 ? -0.006 : idx === 1 ? 0.008 : 0.006);
+          return [defaultCenter[0] + offsetLat, defaultCenter[1] + offsetLon];
+        }
+        // Priority 3: no valid coords — return null, don't fake Delhi
+        return null;
+      }
 
       const legPromises: Promise<RouteLeg>[] = [];
 
@@ -385,21 +454,58 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
         const fromAct = day.activities[i];
         const toAct = day.activities[i + 1];
 
-        const fromLat = fromAct.lat || (defaultCenter[0] + (i === 0 ? 0.02 : -0.015));
-        const fromLon = fromAct.lon || (defaultCenter[1] + (i === 0 ? -0.015 : 0.02));
+        const fromCoords = resolveCoords(fromAct, i);
+        const toCoords = resolveCoords(toAct, i + 1);
 
-        const toLat = toAct.lat || (defaultCenter[0] + (i + 1 === 1 ? -0.015 : 0.01));
-        const toLon = toAct.lon || (defaultCenter[1] + (i + 1 === 1 ? 0.02 : 0.015));
+        // If either end has no valid coords at all, skip OSRM
+        if (!fromCoords || !toCoords) {
+          legPromises.push(Promise.resolve({
+            fromTitle: fromAct.title,
+            toTitle: toAct.title,
+            fromCoords: fromCoords || [0, 0],
+            toCoords: toCoords || [0, 0],
+            mode: selectedMode,
+            distanceKm: 0,
+            durationMins: 0,
+            geometry: [],
+            steps: [{ instruction: 'Location coordinates unavailable', distanceMeters: 0, durationSeconds: 0, name: '' }],
+            googleMapsUrl: '',
+            status: 'no_route',
+            isFlightLeg: false,
+            errorMessage: 'Missing GPS coordinates for this stop',
+          }));
+          continue;
+        }
 
-        legPromises.push(
-          fetchLegDirections(
-            [fromLat, fromLon],
-            [toLat, toLon],
-            fromAct.title,
-            toAct.title,
-            selectedMode
-          )
+        // Detect international / transcontinental segments using straight-line distance.
+        // A segment > 500 km straight-line cannot be a road route — treat as flight.
+        const straightLineDist = calculateHaversineKm(
+          fromCoords[0], fromCoords[1],
+          toCoords[0], toCoords[1]
         );
+
+        if (straightLineDist > 500) {
+          // International flight segment — do NOT call OSRM
+          legPromises.push(Promise.resolve({
+            fromTitle: fromAct.title,
+            toTitle: toAct.title,
+            fromCoords,
+            toCoords,
+            mode: 'driving', // Kept as driving to satisfy type; isFlightLeg=true overrides UI
+            distanceKm: Math.round(straightLineDist * 10) / 10,
+            durationMins: 0,   // No driving duration for a flight
+            geometry: [],      // No road geometry — frontend draws arc instead
+            steps: [],
+            googleMapsUrl: `https://www.google.com/maps/dir/?api=1&origin=${fromCoords[0]},${fromCoords[1]}&destination=${toCoords[0]},${toCoords[1]}`,
+            status: 'flight',
+            isFlightLeg: true,
+          }));
+        } else {
+          // Local road/walking route — use OSRM normally
+          legPromises.push(
+            fetchLegDirections(fromCoords, toCoords, fromAct.title, toAct.title, selectedMode)
+          );
+        }
       }
 
       try {
@@ -422,6 +528,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
       isCancelled = true;
     };
   }, [day.activities, selectedMode, trip?.destination, day.dayNumber]);
+
 
   return (
     <div className="space-y-space-md animate-in fade-in slide-in-from-right-2 duration-300">

@@ -29,7 +29,39 @@ CITY_COORDINATES = {
     "ooty": {"lat": 11.4102, "lon": 76.6950},
     "hyderabad": {"lat": 17.3850, "lon": 78.4867},
     "chennai": {"lat": 13.0827, "lon": 80.2707},
-    "kolkata": {"lat": 22.5726, "lon": 88.3639}
+    "kolkata": {"lat": 22.5726, "lon": 88.3639},
+    # International
+    "paris": {"lat": 48.8566, "lon": 2.3522},
+    "london": {"lat": 51.5074, "lon": -0.1278},
+    "tokyo": {"lat": 35.6762, "lon": 139.6503},
+    "dubai": {"lat": 25.2048, "lon": 55.2708},
+    "singapore": {"lat": 1.3521, "lon": 103.8198},
+    "rome": {"lat": 41.9028, "lon": 12.4964},
+    "bangkok": {"lat": 13.7563, "lon": 100.5018},
+    # Australia & Oceania
+    "sydney": {"lat": -33.8688, "lon": 151.2093},
+    "melbourne": {"lat": -37.8136, "lon": 144.9631},
+    "brisbane": {"lat": -27.4698, "lon": 153.0251},
+    "perth": {"lat": -31.9505, "lon": 115.8605},
+    "adelaide": {"lat": -34.9285, "lon": 138.6007},
+    "auckland": {"lat": -36.8509, "lon": 174.7645},
+    # Americas
+    "new york": {"lat": 40.7128, "lon": -74.0060},
+    "new york city": {"lat": 40.7128, "lon": -74.0060},
+    "los angeles": {"lat": 34.0522, "lon": -118.2437},
+    "toronto": {"lat": 43.6532, "lon": -79.3832},
+    # Southeast Asia
+    "kuala lumpur": {"lat": 3.1390, "lon": 101.6869},
+    "bali": {"lat": -8.3405, "lon": 115.0920},
+    "jakarta": {"lat": -6.2088, "lon": 106.8456},
+    # East Asia
+    "seoul": {"lat": 37.5665, "lon": 126.9780},
+    "beijing": {"lat": 39.9042, "lon": 116.4074},
+    "shanghai": {"lat": 31.2304, "lon": 121.4737},
+    # Europe
+    "barcelona": {"lat": 41.3851, "lon": 2.1734},
+    "amsterdam": {"lat": 52.3676, "lon": 4.9041},
+    "berlin": {"lat": 52.5200, "lon": 13.4050},
 }
 
 AUTHENTIC_DESTINATION_RESTAURANTS = {
@@ -67,7 +99,7 @@ def resolve_destination_coordinates(destination: str):
     for key, coords in CITY_COORDINATES.items():
         if key in dest_clean or dest_clean in key:
             return coords
-            
+
     try:
         resp = httpx.get(
             f"https://nominatim.openstreetmap.org/search?q={dest_clean}&format=json&limit=1",
@@ -80,20 +112,25 @@ def resolve_destination_coordinates(destination: str):
                 return {"lat": float(data[0]["lat"]), "lon": float(data[0]["lon"])}
     except Exception:
         pass
-        
-    return {"lat": 28.6139, "lon": 77.2090}
+
+    return {"lat": 28.6139, "lon": 77.2090}  # Last resort only
 
 def get_authentic_fallback_restaurants(destination: str):
     dest_clean = destination.lower().strip()
     for key, restaurants in AUTHENTIC_DESTINATION_RESTAURANTS.items():
         if key in dest_clean or dest_clean in key:
             return restaurants
-            
+
+    # Dynamic fallback: use resolved real coordinates so Sydney ≠ Delhi
+    coords = resolve_destination_coordinates(destination)
     city = destination.split(',')[0].title()
+    c_lat = coords["lat"]
+    c_lon = coords["lon"]
     return [
-        {"name": f"{city} Artisanal Bistro", "cuisine": "Regional & Continental Cuisine", "price_range": "$$$", "rating": "4.6", "address": f"Central Promenade, {city}", "popular_dish": "Chef's Tasting Menu", "lat": 28.6139, "lon": 77.2090},
-        {"name": f"{city} Heritage Dining Room", "cuisine": "Authentic Local Delicacies", "price_range": "$$$", "rating": "4.7", "address": f"Historic Quarter, {city}", "popular_dish": "Traditional Banquet Platter", "lat": 28.6140, "lon": 77.2100}
+        {"name": f"{city} Artisanal Bistro", "cuisine": "Regional & Continental Cuisine", "price_range": "$$$", "rating": "4.6", "address": f"Central Promenade, {city}", "popular_dish": "Chef's Tasting Menu", "lat": c_lat, "lon": c_lon},
+        {"name": f"{city} Heritage Dining Room", "cuisine": "Authentic Local Delicacies", "price_range": "$$$", "rating": "4.7", "address": f"Historic Quarter, {city}", "popular_dish": "Traditional Banquet Platter", "lat": round(c_lat + 0.003, 6), "lon": round(c_lon + 0.003, 6)}
     ]
+
 
 def fetch_real_restaurants_overpass(destination: str):
     """

@@ -16,6 +16,7 @@ class TravelState(TypedDict):
     user_message: Optional[str]
     
     # User Inputs (Provided directly by Form UI, or extracted by Parser for Chat UI)
+    origin: Optional[str]
     destination: Optional[str]
     days: Optional[int]
     budget: Optional[float]

@@ -8,13 +8,14 @@ PARSER_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "You are an AI assistant that extracts travel planning variables from raw text. "
-        "Your task is to extract the destination, number of days, budget, and other preferences. "
+        "Your task is to extract the origin (source city), destination, number of days, budget, and other preferences. "
         "If a variable is not mentioned, use these default values:\n"
+        "- origin: null\n"
         "- days: 3\n"
         "- budget: 500.0\n"
-        "Return ONLY a raw JSON object with these keys: destination, days, budget, preferences. "
+        "Return ONLY a raw JSON object with these keys: origin, destination, days, budget, preferences. "
         "Do not include markdown wrapper, explanation, or notes. Example output:\n"
-        '{{"destination": "Goa", "days": 3, "budget": 500.0, "preferences": "2 people"}}'
+        '{{"origin": "Hyderabad", "destination": "Goa", "days": 3, "budget": 500.0, "preferences": "2 people"}}'
     ),
     ("human", "Extract from this request: {user_message}")
 ])
@@ -40,6 +41,7 @@ def parser_node(state: TravelState) -> dict:
         budget = currency_data.get("budget") or float(data.get("budget", 500.0))
 
         return {
+            "origin": data.get("origin"),
             "destination": data.get("destination"),
             "days": int(data.get("days", 3)),
             "budget": float(budget),

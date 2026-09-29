@@ -11,9 +11,11 @@ import {
   CornerUpRight,
   CornerUpLeft,
   MoveUp,
-  MapPinCheck
+  MapPinCheck,
+  Plane
 } from 'lucide-react';
 import { RouteLeg, TravelMode } from '../../types';
+
 
 interface RouteDirectionsDrawerProps {
   legs: RouteLeg[];
@@ -42,6 +44,72 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
 }) => {
   if (!legs || legs.length === 0) return null;
 
+  // Detect if any leg is an international flight segment
+  const isFlightDay = legs.some(leg => leg.isFlightLeg || leg.status === 'flight');
+  const flightLegs = legs.filter(leg => leg.isFlightLeg || leg.status === 'flight');
+
+  // Render dedicated Flight Day panel — never show "25,058 min driving" for a flight
+  if (isFlightDay) {
+    const firstFlight = flightLegs[0];
+    const distKm = firstFlight ? Math.round(firstFlight.distanceKm) : null;
+
+    return (
+      <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md h-full flex flex-col overflow-hidden">
+        {/* Flight Day Header */}
+        <div className="flex flex-col gap-3 pb-4 border-b border-surface-container-highest/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-500 flex items-center justify-center shadow-inner">
+              <Plane className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider">Flight Day</h3>
+              <p className="text-xs text-on-surface-variant">International travel day</p>
+            </div>
+          </div>
+          {firstFlight && (
+            <div className="rounded-xl bg-surface-container-high border border-surface-container-highest/60 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-on-surface mb-1">
+                <span className="text-sky-500">{firstFlight.fromTitle}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
+                <span className="text-sky-500">{firstFlight.toTitle}</span>
+              </div>
+              {distKm && distKm > 0 && (
+                <p className="text-xs text-on-surface-variant">
+                  ✈️ Approx. {distKm.toLocaleString()} km international flight
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Flight Day Info */}
+        <div className="flex-1 overflow-y-auto space-y-3 mt-4">
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-sky-500/8 border border-sky-500/20">
+            <div className="w-8 h-8 rounded-full bg-sky-500/20 text-sky-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Navigation className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-on-surface mb-1">Travel Day</p>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                This is your international travel day. Check in to your flight at the origin airport. 
+                Local sightseeing and road routes begin from Day 2.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-high border border-surface-container-highest/50">
+            <Clock className="w-4 h-4 text-on-surface-variant mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-on-surface mb-1">Flight Duration</p>
+              <p className="text-xs text-on-surface-variant">
+                Check your flight details in the Flights tab for exact departure time and duration.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const totalDistance = legs.reduce((acc, leg) => acc + (leg.distanceKm || 0), 0);
   const totalDuration = legs.reduce((acc, leg) => acc + (leg.durationMins || 0), 0);
 
@@ -54,6 +122,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
 
   return (
     <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md space-y-4 h-full flex flex-col overflow-hidden">
+
       {/* Header: Title & Travel Mode Switcher */}
       <div className="flex flex-col gap-4 pb-3 border-b border-surface-container-highest/50 flex-shrink-0">
         <div>
