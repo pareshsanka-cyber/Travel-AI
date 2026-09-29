@@ -29,7 +29,7 @@ GROK_DISCOVERY_PROMPT = ChatPromptTemplate.from_messages([
         "    {{\n"
         '      "name": "Exact Place Name",\n'
         '      "category": "category type (e.g., landmark, museum, park)",\n'
-        '      "description": "Short factual non-real-time description (2-3 sentences max).",\n'
+        '      "description": "A rich, immersive, and highly detailed description covering history, significance, and what to expect (5-7 sentences).",\n'
         '      "why_visit": "Why this is a great fit for the user preferences.",\n'
         '      "estimated_visit_duration_minutes": 120,\n'
         '      "best_time_of_day": "morning|afternoon|evening",\n'
@@ -198,8 +198,7 @@ def attraction_node(state: TravelState) -> dict:
     )
     
     try:
-        discovery_llm = llm
-        response = discovery_llm.invoke(prompt_val)
+        response = llm.invoke(prompt_val)
         data = json.loads(response.content.strip())
         candidates = data.get("attractions", [])
         print(f"--- ATTRACTION AGENT: Discovery yielded {len(candidates)} candidate attractions ---")
