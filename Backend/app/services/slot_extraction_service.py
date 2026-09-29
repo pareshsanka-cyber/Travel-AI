@@ -265,14 +265,8 @@ def analyze_user_message(
         
         analysis = json.loads(content)
     except Exception as e:
-        print(f"Warning: Analyzer LLM parsing failed: {e}. Falling back to default heuristics.")
-        analysis = {
-            "intent": "UPDATE_CONTEXT",
-            "slots": {},
-            "qa_category": None,
-            "confidence": 0.5,
-            "needs_clarification": False
-        }
+        print(f"Warning: Analyzer LLM parsing failed: {e}. Propagating exception.")
+        raise e
 
     # Apply Python currency regex fallback if slots budget is missing but numeric pattern exists
     python_currency = normalize_currency_and_numbers(user_message)

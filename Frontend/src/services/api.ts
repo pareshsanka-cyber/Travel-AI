@@ -21,7 +21,7 @@ import {
 
 
 // Environment variable with runtime local-storage override capability
-const ENV_API_URL = (typeof import.meta !== 'undefined' && import.meta?.env ? (import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL) : undefined) || 'http://localhost:8000';
+const ENV_API_URL = (typeof import.meta !== 'undefined' && import.meta?.env ? (import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL) : undefined) || 'http://localhost:8001';
 
 export function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {

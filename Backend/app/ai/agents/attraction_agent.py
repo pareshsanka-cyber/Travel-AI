@@ -2,7 +2,7 @@ import os
 import json
 import httpx
 import urllib.parse
-from app.ai.llm import grok_llm, llm
+from app.ai.llm import llm
 from app.ai.orchestrator.state import TravelState
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -187,13 +187,9 @@ def attraction_node(state: TravelState) -> dict:
     budget = state.get("budget", 500.0)
     preferences = state.get("preferences", "General tourist")
     
-    print(f"--- ATTRACTION AGENT: Starting Grok Discovery for {destination} ---")
+    print(f"--- ATTRACTION AGENT: Starting Discovery for {destination} ---")
     
-    if not grok_llm:
-        print("CONFIGURATION ERROR: XAI_API_KEY is missing. Cannot perform attraction discovery.")
-        raise ValueError("Configuration Error: XAI_API_KEY is missing. Please configure XAI_API_KEY in the backend .env file to use the Grok-based attraction discovery.")
-    
-    # 1. Grok Discovery Call
+    # 1. Discovery Call
     prompt_val = GROK_DISCOVERY_PROMPT.format_messages(
         destination=destination,
         days=days,
@@ -202,7 +198,8 @@ def attraction_node(state: TravelState) -> dict:
     )
     
     try:
-        response = grok_llm.invoke(prompt_val)
+        discovery_llm = llm
+        response = discovery_llm.invoke(prompt_val)
         data = json.loads(response.content.strip())
         candidates = data.get("attractions", [])
         print(f"--- ATTRACTION AGENT: Discovery yielded {len(candidates)} candidate attractions ---")

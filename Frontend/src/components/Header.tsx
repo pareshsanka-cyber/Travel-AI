@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
     {
       id: '1',
       title: 'Goa Flight Alert',
-      desc: 'IndiGo 6E-204 fare synchronized via FastAPI :8000.',
+      desc: 'IndiGo 6E-204 fare synchronized via FastAPI :8001.',
       read: false,
     },
     {
@@ -114,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </span>
             <span className="text-xs text-on-surface font-medium">
-              {apiStatus.isConnected ? 'FastAPI: localhost:8000 Connected' : 'FastAPI: Standby (Port 8000)'}
+              {apiStatus.isConnected ? 'FastAPI: localhost:8001 Connected' : 'FastAPI: Standby (Port 8001)'}
             </span>
           </button>
 

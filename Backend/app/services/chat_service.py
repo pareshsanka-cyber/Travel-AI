@@ -120,12 +120,23 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
     add_message(conv_id, "user", user_message)
 
     # 4. Single Conversational Analysis Step (1 LLM call)
-    analysis = analyze_user_message(
-        user_message=user_message,
-        current_context=current_context,
-        previous_assistant_message=prev_assistant_msg,
-        has_current_trip=has_trip
-    )
+    try:
+        analysis = analyze_user_message(
+            user_message=user_message,
+            current_context=current_context,
+            previous_assistant_message=prev_assistant_msg,
+            has_current_trip=has_trip
+        )
+    except Exception as e:
+        err_msg = f"Sorry, I encountered a critical configuration issue and cannot process your message right now (Error: {e})"
+        add_message(conv_id, "assistant", err_msg)
+        return {
+            "conversation_id": conv_id,
+            "message": {"role": "assistant", "content": err_msg},
+            "intent": "ERROR",
+            "travel_context": current_context,
+            "data": None
+        }
 
     intent = analysis.get("intent", "UPDATE_CONTEXT")
     slots = analysis.get("slots", {})
@@ -151,8 +162,8 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         )
         try:
             ack_resp = llm.invoke(prompt_val).content.strip()
-        except Exception:
-            ack_resp = "Got it! I have updated your travel preferences."
+        except Exception as e:
+            ack_resp = f"Got it! I have updated your travel preferences. (Warning: LLM failed: {e})"
 
         add_message(conv_id, "assistant", ack_resp, intent="UPDATE_CONTEXT", structured_data={"slots": slots})
 

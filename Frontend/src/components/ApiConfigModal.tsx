@@ -89,16 +89,16 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
     }
   };
 
-  // Reset to default http://localhost:8000
+  // Reset to default http://localhost:8001
   const handleResetToDefault = async () => {
-    const defaultUrl = 'http://localhost:8000';
+    const defaultUrl = 'http://localhost:8001';
     setInputUrl(defaultUrl);
     setFeedback(null);
     try {
       await onUpdateApiUrl(defaultUrl);
       setFeedback({
         type: 'success',
-        message: 'Reset URL to default http://localhost:8000 and verified connection.',
+        message: 'Reset URL to default http://localhost:8001 and verified connection.',
       });
       setTimeout(() => {
         setFeedback((prev) => (prev?.type === 'success' ? null : prev));
@@ -177,7 +177,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
               <p className="text-xs text-on-surface-variant leading-relaxed">
                 {apiStatus.isConnected
                   ? 'Your FastAPI REST server is responding. Real payloads from your backend will seamlessly hydrate the UI.'
-                  : 'Frontend is running in standby client mode. Once you run your FastAPI app (uvicorn app.main:travel_ai --reload --port 8000), it will connect immediately.'}
+                  : 'Frontend is running in standby client mode. Once you run your FastAPI app (uvicorn app.main:travel_ai --reload --port 8001), it will connect immediately.'}
               </p>
             </div>
           </div>
@@ -196,7 +196,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  placeholder="http://localhost:8000"
+                  placeholder="http://localhost:8001"
                   className="flex-1 px-3 py-2 rounded-xl bg-surface-container-lowest border border-surface-container-highest text-xs sm:text-sm text-on-surface font-mono focus:outline-none focus:border-primary transition-colors"
                 />
                 <div className="flex gap-2">
@@ -251,7 +251,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
                 onClick={handleResetToDefault}
                 className="text-primary hover:underline font-medium"
               >
-                Reset to http://localhost:8000
+                Reset to http://localhost:8001
               </button>
             </div>
           </form>

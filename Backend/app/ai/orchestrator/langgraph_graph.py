@@ -15,22 +15,39 @@ from app.ai.agents.route_agent import route_node
 from app.ai.reviewer.reviewer_agent import reviewer_node
 from app.ai.agents.synthesis_agent import synthesis_node
 
+import time
+
+def log_node_execution(name, func):
+    def wrapper(state: TravelState):
+        print(f"\n[GRAPH NODE START] {name}")
+        start_t = time.time()
+        try:
+            result = func(state)
+            duration = time.time() - start_t
+            print(f"[GRAPH NODE END] {name} (Duration: {duration:.2f}s)")
+            return result
+        except Exception as e:
+            duration = time.time() - start_t
+            print(f"[GRAPH NODE ERROR] {name} (Duration: {duration:.2f}s) - {e}")
+            raise
+    return wrapper
+
 # Initialize the StateGraph with our TravelState schema
 workflow = StateGraph(TravelState)
 
-# 1. Add all agents as graph nodes
-workflow.add_node("parser", parser_node)
-workflow.add_node("planner", planner_node)
-workflow.add_node("weather", weather_node)
-workflow.add_node("flights", flight_node)
-workflow.add_node("hotels", hotel_node)
-workflow.add_node("attractions", attraction_node)
-workflow.add_node("opening_hours", opening_hours_node)
-workflow.add_node("restaurants", restaurant_node)
-workflow.add_node("budget", budget_node)
-workflow.add_node("route", route_node)
-workflow.add_node("reviewer", reviewer_node)
-workflow.add_node("synthesis", synthesis_node)
+# 1. Add all agents as graph nodes (wrapped for logging)
+workflow.add_node("parser", log_node_execution("parser", parser_node))
+workflow.add_node("planner", log_node_execution("planner", planner_node))
+workflow.add_node("weather", log_node_execution("weather", weather_node))
+workflow.add_node("flights", log_node_execution("flights", flight_node))
+workflow.add_node("hotels", log_node_execution("hotels", hotel_node))
+workflow.add_node("attractions", log_node_execution("attractions", attraction_node))
+workflow.add_node("opening_hours", log_node_execution("opening_hours", opening_hours_node))
+workflow.add_node("restaurants", log_node_execution("restaurants", restaurant_node))
+workflow.add_node("budget", log_node_execution("budget", budget_node))
+workflow.add_node("route", log_node_execution("route", route_node))
+workflow.add_node("reviewer", log_node_execution("reviewer", reviewer_node))
+workflow.add_node("synthesis", log_node_execution("synthesis", synthesis_node))
 
 # 2. Define the execution edges
 workflow.set_entry_point("parser")

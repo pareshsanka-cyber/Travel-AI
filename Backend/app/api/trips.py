@@ -34,10 +34,35 @@ def plan_trip(request: PlanRequest, x_user_id: Optional[str] = Header(None)):
         "error_logs": []
     }
     
-    # 2. Run the LangGraph agent pipeline
+    import time
+    start_time = time.time()
+    req_id = f"req_{int(start_time)}"
+    
+    print(f"\n==================================================")
+    print(f"[TRAVEL REQUEST]")
+    print(f"Request ID: {req_id}")
+    print(f"User request: {request.user_message}")
+    print(f"==================================================\n")
+    print(f"[GRAPH START]")
+    print(f"Graph: TravelGraph-Pro\n")
+    
     try:
         final_state = graph.invoke(initial_state)
+        duration = time.time() - start_time
+        print(f"\n[GRAPH END]")
+        print(f"Total duration: {duration:.2f}s")
+        print(f"Status: SUCCESS")
+        print(f"==================================================\n")
     except Exception as e:
+        duration = time.time() - start_time
+        print(f"\n==================================================")
+        print(f"[PIPELINE FAILED]")
+        print(f"Request ID: {req_id}")
+        print(f"Provider: Groq")
+        print(f"Exception type: {type(e).__name__}")
+        print(f"Exception message: {str(e)}")
+        print(f"Duration before failure: {duration:.2f}s")
+        print(f"==================================================\n")
         raise HTTPException(
             status_code=500, 
             detail=f"Agent graph execution failed: {str(e)}"

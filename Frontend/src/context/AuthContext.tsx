@@ -3,7 +3,7 @@ import { User, AuthContextType } from '../types';
 
 const TOKEN_KEY = 'travelai_token';
 const USER_KEY = 'travelai_user';
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8001';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
