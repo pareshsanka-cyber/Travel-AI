@@ -1,4 +1,4 @@
-# Virtual Environment
+﻿# Virtual Environment
 .venv/
 venv/
 env/
@@ -6,7 +6,10 @@ ENV/
 
 # Environment Variables (Private Keys)
 .env
+*.env
+!.env.example
 Backend/.env
+Frontend/.env
 
 # Python Cache
 __pycache__/
@@ -22,7 +25,7 @@ Thumbs.db
 ~$*
 *.tmp
 
-# Large temporary caches
+# Large temporary caches & local databases
 .cache/
 *.log
 node_modules/
@@ -30,4 +33,11 @@ node_modules/
 .next/
 dist/
 chromadb_storage/
+**/chromadb_storage/
 *.sqlite3
+*.bin
+*.pickle
+
+# Benchmark & temporary test runs
+*_test_result.json
+benchmark_result.json
