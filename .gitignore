@@ -19,6 +19,8 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+~$*
+*.tmp
 
 # Large temporary caches
 .cache/

@@ -4,11 +4,13 @@ import { HotelOption } from '../../types';
 
 interface HotelsTabProps {
   hotels: HotelOption[];
+  nearbyHotels?: HotelOption[];
   onSelectHotel: (id: string) => void;
 }
 
 export const HotelsTab: React.FC<HotelsTabProps> = ({
   hotels,
+  nearbyHotels = [],
   onSelectHotel,
 }) => {
   const [expandedHotelId, setExpandedHotelId] = useState<string | null>(null);
@@ -174,6 +176,48 @@ export const HotelsTab: React.FC<HotelsTabProps> = ({
           </div>
         );
       }))}
+
+      {/* More Hotels Nearby Section */}
+      {nearbyHotels && nearbyHotels.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-surface-container-highest">
+          <h3 className="text-sm font-semibold text-on-surface mb-3 flex items-center gap-1.5">
+            <MapPin className="w-4 h-4 text-tertiary" />
+            More Hotels Nearby
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {nearbyHotels.map((hotel, idx) => (
+              <div
+                key={`nearby-${hotel.id || idx}`}
+                className="flex items-center gap-3 p-2.5 rounded-lg bg-surface-container-low border border-surface-container-highest/40 hover:border-surface-container-highest transition-colors cursor-pointer"
+                onClick={() => onSelectHotel(hotel.id)}
+              >
+                <div className="w-14 h-14 rounded-md overflow-hidden flex-shrink-0 relative">
+                  <img
+                    src={hotel.imageUrl}
+                    alt={hotel.imageAlt}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-[11px] font-semibold text-on-surface line-clamp-1">
+                    {hotel.name}
+                  </h4>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="flex items-center gap-0.5 text-[9px] font-semibold text-tertiary">
+                      <Star className="w-2.5 h-2.5 fill-tertiary" />
+                      {hotel.rating}
+                    </span>
+                    <span className="text-[9px] text-on-surface-variant font-medium">
+                      ₹{hotel.pricePerNight.toLocaleString()}/nt
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

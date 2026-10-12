@@ -15,8 +15,9 @@ import {
 } from '../types';
 import {
   checkFastApiHealth,
-  fetchFlightOptions,
   fetchHotelOptions,
+  fetchFlightOptions,
+  fetchNearbyHotelOptions,
   fetchWeatherCondition,
   fetchBudgetOverview,
   extractTripSummary,
@@ -26,6 +27,7 @@ import {
   fetchConversationsList,
   fetchConversationDetail,
   deleteConversation,
+  updateExecutionState,
   setApiStatusListener,
   INITIAL_CONVERSATIONS,
   INITIAL_CHAT_MESSAGES,
@@ -49,7 +51,7 @@ import {
 export function useTravelApi() {
   // Navigation & View states
   const [activePage, setActivePage] = useState<'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory'>('planner-studio');
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab'>('route-tab');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab'>('route-tab');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
@@ -83,6 +85,7 @@ export function useTravelApi() {
   const [days, setDays] = useState<ItineraryDay[]>([]);
   const [flights, setFlights] = useState<FlightOption[]>([]);
   const [hotels, setHotels] = useState<HotelOption[]>([]);
+  const [nearbyHotels, setNearbyHotels] = useState<HotelOption[]>([]);
   const [weather, setWeather] = useState<WeatherCondition | null>(null);
   const [budget, setBudget] = useState<BudgetOverview | null>(null);
   const [savedTrips, setSavedTrips] = useState<SavedTripSnippet[]>([]);
@@ -173,6 +176,7 @@ export function useTravelApi() {
       setDays([]);
       setFlights([]);
       setHotels([]);
+      setNearbyHotels([]);
       setWeather(null);
       setBudget(null);
       return;
@@ -181,10 +185,25 @@ export function useTravelApi() {
     const tripId = tripObj.id || tripObj._id;
     setActiveTrip(tripObj);
     setActiveTripIdState(tripId);
-    setTrip(extractTripSummary(tripObj));
+    
+    const tripSummary = extractTripSummary(tripObj);
+    if (typeof window !== 'undefined' && tripId) {
+      try {
+        const cached = localStorage.getItem(`TRAVELAI_EXEC_STATE_${tripId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          tripSummary.executionState = {
+            ...(tripSummary.executionState || {}),
+            ...parsed,
+          };
+        }
+      } catch {}
+    }
+    setTrip(tripSummary);
     setDays(extractItineraryDays(tripObj));
     setFlights(fetchFlightOptions(tripObj));
     setHotels(fetchHotelOptions(tripObj));
+    setNearbyHotels(fetchNearbyHotelOptions(tripObj));
     setWeather(fetchWeatherCondition(tripObj));
     setBudget(fetchBudgetOverview(tripObj));
   }, []);
@@ -790,6 +809,97 @@ export function useTravelApi() {
     }));
   }, []);
 
+  const handleUpdateExecutionState = useCallback(async (updates: Partial<any>) => {
+    if (!trip || !activeTripId) return false;
+    
+    const currentState = trip.executionState || {
+      is_active: true,
+      current_day_number: 1,
+      activity_log: {},
+      reroute_history: []
+    };
+    
+    const newState = { ...currentState, ...updates };
+    
+    // 1. Instantly update React Trip state
+    setTrip(prev => prev ? { ...prev, executionState: newState } : prev);
+    setActiveTrip((prev: any) => prev ? { ...prev, execution_state: newState, executionState: newState } : prev);
+    setRawTripsHistory((prev) =>
+      prev.map((t) => ((t.id || t._id) === activeTripId ? { ...t, execution_state: newState, executionState: newState } : t))
+    );
+
+    // 2. Persist to localStorage for rock-solid reload & offline persistence
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(newState));
+      } catch {}
+    }
+    
+    // 3. Persist to server
+    try {
+      await updateExecutionState(activeTripId, newState);
+      return true;
+    } catch (e) {
+      console.warn("Execution state saved locally, remote sync warning:", e);
+      return true;
+    }
+  }, [trip, activeTripId]);
+
+  const handleApplyRerouteResult = useCallback((rerouteResult: any) => {
+    if (!activeTripId || !rerouteResult) return;
+    const { route_details, execution_state, revision } = rerouteResult;
+    
+    // 1. Update React Trip state
+    setActiveTrip((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        route_details,
+        execution_state,
+        executionState: execution_state,
+        revision: revision || ((prev.revision || 1) + 1),
+      };
+    });
+
+    setTrip((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        executionState: execution_state,
+        revision: revision || ((prev.revision || 1) + 1),
+      };
+    });
+
+    setRawTripsHistory((prev) =>
+      prev.map((t) =>
+        (t.id || t._id) === activeTripId
+          ? {
+              ...t,
+              route_details,
+              execution_state,
+              executionState: execution_state,
+              revision: revision || ((t.revision || 1) + 1),
+            }
+          : t
+      )
+    );
+
+    // 2. Re-extract daily itineraries so DayDetailView, DayMapView, RouteTab & CompanionMode update immediately
+    const updatedTripObj = {
+      ...(trip || {}),
+      route_details,
+      execution_state,
+    };
+    setDays(extractItineraryDays(updatedTripObj));
+
+    // 3. Persist execution state to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(execution_state));
+      } catch {}
+    }
+  }, [activeTripId, trip]);
+
   return {
     activePage,
     setActivePage,
@@ -808,6 +918,7 @@ export function useTravelApi() {
     days,
     flights,
     hotels,
+    nearbyHotels,
     weather,
     budget,
     savedTrips,
@@ -836,6 +947,8 @@ export function useTravelApi() {
     travelContext,
     setTravelContext,
     updateTravelPreference,
+    handleUpdateExecutionState,
+    handleApplyRerouteResult,
     currentIntent,
     setCurrentIntent,
     refreshData: loadData,

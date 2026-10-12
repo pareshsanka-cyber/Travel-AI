@@ -9,7 +9,8 @@ import {
   FileDown,
   Share2,
   CalendarCheck,
-  Check
+  Check,
+  Compass
 } from 'lucide-react';
 import {
   TripSummary,
@@ -17,25 +18,30 @@ import {
   FlightOption,
   HotelOption,
   WeatherCondition,
-  BudgetOverview
+  BudgetOverview,
+  ExecutionState
 } from '../types';
 import { RouteTab } from './tabs/RouteTab';
 import { FlightsTab } from './tabs/FlightsTab';
 import { HotelsTab } from './tabs/HotelsTab';
 import { WeatherTab } from './tabs/WeatherTab';
 import { BudgetTab } from './tabs/BudgetTab';
+import { CompanionMode } from './tabs/CompanionMode';
 
 interface DashboardPanelProps {
   trip: TripSummary | null;
   days: ItineraryDay[];
   flights: FlightOption[];
   hotels: HotelOption[];
+  nearbyHotels?: HotelOption[];
   weather: WeatherCondition | null;
   budget: BudgetOverview | null;
-  activeTab: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
-  onSwitchTab: (tab: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
+  activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
+  onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   onSelectFlight: (id: string) => void;
   onSelectHotel: (id: string) => void;
+  onUpdateExecutionState?: (updates: Partial<ExecutionState>) => Promise<boolean>;
+  onApplyRerouteResult?: (result: any) => void;
 }
 
 export const DashboardPanel: React.FC<DashboardPanelProps> = ({
@@ -43,12 +49,15 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   days,
   flights,
   hotels,
+  nearbyHotels,
   weather,
   budget,
   activeTab,
   onSwitchTab,
   onSelectFlight,
   onSelectHotel,
+  onUpdateExecutionState,
+  onApplyRerouteResult,
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -130,6 +139,20 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
+            aria-label="Toggle live companion mode"
+            onClick={() => onSwitchTab('companion-tab')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm border ${
+              activeTab === 'companion-tab'
+                ? 'bg-primary text-on-primary border-primary shadow-md'
+                : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+            }`}
+          >
+            <Compass className={`w-3.5 h-3.5 ${activeTab === 'companion-tab' ? 'animate-spin' : ''}`} />
+            <span>Companion Mode</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+          </button>
+          <button
+            type="button"
             aria-label="Modify itinerary"
             onClick={() => showToast('Opening AI itinerary re-architecture wizard...')}
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface text-xs font-medium transition-colors shadow-sm border border-surface-container-highest/60"
@@ -169,6 +192,22 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
 
       {/* Navigation Tabs Strip */}
       <div className="px-space-md pt-2 bg-surface-container/60 border-b border-surface-container-high/40 flex items-center gap-1 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={() => onSwitchTab('companion-tab')}
+          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
+            activeTab === 'companion-tab'
+              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-bold'
+              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
+          }`}
+        >
+          <Compass className="w-4 h-4 text-emerald-500" />
+          <span>Live Companion</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            LIVE
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => onSwitchTab('route-tab')}
@@ -237,12 +276,21 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
 
       {/* Tab Content Area */}
       <div className="flex-1 overflow-y-auto p-space-md lg:p-space-lg space-y-space-md">
-        {activeTab === 'route-tab' && <RouteTab trip={trip} days={days} />}
+        {activeTab === 'companion-tab' && (
+          <CompanionMode
+            trip={trip}
+            days={days}
+            onUpdateExecutionState={onUpdateExecutionState || (async () => false)}
+            onApplyRerouteResult={onApplyRerouteResult}
+            onSwitchTab={onSwitchTab}
+          />
+        )}
+        {activeTab === 'route-tab' && <RouteTab trip={trip} days={days} onSwitchTab={onSwitchTab} />}
         {activeTab === 'flights-tab' && (
           <FlightsTab flights={flights} onSelectFlight={onSelectFlight} destination={trip?.destination} trip={trip} />
         )}
         {activeTab === 'hotels-tab' && (
-          <HotelsTab hotels={hotels} onSelectHotel={onSelectHotel} />
+          <HotelsTab hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
         )}
         {activeTab === 'weather-tab' && <WeatherTab weather={weather} destination={trip?.destination} />}
         {activeTab === 'budget-tab' && <BudgetTab budget={budget} />}

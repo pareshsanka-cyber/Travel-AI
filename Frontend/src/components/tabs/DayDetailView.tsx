@@ -10,6 +10,7 @@ import {
   Compass, 
   Utensils, 
   Hotel, 
+  Plane,
   ChevronDown, 
   ChevronUp, 
   ChevronLeft, 
@@ -31,76 +32,150 @@ interface DayDetailViewProps {
   onSelectDay: (dayNumber: number) => void;
 }
 
-// Accurate place-specific high-resolution photography catalog
-const VENUE_IMAGE_MAP: Array<{ keywords: string[]; url: string }> = [
-  // Delhi Landmarks
-  { keywords: ['red fort', 'lal qila'], url: 'https://images.unsplash.com/photo-1598324789736-4861f89564a0?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['qutub minar', 'qutb'], url: 'https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['india gate'], url: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['humayun'], url: 'https://images.unsplash.com/photo-1597040663342-45b6af3d91a5?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['lotus temple', 'bahai'], url: 'https://images.unsplash.com/photo-1576487248805-cf45f6bcc67f?auto=format&fit=crop&w=1000&q=80' },
-  
-  // Agra Landmarks
-  { keywords: ['taj mahal'], url: 'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['agra fort'], url: 'https://images.unsplash.com/photo-1592635196078-9fdc757f27f4?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['fatehpur sikri', 'buland darwaza'], url: 'https://images.unsplash.com/photo-1605649487212-47bdab064df8?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['mehtab bagh'], url: 'https://images.unsplash.com/photo-1585136917195-9b2f6fb39e44?auto=format&fit=crop&w=1000&q=80' },
+export function getActivityCategoryMeta(act: ActivitySegment): {
+  iconType: 'plane' | 'hotel' | 'dining' | 'attraction';
+  label: string;
+} {
+  const title = (act.title || '').toLowerCase();
+  const desc = (act.description || '').toLowerCase();
+  const cat = (act.category || '').toLowerCase();
+  const combined = `${title} ${desc} ${cat}`;
 
-  // Jaipur Landmarks
-  { keywords: ['amber', 'amer fort', 'amer palace'], url: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['hawa mahal'], url: 'https://images.unsplash.com/photo-1609137144822-1d54f85e43a9?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['city palace jaipur', 'city palace'], url: 'https://images.unsplash.com/photo-1599661046827-dacff0c0f09a?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['jantar mantar'], url: 'https://images.unsplash.com/photo-1622303535976-13a693b4ceb8?auto=format&fit=crop&w=1000&q=80' },
+  if (combined.includes('airport') || combined.includes('flight') || combined.includes('terminal') || combined.includes('transfer')) {
+    return { iconType: 'plane', label: 'Airport Transit' };
+  }
+  if (combined.includes('hotel') || combined.includes('resort') || combined.includes('check-in') || combined.includes('stay') || combined.includes('accommodation')) {
+    return { iconType: 'hotel', label: 'Hotel & Stay' };
+  }
+  if (combined.includes('restaurant') || combined.includes('dining') || combined.includes('cuisine') || combined.includes('cafe') || combined.includes('bistro') || act.timeOfDay === 'Afternoon') {
+    return { iconType: 'dining', label: 'Dining & Gastronomy' };
+  }
+  return { iconType: 'attraction', label: act.category || 'Sightseeing & Culture' };
+}
 
-  // Goa Landmarks
-  { keywords: ['aguada'], url: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['bom jesus', 'basilica'], url: 'https://images.unsplash.com/photo-1588416936097-41850ab3d86d?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['chapora'], url: 'https://images.unsplash.com/photo-1587922546307-776227941871?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['calangute', 'baga', 'beach'], url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80' },
+export const CategoryPlaceholder: React.FC<{
+  categoryMeta: { iconType: 'plane' | 'hotel' | 'dining' | 'attraction'; label: string };
+  title?: string;
+  size?: 'sm' | 'md' | 'lg';
+}> = ({ categoryMeta, title, size = 'md' }) => {
+  const icon = categoryMeta.iconType === 'plane' ? (
+    <Plane className={size === 'sm' ? "w-4 h-4 text-sky-400" : size === 'lg' ? "w-10 h-10 text-sky-400" : "w-6 h-6 text-sky-400"} />
+  ) : categoryMeta.iconType === 'hotel' ? (
+    <Hotel className={size === 'sm' ? "w-4 h-4 text-emerald-400" : size === 'lg' ? "w-10 h-10 text-emerald-400" : "w-6 h-6 text-emerald-400"} />
+  ) : categoryMeta.iconType === 'dining' ? (
+    <Utensils className={size === 'sm' ? "w-4 h-4 text-amber-400" : size === 'lg' ? "w-10 h-10 text-amber-400" : "w-6 h-6 text-amber-400"} />
+  ) : (
+    <Compass className={size === 'sm' ? "w-4 h-4 text-primary" : size === 'lg' ? "w-10 h-10 text-primary" : "w-6 h-6 text-primary"} />
+  );
 
-  // Mumbai Landmarks
-  { keywords: ['gateway of india'], url: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['marine drive'], url: 'https://images.unsplash.com/photo-1566552881560-0be862a7c445?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['elephanta'], url: 'https://images.unsplash.com/photo-1588416936097-41850ab3d86d?auto=format&fit=crop&w=1000&q=80' },
-
-  // Dining & Restaurants
-  { keywords: ['karim', 'mughlai', 'kebab'], url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['bukhara', 'tandoori', 'dal bukhara'], url: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['indian accent', 'bistro', 'haute', 'gourmet'], url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['saravana', 'dosa', 'south indian', 'idli'], url: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['gulati', 'butter chicken', 'curry'], url: 'https://images.unsplash.com/photo-1588166524941-3bf61a9c41db?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['fisherman', 'seafood', 'fish curry', 'crab'], url: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['1135 ad', 'thali', 'handi', 'laal maas', 'rajasthani'], url: 'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['traditional food', 'culinary', 'restaurant', 'food spot', 'cafe', 'bistro'], url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80' },
-
-  // Luxury Accommodations & Hotels
-  { keywords: ['pavilion', 'de pavilion'], url: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['imperial', 'itc maurya', 'the leela', 'luxury hotel'], url: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['taj mahal hotel', 'taj hotel', 'taj resort'], url: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['resort', 'beachfront', 'pool'], url: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=1000&q=80' },
-  { keywords: ['hotel', 'check-in', 'stay', 'suite', 'boutique'], url: 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?auto=format&fit=crop&w=1000&q=80' },
-];
-
-export function resolvePlaceImage(act: ActivitySegment, destination?: string): string {
-  // 1. Return real-time API thumbnail if available
-  if (act.thumbnail && act.thumbnail.startsWith('http')) {
-    return act.thumbnail;
+  if (size === 'sm') {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-surface-container-high text-on-surface-variant">
+        {icon}
+      </div>
+    );
   }
 
-  // 2. Match exact place name or keywords
-  const titleLower = (act.title || '').toLowerCase();
-  const descLower = (act.description || '').toLowerCase();
-  const locLower = (act.location || '').toLowerCase();
-  const combined = `${titleLower} ${descLower} ${locLower}`;
+  return (
+    <div className="w-full h-full min-h-[180px] flex flex-col items-center justify-center p-6 bg-gradient-to-br from-surface-container-high to-surface-container-highest text-center select-none">
+      <div className="p-3.5 rounded-2xl bg-surface-container/90 border border-white/10 shadow-sm mb-2">
+        {icon}
+      </div>
+      <span className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
+        {categoryMeta.label}
+      </span>
+      {title && (
+        <span className="text-[11px] text-on-surface-variant/70 mt-0.5 line-clamp-1 max-w-[180px]">
+          {title}
+        </span>
+      )}
+    </div>
+  );
+};
 
-  for (const item of VENUE_IMAGE_MAP) {
-    if (item.keywords.some((kw) => combined.includes(kw))) {
-      return item.url;
+export function getCategoryFallbackImage(act: ActivitySegment, destination?: string): string {
+  const title = (act.title || '').toLowerCase();
+  const desc = (act.description || '').toLowerCase();
+  const cat = (act.category || '').toLowerCase();
+  const dest = (destination || '').toLowerCase();
+  const combined = `${title} ${desc} ${cat} ${dest}`;
+
+  // 1. Airport Transit
+  if (combined.includes('airport') || combined.includes('terminal') || combined.includes('flight') || (act.type === 'airport')) {
+    if (combined.includes('hyderabad') || combined.includes('hyd') || combined.includes('rajiv gandhi')) {
+      return 'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('mumbai') || combined.includes('bom') || combined.includes('chhatrapati')) {
+      return 'https://images.unsplash.com/photo-1542296332-2e4473faf563?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('delhi') || combined.includes('del') || combined.includes('indira gandhi')) {
+      return 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?auto=format&fit=crop&w=800&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?auto=format&fit=crop&w=800&q=80';
+  }
+
+  // 2. Hotel & Accommodation
+  if (combined.includes('hotel') || combined.includes('resort') || combined.includes('check-in') || combined.includes('check-out') || combined.includes('stay') || combined.includes('accommodation') || (act.type === 'hotel')) {
+    if (combined.includes('hyderabad')) {
+      return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('goa')) {
+      return 'https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('jaipur') || combined.includes('rajasthan')) {
+      return 'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80';
+  }
+
+  // 3. Dining & Gastronomy
+  if (combined.includes('restaurant') || combined.includes('dining') || combined.includes('cuisine') || combined.includes('cafe') || combined.includes('bistro') || combined.includes('biryani') || (act.type === 'restaurant') || act.timeOfDay === 'Afternoon') {
+    if (combined.includes('hyderabad') || combined.includes('biryani') || combined.includes('mughlai') || combined.includes('nizam') || combined.includes('bahar') || combined.includes('bidri')) {
+      return 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('goa') || combined.includes('seafood') || combined.includes('fish')) {
+      return 'https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=800&q=80';
+    }
+    if (combined.includes('delhi') || combined.includes('tandoor') || combined.includes('punjabi')) {
+      return 'https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=800&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=80';
+  }
+
+  // 4. Attractions by category
+  if (combined.includes('temple') || combined.includes('mandir') || combined.includes('spiritual') || combined.includes('swamy') || combined.includes('krishna') || combined.includes('shiva') || combined.includes('jagan')) {
+    return 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=800&q=80';
+  }
+  if (combined.includes('fort') || combined.includes('palace') || combined.includes('monument') || combined.includes('heritage') || combined.includes('history')) {
+    return 'https://images.unsplash.com/photo-1599661046289-e31897846e41?auto=format&fit=crop&w=800&q=80';
+  }
+  if (combined.includes('beach') || combined.includes('sea') || combined.includes('coast') || combined.includes('ocean')) {
+    return 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80';
+  }
+  if (combined.includes('museum') || combined.includes('gallery') || combined.includes('art')) {
+    return 'https://images.unsplash.com/photo-1565008447742-97f6f38c985c?auto=format&fit=crop&w=800&q=80';
+  }
+  if (combined.includes('park') || combined.includes('garden') || combined.includes('lake') || combined.includes('nature') || combined.includes('waterfall')) {
+    return 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80';
+  }
+  if (combined.includes('market') || combined.includes('bazaar') || combined.includes('shopping')) {
+    return 'https://images.unsplash.com/photo-1533900298318-6b8da08a523e?auto=format&fit=crop&w=800&q=80';
+  }
+
+  return 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80';
+}
+
+export function resolvePlaceImage(act: ActivitySegment, destination?: string): string {
+  // 1. Direct verified thumbnail or image_url fields on activity
+  const direct = act.thumbnail || (act as any).image_url || (act as any).imageUrl || (act as any).image;
+  if (direct && typeof direct === 'string' && (direct.startsWith('http://') || direct.startsWith('https://'))) {
+    if (!direct.includes('picsum.photos')) {
+      return direct;
     }
   }
 
-  // 4. Default high-res travel fallback
-  return `https://picsum.photos/seed/${encodeURIComponent(act.title.trim())}/1000/600`;
+  // 2. Intelligent verified destination & venue photo fallback
+  return getCategoryFallbackImage(act, destination);
 }
 
 function StatusBadge({ status }: { status?: string }) {
@@ -134,7 +209,15 @@ const ActivityCard: React.FC<{ act: ActivitySegment; dayNumber: number; index: n
   const isAfternoon = act.timeOfDay === 'Afternoon';
   const isEvening = act.timeOfDay === 'Evening';
 
-  const imageUrl = resolvePlaceImage(act, destination);
+  const [imgError, setImgError] = useState(false);
+  const [currentImg, setCurrentImg] = useState<string>(() => resolvePlaceImage(act, destination));
+
+  useEffect(() => {
+    setCurrentImg(resolvePlaceImage(act, destination));
+    setImgError(false);
+  }, [act, destination]);
+
+  const categoryMeta = getActivityCategoryMeta(act);
   const hasHours = act.operatingHours && act.operatingHours.length > 0;
 
   const typeIcon = isMorning ? (
@@ -153,25 +236,40 @@ const ActivityCard: React.FC<{ act: ActivitySegment; dayNumber: number; index: n
 
   return (
     <div className="group rounded-2xl bg-surface-container overflow-hidden border border-surface-container-highest/60 hover:border-primary/50 transition-all duration-300 shadow-md hover:shadow-xl flex flex-col md:flex-row">
-      {/* Real-time Place Image Banner */}
-      <div className="relative md:w-72 h-52 md:h-auto flex-shrink-0 overflow-hidden">
-        <img
-          src={imageUrl}
-          alt={act.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent md:hidden" />
+      {/* Real-time Place Image Banner or Category Placeholder */}
+      <div className="relative md:w-72 h-52 md:h-auto flex-shrink-0 overflow-hidden bg-surface-container-highest">
+        {currentImg && !imgError ? (
+          <>
+            <img
+              src={currentImg}
+              alt={act.title}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+              onError={() => {
+                const fallback = getCategoryFallbackImage(act, destination);
+                if (currentImg !== fallback) {
+                  setCurrentImg(fallback);
+                } else {
+                  setImgError(true);
+                }
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent md:hidden" />
+          </>
+        ) : (
+          <CategoryPlaceholder categoryMeta={categoryMeta} title={act.title} size="lg" />
+        )}
         
         {/* Time Badge Overlay */}
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold border border-white/20 shadow-sm">
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-semibold border border-white/20 shadow-sm z-10">
           {typeIcon}
           <span>{act.timeOfDay} • {act.time}</span>
         </div>
 
         {/* Status Badge Overlay on Image (Mobile) */}
         {act.operatingStatus && (
-          <div className="absolute bottom-3 left-3 md:hidden">
+          <div className="absolute bottom-3 left-3 md:hidden z-10">
             <StatusBadge status={act.operatingStatus} />
           </div>
         )}

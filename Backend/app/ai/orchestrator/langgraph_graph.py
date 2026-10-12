@@ -19,16 +19,16 @@ import time
 
 def log_node_execution(name, func):
     def wrapper(state: TravelState):
-        print(f"\n[GRAPH NODE START] {name}")
         start_t = time.time()
+        print(f"[STAGE START] {name}")
         try:
             result = func(state)
-            duration = time.time() - start_t
-            print(f"[GRAPH NODE END] {name} (Duration: {duration:.2f}s)")
+            duration_ms = int((time.time() - start_t) * 1000)
+            print(f"[STAGE END] {name} duration_ms={duration_ms} status=success")
             return result
         except Exception as e:
-            duration = time.time() - start_t
-            print(f"[GRAPH NODE ERROR] {name} (Duration: {duration:.2f}s) - {e}")
+            duration_ms = int((time.time() - start_t) * 1000)
+            print(f"[STAGE ERROR] {name} duration_ms={duration_ms} status=failed error={e}")
             raise
     return wrapper
 
@@ -42,7 +42,6 @@ workflow.add_node("weather", log_node_execution("weather", weather_node))
 workflow.add_node("flights", log_node_execution("flights", flight_node))
 workflow.add_node("hotels", log_node_execution("hotels", hotel_node))
 workflow.add_node("attractions", log_node_execution("attractions", attraction_node))
-workflow.add_node("opening_hours", log_node_execution("opening_hours", opening_hours_node))
 workflow.add_node("restaurants", log_node_execution("restaurants", restaurant_node))
 workflow.add_node("budget", log_node_execution("budget", budget_node))
 workflow.add_node("route", log_node_execution("route", route_node))
@@ -62,15 +61,12 @@ workflow.add_edge("planner", "weather")
 workflow.add_edge("planner", "attractions")
 workflow.add_edge("planner", "restaurants")
 
-# All parallel agents join back at the Budget Auditor node
+# All parallel agents join back synchronously at the Budget Auditor node
 workflow.add_edge("flights", "budget")
 workflow.add_edge("hotels", "budget")
 workflow.add_edge("weather", "budget")
 workflow.add_edge("restaurants", "budget")
-
-# Attractions goes to Opening Hours validation, which then goes to Budget
-workflow.add_edge("attractions", "opening_hours")
-workflow.add_edge("opening_hours", "budget")
+workflow.add_edge("attractions", "budget")
 
 # Budget Node connects to Route Node, then to Reviewer Node
 workflow.add_edge("budget", "route")

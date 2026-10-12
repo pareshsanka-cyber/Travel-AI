@@ -1,0 +1,569 @@
+{
+  "audited_at_utc": "2026-10-12T10:26:53.464654+00:00",
+  "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+  "head": "a4367e5e05c0ceff76499eeb7568a9665b7e754a",
+  "branch": "main",
+  "initial_status": "M Backend/app/ai/agents/attraction_agent.py\n M Backend/app/ai/agents/flight_agent.py\n M Backend/app/ai/agents/hotel_agent.py\n M Backend/app/ai/agents/opening_hours_agent.py\n M Backend/app/ai/agents/restaurant_agent.py\n M Backend/app/ai/agents/route_agent.py\n M Backend/app/ai/agents/synthesis_agent.py\n M Backend/app/ai/llm.py\n M Backend/app/ai/orchestrator/langgraph_graph.py\n M Backend/app/ai/orchestrator/parser_agent.py\n M Backend/app/ai/orchestrator/planner_agent.py\n M Backend/app/ai/orchestrator/state.py\n M Backend/app/ai/reviewer/reviewer_agent.py\n M Backend/app/api/trips.py\n M Backend/app/main.py\n M Backend/app/models/trip.py\n M Backend/app/services/chat_service.py\n M Frontend/index.html\n M Frontend/src/App.tsx\n M Frontend/src/components/DashboardPanel.tsx\n M Frontend/src/components/tabs/DayDetailView.tsx\n M Frontend/src/components/tabs/DayMapView.tsx\n M Frontend/src/components/tabs/FlightsTab.tsx\n M Frontend/src/components/tabs/HotelsTab.tsx\n M Frontend/src/components/tabs/RouteTab.tsx\n M Frontend/src/hooks/useTravelApi.ts\n M Frontend/src/pages/PlannerStudioPage.tsx\n M Frontend/src/services/api.ts\n M Frontend/src/types/index.ts\n?? Backend/activity_identity_audit_tests.py\n?? Backend/app/services/reroute_service.py\n?? Backend/app/utils/activity_identity.py\n?? Backend/app/utils/migrate_trip_images.py\n?? Backend/audit_tests.py\n?? Backend/benchmark_scenarios.py\n?? Backend/dynamic_reroute_tests.py\n?? Backend/flight_audit_tests.py\n?? Backend/itinerary_engine_audit_tests.py\n?? Backend/phase2_1_reroute_tests.py\n?? Frontend/src/components/tabs/CompanionMode.tsx\n?? docs/",
+  "source_manifest": {
+    ".gitignore": {
+      "sha256": "e571a41df27219a7684866e02812d5ac1e9fc6eacf896b558e30e16c213c4dca",
+      "bytes": 349
+    },
+    "MVC ARCHITECTURE.png": {
+      "sha256": "ff23875e2afed9d459831a15646da2f5593cc437901dfbfc04910f416fabc866",
+      "bytes": 1501677
+    },
+    "architecture-mongodb.png": {
+      "sha256": "3f19633b442e0becaa5748dc622c0f46783c36a962f058577c1b492fa34ff03c",
+      "bytes": 73887
+    },
+    "Backend/.env.example": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/activity_identity_audit_tests.py": {
+      "sha256": "24e4849b23a2aa2a39b59094ae8f762e1422ee38bf40a2916b978f3a5c7ede52",
+      "bytes": 15398
+    },
+    "Backend/audit_tests.py": {
+      "sha256": "ba012effe59c945a96c08d11e970dc622e4da342558620812c6a2996ca6ba22f",
+      "bytes": 15412
+    },
+    "Backend/benchmark_result.json": {
+      "sha256": "971bc192a9a3bb96511d0429c6df1adb593ddf5c952ae582285dcd96bfeb9c1d",
+      "bytes": 559
+    },
+    "Backend/benchmark_scenarios.py": {
+      "sha256": "c88923e595f9f6854a63bd61f2b064f8ee64374befd6641b61cd27db470b5e85",
+      "bytes": 7412
+    },
+    "Backend/dynamic_reroute_tests.py": {
+      "sha256": "a31a99cbe490591df790aac80a2a30155674fdf0f5c790fd55cf620ebc3b3e80",
+      "bytes": 23735
+    },
+    "Backend/flight_audit_tests.py": {
+      "sha256": "df28aba06de197fcb2bfd028662c60e1497fa01f260879fa06d43fbc711413c1",
+      "bytes": 14670
+    },
+    "Backend/itinerary_engine_audit_tests.py": {
+      "sha256": "9dfe4634827b9e8a1f4157de9a7cc317f2351e50a1cadf5dba92b49d787ad55a",
+      "bytes": 23352
+    },
+    "Backend/phase1_test_result.json": {
+      "sha256": "536b8e4be508dbe5630eb1fcb2bfe62e32274fb4ff3ae313db56341d97b8633e",
+      "bytes": 49
+    },
+    "Backend/phase2_1_reroute_tests.py": {
+      "sha256": "1dfb7540245453654a39d57de18318f5ac43d33cca7045277a596d5a47ffc36c",
+      "bytes": 26735
+    },
+    "Backend/phase3_test_result.json": {
+      "sha256": "beeea0be2b042c53879604cc0fa539530edc9089d493b285fcfa509359e12057",
+      "bytes": 709
+    },
+    "Backend/requirements.txt": {
+      "sha256": "7573dbb44753f233aa00b42d5e6b25c625cddb15f360eb8a93589bd85c8f0391",
+      "bytes": 136
+    },
+    "Backend/test_conversational_chat.py": {
+      "sha256": "d970ed77087353012e2040e5e4db5fd19722b17cd03a91fa3107656c195412f7",
+      "bytes": 4617
+    },
+    "Backend/test_graph.py": {
+      "sha256": "47dcb06c33b0dd927cb6624f5e7c5d7d1450c6e08c6008edb8b45ec6c00267d8",
+      "bytes": 3520
+    },
+    "Backend/test_sydney.py": {
+      "sha256": "b47399a321fb6bec95064af9ea7437d503b7516a7dbc0040847ab4b0a255c96c",
+      "bytes": 920
+    },
+    "Backend/app/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/main.py": {
+      "sha256": "3babe643a7d5048df332dc1d958581e02e9884a79ef7f4dde76f7c9663bea095",
+      "bytes": 1148
+    },
+    "Backend/app/ai/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/ai/llm.py": {
+      "sha256": "98361668e4024d769c5356ed313f0b5568045c641aaa709434f8eb176e58b8b6",
+      "bytes": 12985
+    },
+    "Backend/app/ai/agents/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/ai/agents/attraction_agent.py": {
+      "sha256": "a61c093cae00924f12df9e1ed91e90c714d8154c037d9f7b57c6137f3e57eea4",
+      "bytes": 24410
+    },
+    "Backend/app/ai/agents/budget_agent.py": {
+      "sha256": "eb7ea49df7b1fd8114cdb66acb4ec1c50b73a39e734ec0137eb754c64ec30d25",
+      "bytes": 1962
+    },
+    "Backend/app/ai/agents/flight_agent.py": {
+      "sha256": "a5a182bf980faf292ba0cf13281d46f9453e375ae42857cdf7973def3f867638",
+      "bytes": 24972
+    },
+    "Backend/app/ai/agents/hotel_agent.py": {
+      "sha256": "63631dc68846495ecba5890970f0aab4b3a46fb47a9c9234a0d3e0054a762e97",
+      "bytes": 7272
+    },
+    "Backend/app/ai/agents/opening_hours_agent.py": {
+      "sha256": "82ba3ab67ad46db3aabc15290bfabccfe8ca079c08d7d055ba40d72d76331b63",
+      "bytes": 2190
+    },
+    "Backend/app/ai/agents/restaurant_agent.py": {
+      "sha256": "baa07f9ebdee9b590ebef9ec1772a86545ac76dd84eacd0627dbc7f7240a987f",
+      "bytes": 22706
+    },
+    "Backend/app/ai/agents/route_agent.py": {
+      "sha256": "b3e2af806918c3f576072e6a4218c8347697d4d79a6ab4d85b46295efae9d4b1",
+      "bytes": 54240
+    },
+    "Backend/app/ai/agents/synthesis_agent.py": {
+      "sha256": "51b58f54279cb99ac90b699d4bed6c7f6ec77dd51c73c59e44cb76f2289fa1f2",
+      "bytes": 1836
+    },
+    "Backend/app/ai/agents/weather_agent.py": {
+      "sha256": "15d5422a6c8e4a8f2cd6be39c1aa2a5a1cf5a41140f2513fe99820d314943a9b",
+      "bytes": 5945
+    },
+    "Backend/app/ai/orchestrator/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/ai/orchestrator/langgraph_graph.py": {
+      "sha256": "868c778b2ce8e45c92e9a7dbb7f0d33b50166f98d234bc7247c298d605e5e10c",
+      "bytes": 4091
+    },
+    "Backend/app/ai/orchestrator/parser_agent.py": {
+      "sha256": "6cf859ba194bfc76667d501cced327d901983eb61877b295fecbf21f33c1c589",
+      "bytes": 2734
+    },
+    "Backend/app/ai/orchestrator/planner_agent.py": {
+      "sha256": "a66b1de809f14886c0183b1589a3639fc7e896dbb6c229041181c179d615d383",
+      "bytes": 1130
+    },
+    "Backend/app/ai/orchestrator/state.py": {
+      "sha256": "f73be8cae5ed20f07dd49587516f92eee91854f17aec771d214d8eb45c0b0327",
+      "bytes": 1843
+    },
+    "Backend/app/ai/rag/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/ai/rag/chroma_client.py": {
+      "sha256": "34b21d8b609aa695b4d3ccfd7f03b7592c8d2430cad4832c572e220be9d0ffa4",
+      "bytes": 566
+    },
+    "Backend/app/ai/rag/download_india_guides.py": {
+      "sha256": "7f823aad8db5a981cc338e61b8a0ad64c0fbde9a28dfed0a8541c8397acc12e6",
+      "bytes": 3337
+    },
+    "Backend/app/ai/rag/embedder.py": {
+      "sha256": "a5b9f05f1e16ca5f7f4994dddc35a44683f1c974f895beac068e3432226689e7",
+      "bytes": 355
+    },
+    "Backend/app/ai/rag/ingest.py": {
+      "sha256": "478e422c3534a91728b496d53a8fe466371b9e27d89dee97b84c876a0677de00",
+      "bytes": 2634
+    },
+    "Backend/app/ai/rag/retriever.py": {
+      "sha256": "899c29a6165a0e09eb6682575c1e87485d4991f0ea844dd3760d2d0f417af5a2",
+      "bytes": 2214
+    },
+    "Backend/app/ai/rag/knowledge/agra_guide.txt": {
+      "sha256": "c872418e676848b98d165492c336efa8c8bcadb38955eb54282ff9e16b51c978",
+      "bytes": 24669
+    },
+    "Backend/app/ai/rag/knowledge/amritsar_guide.txt": {
+      "sha256": "c95b73d4d6a42bec774eabfd0675c3685c506873fda541d4adc465017ad269f2",
+      "bytes": 49017
+    },
+    "Backend/app/ai/rag/knowledge/bengaluru_guide.txt": {
+      "sha256": "95029c88fc1cf902d3df2aaaa818a58099abe6ffadac641b08180115e31cd0c5",
+      "bytes": 62503
+    },
+    "Backend/app/ai/rag/knowledge/darjeeling_guide.txt": {
+      "sha256": "f1776403bdac8f1a349ee4dfffc3f9889eff08a9a7bf619abbe19550e59c42bd",
+      "bytes": 32068
+    },
+    "Backend/app/ai/rag/knowledge/delhi_guide.txt": {
+      "sha256": "3daf6c53ae098e8f4c2301191ed338feebf18656d36f7047c5c26acdafe7bf30",
+      "bytes": 61314
+    },
+    "Backend/app/ai/rag/knowledge/goa_guide.txt": {
+      "sha256": "42ec504b73fb56033c53d3f56cce454b26ff8250eafb813129bb172c5687926a",
+      "bytes": 44363
+    },
+    "Backend/app/ai/rag/knowledge/jaipur_guide.txt": {
+      "sha256": "d8c087db649b2dbf4945bab9afc0ee0abc6340a3ac7f93776e1a3da0710411c0",
+      "bytes": 75976
+    },
+    "Backend/app/ai/rag/knowledge/kerala_guide.txt": {
+      "sha256": "3e7cb6ce98a0c682af899b817748d53dba21d8a1940201a86756da4cff27d19b",
+      "bytes": 96692
+    },
+    "Backend/app/ai/rag/knowledge/leh_guide.txt": {
+      "sha256": "d64c680edf93d6208b2e272533af5f2f1d993c8ce7f7c94cfa8d88d7db8018b7",
+      "bytes": 32202
+    },
+    "Backend/app/ai/rag/knowledge/manali_guide.txt": {
+      "sha256": "0273a2380e19bcb82ed9ceb93049bc0c04f8b4e2b8ccb1f3870ed0dcc53e1128",
+      "bytes": 36233
+    },
+    "Backend/app/ai/rag/knowledge/mumbai_guide.txt": {
+      "sha256": "1b2cba738961de7c7b4981869ac818d4441112e52d6b3932d59300aab71c6dff",
+      "bytes": 99227
+    },
+    "Backend/app/ai/rag/knowledge/ooty_guide.txt": {
+      "sha256": "c9dd929fd8ce4df5500c211e65f65a7d7a19b0205d520cedfa9bc6c107b2a13c",
+      "bytes": 22667
+    },
+    "Backend/app/ai/rag/knowledge/readme.txt": {
+      "sha256": "0246125d92f1734f97bfd0fd16aedb6cc6a609bfcdce7316f8378aa132dc43b0",
+      "bytes": 515
+    },
+    "Backend/app/ai/rag/knowledge/shimla_guide.txt": {
+      "sha256": "243e687dec6abb909a7db17162420472a4157180a190305859e931a5fa764c9c",
+      "bytes": 42404
+    },
+    "Backend/app/ai/rag/knowledge/udaipur_guide.txt": {
+      "sha256": "d41f4aa7461a5df60d0d264150b95697b3fa72fd007c97d39e777d4ac38e42a3",
+      "bytes": 49300
+    },
+    "Backend/app/ai/rag/knowledge/varanasi_guide.txt": {
+      "sha256": "b011cab1d6c61ca83939e00e250a6462a28459df6f5140fa2c288eda9394f1ad",
+      "bytes": 57647
+    },
+    "Backend/app/ai/reviewer/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/ai/reviewer/reviewer_agent.py": {
+      "sha256": "b10dab301f574272e11ee42038a6053fb5c35e878c5658148114b70fc7a9fd13",
+      "bytes": 1775
+    },
+    "Backend/app/api/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/api/auth.py": {
+      "sha256": "88b3bc0f893ebaed8bb152f98d9f1cebd56b473edb9ad7a77170c1fbf1cb1978",
+      "bytes": 2997
+    },
+    "Backend/app/api/chat.py": {
+      "sha256": "61e19b6d07c0fbc0d639a1665269cbd94275e4ccef3d276f145e7cc01885e3c5",
+      "bytes": 2534
+    },
+    "Backend/app/api/trips.py": {
+      "sha256": "adaaaf3c52a5d38736642f0fa1fe3b069091c1012b277c757507fce4063e763b",
+      "bytes": 13578
+    },
+    "Backend/app/database/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/database/mongodb.py": {
+      "sha256": "dadba86f20fc48fca70ba72835a3f6ab3e42f87ef92c4db8dca891f822e3d501",
+      "bytes": 436
+    },
+    "Backend/app/models/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/models/conversation.py": {
+      "sha256": "4690ca20e38a0c9b08b8ecd7589a4e4989c14ce8e4a97d56134fe70fb2fd38e4",
+      "bytes": 1293
+    },
+    "Backend/app/models/message.py": {
+      "sha256": "8d8637f115b7e751e54351f7c6a4641599b6657326a45756f5886d59fc82972a",
+      "bytes": 406
+    },
+    "Backend/app/models/trip.py": {
+      "sha256": "d2eaae3705b87a4231bb12b1a9c9716753b9d818d0e144eb20aa5fd92c2c1c77",
+      "bytes": 1213
+    },
+    "Backend/app/schemas/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/schemas/chat.py": {
+      "sha256": "8929ce174c39f5abc040a8c5aca1f5700c33397dabf0a8ae1f8e1abd2bd6a4c2",
+      "bytes": 929
+    },
+    "Backend/app/services/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/services/chat_service.py": {
+      "sha256": "23b979f2b632daa09c7238c9fb5b5b4b6e340af70f21cbaa67c15af993d5c185",
+      "bytes": 18268
+    },
+    "Backend/app/services/conversation_service.py": {
+      "sha256": "5cb2a1f19b8af53302b743c964ad2b8e827c98687395782ba6117e6561f73118",
+      "bytes": 5142
+    },
+    "Backend/app/services/qa_service.py": {
+      "sha256": "67ebf262130d9e8229cf942464927ffd5744f69c44b0e75e2485126f96e9326b",
+      "bytes": 3207
+    },
+    "Backend/app/services/reroute_service.py": {
+      "sha256": "dadb75a8e3d465e0f821e993e8d674a9a7f8efea312e4cb7c007ebc6c6823875",
+      "bytes": 36217
+    },
+    "Backend/app/services/slot_extraction_service.py": {
+      "sha256": "31215cadcd09aa8645d4dd8ab1e915ac92f194a32da86a4e0f4f3cd55e4be3b5",
+      "bytes": 13965
+    },
+    "Backend/app/utils/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "Backend/app/utils/activity_identity.py": {
+      "sha256": "95cbc722ccf4e5d2afec0535683803569ccaaa55cc42242cc41a02b29f19074d",
+      "bytes": 7400
+    },
+    "Backend/app/utils/auth_utils.py": {
+      "sha256": "ffa4c006074a4ce3888b2fdfd3c28d63e7772fd1ae96ed69237c9e8a9fbe7597",
+      "bytes": 1462
+    },
+    "Backend/app/utils/migrate_trip_images.py": {
+      "sha256": "f605deaa679c47500cedd3a70fd730b33f529699d75106c4f41ddef21647d5d8",
+      "bytes": 3396
+    },
+    "Frontend/.env.example": {
+      "sha256": "8ef571ddb32a4dc3db6848732465c7331f879c622292b04e50ee43e188590acf",
+      "bytes": 599
+    },
+    "Frontend/.gitignore": {
+      "sha256": "eb13e93639d4c770f0a28ba670e9f4a922bc20ff1e734bdbe916740b0ae13d74",
+      "bytes": 81
+    },
+    "Frontend/README.md": {
+      "sha256": "aa04169e06f2373ebefe766b3c190ed3154d5ea3610278ddb315c0e6d3e004d7",
+      "bytes": 562
+    },
+    "Frontend/index.html": {
+      "sha256": "697a7c1d1e0d1327cc8c81892648ba02b4db1917f200efd49ca5ea3aeeef3801",
+      "bytes": 1490
+    },
+    "Frontend/metadata.json": {
+      "sha256": "3a1633734cb1e1e3dd1047138209c3fc3d1a6c20e8341e7425c6b77db37ca09d",
+      "bytes": 231
+    },
+    "Frontend/package-lock.json": {
+      "sha256": "745d17e189f3c05c0274e12a587b00e8bfdee366823aab2fbb9a7e370a9e1fbd",
+      "bytes": 155139
+    },
+    "Frontend/package.json": {
+      "sha256": "c7af06f75f3e4ccb5227806d4ccb425f6982368906bf2357095c635bb46b5f74",
+      "bytes": 1008
+    },
+    "Frontend/tsconfig.json": {
+      "sha256": "3c6abfb62d861145b657e37a6bbf96d1626752b6145e3bf9c218a0e66112cdd6",
+      "bytes": 534
+    },
+    "Frontend/vite.config.ts": {
+      "sha256": "b990c4afdfb5195bdc994739210dbfeb0b5eece38bd0caf2a76d44b2ee97c6bb",
+      "bytes": 730
+    },
+    "Frontend/src/App.tsx": {
+      "sha256": "1e9ca1ab119751276fd9c1a39938e5a39d87f97bf716a52c42c2a7ef9bf9e38b",
+      "bytes": 11441
+    },
+    "Frontend/src/index.css": {
+      "sha256": "dffd7f68162337ed29ae2159cd8d370485f1c04c8b2b160d80606a8f00c55fc2",
+      "bytes": 7203
+    },
+    "Frontend/src/main.tsx": {
+      "sha256": "eb5b98d3f08f5a8facb4d61f6c56e78b5b88e3845742119ac528d9303810b29d",
+      "bytes": 349
+    },
+    "Frontend/src/vite-env.d.ts": {
+      "sha256": "3cb02caefe3f0e7ac7a120e17eb8d2389c694a02f40b56bf88e6a7b260622444",
+      "bytes": 206
+    },
+    "Frontend/src/components/ApiConfigModal.tsx": {
+      "sha256": "c3e1ed68c81219cdba56605f5bde761214b92b5d548b45e5268d4849258266b7",
+      "bytes": 13645
+    },
+    "Frontend/src/components/ChatPanel.tsx": {
+      "sha256": "1838a4a1b0a33e01652bede37d77f04a6066fad9d000c4e7c6c2f27022922046",
+      "bytes": 20650
+    },
+    "Frontend/src/components/DashboardPanel.tsx": {
+      "sha256": "518af87f8f0962c8cca40b05207b1221e6268a1c1837752d35d6d78176c37d17",
+      "bytes": 12755
+    },
+    "Frontend/src/components/ErrorBoundary.tsx": {
+      "sha256": "f0a6b6708324ba116a222b26a9d85f92d3c50e612bc07a095416b574d2bdbdc9",
+      "bytes": 3575
+    },
+    "Frontend/src/components/Header.tsx": {
+      "sha256": "ec9cf595aebfc40092c58cf60b1cf49a1dab97fd584cbd970f9b49f3eaf78d91",
+      "bytes": 14289
+    },
+    "Frontend/src/components/Sidebar.tsx": {
+      "sha256": "c0bd9f16a5a5e281f02b254681f2b633ad28f321e25655478c72936b944c288c",
+      "bytes": 17728
+    },
+    "Frontend/src/components/preferences/BudgetPopover.tsx": {
+      "sha256": "144872b4866eeb2f9d55bc024b4fe74e68762faac88928e776d1694a6c7e6ebc",
+      "bytes": 10221
+    },
+    "Frontend/src/components/preferences/InterestsPopover.tsx": {
+      "sha256": "71e8538ae1167d87f2a2b503a1bcd47675b2a8f26945eaa52cf59b70ed60c490",
+      "bytes": 5876
+    },
+    "Frontend/src/components/preferences/TravelPreferenceBar.tsx": {
+      "sha256": "825e6ed518e26558d5deb556c6f5c7409b8b6fd48732a790cf3e97786aa2dcb9",
+      "bytes": 18161
+    },
+    "Frontend/src/components/preferences/TravelersPopover.tsx": {
+      "sha256": "39a55d868606eb0cdcfbc73cf654d705fe6cd674f2f55d545182f653590c77d5",
+      "bytes": 7998
+    },
+    "Frontend/src/components/preferences/WhenPopover.tsx": {
+      "sha256": "45468a41e5efb131f214c583e55a95dfce783cbc59017d904c0e105f2a3e8810",
+      "bytes": 12096
+    },
+    "Frontend/src/components/preferences/WherePopover.tsx": {
+      "sha256": "2367eed0f3265ad85c770104746dc4c8880f31c9ea742f4f02fa449b1fadeae5",
+      "bytes": 10607
+    },
+    "Frontend/src/components/tabs/BudgetTab.tsx": {
+      "sha256": "84419aa65643d458e8a62e20ed029a83885f325858866d29ae7d05ff20fd9543",
+      "bytes": 6131
+    },
+    "Frontend/src/components/tabs/CompanionMode.tsx": {
+      "sha256": "3ce54ad5b06d11020f5ed62c0b7a70aed608bae827344f7f531ba267083a135e",
+      "bytes": 56377
+    },
+    "Frontend/src/components/tabs/DayDetailView.tsx": {
+      "sha256": "693f256de34c9134a77c3e116948e9fa54cb1c865172b4d7c00879b84cf4d92c",
+      "bytes": 34921
+    },
+    "Frontend/src/components/tabs/DayMapView.tsx": {
+      "sha256": "1664efc80e543f575897c0766ae39cdc8246e4d9f7ca57cab576936e40688048",
+      "bytes": 15895
+    },
+    "Frontend/src/components/tabs/FlightsTab.tsx": {
+      "sha256": "9e2f2e6ecfa555f96d1046dd16d8cb8738f3cfd6d98a25db088b2cb03b3f30f5",
+      "bytes": 17837
+    },
+    "Frontend/src/components/tabs/HotelsTab.tsx": {
+      "sha256": "e335feebe71239fe085ac503cdd648c64f8137adb0d7a74df35fecf28d2ca33c",
+      "bytes": 11066
+    },
+    "Frontend/src/components/tabs/RouteDirectionsDrawer.tsx": {
+      "sha256": "2e68cf21daa9f497132b1ff423e71f1ad33bbcd2713fcbe716ce81e91d588663",
+      "bytes": 18954
+    },
+    "Frontend/src/components/tabs/RouteTab.tsx": {
+      "sha256": "b0f7bcd02f7983752d492b31a2b2f5624c809ef38d79337aa5327db2886b99ea",
+      "bytes": 19648
+    },
+    "Frontend/src/components/tabs/WeatherTab.tsx": {
+      "sha256": "16f400865155f87f33d89900e97202af41b947f2b763d8dad1f7095ea77dfe44",
+      "bytes": 5598
+    },
+    "Frontend/src/context/AuthContext.tsx": {
+      "sha256": "d6280338f78c2e122878ed55fb962e7bb52162b071a765ade41484dd562ccea4",
+      "bytes": 7194
+    },
+    "Frontend/src/context/ThemeContext.tsx": {
+      "sha256": "79b0e01116fa5d57a73c821f4ee965207edbf8b46bd13a5f0d821ade5ec01a3d",
+      "bytes": 1599
+    },
+    "Frontend/src/hooks/useTravelApi.ts": {
+      "sha256": "578ddd1d385749a99bbeb51f6229b6b80af7266084cfe7c8de2ac80f6ad7d0fd",
+      "bytes": 34309
+    },
+    "Frontend/src/pages/AiPlacesMemoryPage.tsx": {
+      "sha256": "ff359fe6a5f6d509b8ae4c50f0405ebb0dbb039328c3dffb6c496d88e967440b",
+      "bytes": 13567
+    },
+    "Frontend/src/pages/BookingsDeskPage.tsx": {
+      "sha256": "4177f3974003d753575e19ec5e62f9fb3ca52c5ebbb6568b29656d42a65678a5",
+      "bytes": 21631
+    },
+    "Frontend/src/pages/ItineraryHubPage.tsx": {
+      "sha256": "a3345020fb74f2f1645c72aa31e86eaf05b0f02842ef399511ff6dd7fabc5f52",
+      "bytes": 17728
+    },
+    "Frontend/src/pages/LoginPage.tsx": {
+      "sha256": "16cb354a7603268d57ccdbaf83b99dcf701159bf7382d65a40dc1838409e503c",
+      "bytes": 14866
+    },
+    "Frontend/src/pages/PlannerStudioPage.tsx": {
+      "sha256": "cb35fad4850855e51de5b9f232b8ac429d56aa85a088b8dc3e0ed2f122c62959",
+      "bytes": 5138
+    },
+    "Frontend/src/pages/RegisterPage.tsx": {
+      "sha256": "40f8293948fa0ff6dc89bd3215672ea75b78888a75f91f80e9967bdaa931c7bc",
+      "bytes": 16346
+    },
+    "Frontend/src/services/api.ts": {
+      "sha256": "1c29c6a986225a10051a20a88fd5cd08881901dfb41f6a83aa9f6e6ccb225790",
+      "bytes": 114989
+    },
+    "Frontend/src/services/routingService.ts": {
+      "sha256": "1092f0e45881e40c260bf7272adfa09c7cbe7ae435e8898f09d8f4fb0be04e36",
+      "bytes": 6044
+    },
+    "Frontend/src/types/index.ts": {
+      "sha256": "773f23b562ce840389283ca43d6b26d735e502e3a5d77dbe6cd18e0d168bc8c7",
+      "bytes": 8547
+    }
+  },
+  "test_method": "Original script entry points, unmodified, run as subprocesses in Backend; suites use their own mock database objects. No browser, HTTP endpoint integration, real MongoDB concurrency, or live-provider SLA certification.",
+  "test_results": [
+    {
+      "suite": "phase2_1_reroute_tests.py",
+      "expected_scenarios": 10,
+      "passed": true,
+      "exit_code": 0,
+      "elapsed_seconds": 14.515,
+      "command": "python -B phase2_1_reroute_tests.py",
+      "working_directory": "Backend",
+      "output": "==================================================\n[LLM CONFIG]\nProvider: Groq\nModel: qwen/qwen3.8-27b\nAPI key configured: YES\nRate Coordinator: Active (OTPM Budget: 1000 tokens/min)\n==================================================\n\n###########################################################################\nRUNNING TRAVELAI PHASE 2.1 REGRESSION TESTS\n###########################################################################\n\n===========================================================================\nSCENARIO A: Skip Cafe Bahar (12:30-1:30 PM Lunch) in Hyderabad\n===========================================================================\n  [PASS] Replacement start time verified: 12:30 (>= 12:30 PM, no time-travel).\n  [PASS] Replacement venue is meal-appropriate: 'Hotel Shadab' (category: restaurant).\n  [PASS] Historical completed stops (Birla Mandir, Salar Jung Museum) remain strictly unchanged.\n  [PASS] All 5 stops sequenced chronologically with zero overlap.\nSCENARIO A PASSED!\n\n\n===========================================================================\nSCENARIO B: Transit Buffer Enforcement After Stop Ending at 10:42 AM\n===========================================================================\n  [PASS] Replacement start time respects transit buffer: 10:55 (>= 10:47 AM).\nSCENARIO B PASSED!\n\n\n===========================================================================\nSCENARIO C: Normal Exploration Day Schedules Explicit Breakfast Stop\n===========================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: balanced) ---\n--- ROUTE AGENT: Successfully built 3 priority-based calendar days for Goa ---\n  [PASS] Breakfast scheduled explicitly: 'Breakfast & Morning Prep (Taj Fort Aguada Resort)' from 08:00 to 08:45 AM.\n  [PASS] First attraction starts after breakfast & transit: 08:56.\nSCENARIO C PASSED!\n\n\n===========================================================================\nSCENARIO D: Completed Breakfast Preservation in Execution State\n===========================================================================\n  [PASS] Completed breakfast stop remained at position 0 with 'Unchanged' status.\nSCENARIO D PASSED!\n\n\n===========================================================================\nSCENARIO E: Temple Skip Replaces with Attraction/Cultural Site, Never Restaurant\n===========================================================================\n  [PASS] Temple replacement is an attraction: 'Shri Ashtalakshmi Temple' (category: temple).\nSCENARIO E PASSED!\n\n\n===========================================================================\nSCENARIO F: Past Destination Time Handling (Effective Destination Time)\n===========================================================================\n  [PASS] Replacement start time respects current time 13:10 PM: 13:10 (790m >= 790m).\n  [PASS] Proposal reason notes current time adjustment.\nSCENARIO F PASSED!\n\n\n===========================================================================\nSCENARIO G: Graceful Meal Break Retention Without Fabricating Fake Places\n===========================================================================\n--- RESTAURANT AGENT: SerpApi Google Maps yielded 5 verified restaurants for Remote Valley ---\n  [PASS] Retained dedicated meal break: 'Lunch Break & Local Dining' (12:30 PM - 01:30 PM).\nSCENARIO G PASSED!\n\n\n===========================================================================\nSCENARIO H: Apply Proposal Persists Revision Increment & Updates Route\n===========================================================================\n  [PASS] Trip revision incremented to 2, itinerary updated, and history logged.\nSCENARIO H PASSED!\n\n\n===========================================================================\nSCENARIO I: Cancel Proposal Preserves Original Schedule Intact\n===========================================================================\n  [PASS] Original schedule preserved verbatim on proposal dismissal.\nSCENARIO I PASSED!\n\n\n===========================================================================\nSCENARIO J: Full-Day Chronological Integrity & Zero Overlap Verification\n===========================================================================\n  [PASS] Full day verified: all stops chronological, positive durations, within bedtime.\nSCENARIO J PASSED!\n\n\n###########################################################################\nALL 10 PHASE 2.1 REGRESSION SCENARIOS PASSED WITH 100% SUCCESS!\n###########################################################################\n\n\n"
+    },
+    {
+      "suite": "dynamic_reroute_tests.py",
+      "expected_scenarios": 14,
+      "passed": true,
+      "exit_code": 0,
+      "elapsed_seconds": 11.009,
+      "command": "python -B dynamic_reroute_tests.py",
+      "working_directory": "Backend",
+      "output": "==================================================\n[LLM CONFIG]\nProvider: Groq\nModel: qwen/qwen3.8-27b\nAPI key configured: YES\nRate Coordinator: Active (OTPM Budget: 1000 tokens/min)\n==================================================\n===========================================================================\nTRAVELAI PHASE 2 - DYNAMIC AI REROUTING REGRESSION SUITE\n===========================================================================\n\n--- SCENARIO A: Skip upcoming attraction & insert verified replacement ---\n  [PASS] Replacement 'Anjuna Flea Market' inserted with unique ID 'act_market_cultural_anjuna_flea_market_chijanju'.\n\n--- SCENARIO B: Preserve completed activities & their statuses ---\n  [PASS] Completed stop 'Calangute Beach' remained untouched at index 0.\n\n--- SCENARIO C: Skipped activity remains skipped and not reintroduced ---\n  [PASS] Skipped activity 'Aguada Fort' successfully excluded from proposed schedule.\n\n--- SCENARIO D: Preserve future days (Day 2 untouched) ---\n  [PASS] Day 2 itinerary is identical before and after rerouting.\n\n--- SCENARIO E: Recalculate chronological times without overlaps ---\n  [PASS] All 3 stops scheduled chronologically with zero overlap.\n\n--- SCENARIO F: No suitable replacement found fallback ---\n  [PASS] Graceful fallback with replacement_found=False and remaining stops shifted.\n\n--- SCENARIO G: Groq failure fallback with SerpApi/Overpass active ---\n  [PASS] Factual discovery rescued candidate generation seamlessly.\n\n--- SCENARIO H: Both Groq and factual discovery fail ---\n--- REROUTE SERVICE: Factual discovery fallback error: API limit exceeded ---\n  [PASS] Handled total provider outage cleanly without 500 error.\n\n--- SCENARIO I: Missing current GPS location fallback ---\n  [PASS] Missing GPS used last known stop as reference: 'Calangute Beach'.\n\n--- SCENARIO J: Reject proposed reroute & preserve original itinerary ---\n  [PASS] Itinerary preserved intact; stop recorded as skipped in execution state.\n\n--- SCENARIO K: Accept proposed reroute & persist revised itinerary ---\n  [PASS] Revision incremented to 2, reroute history logged.\n\n--- SCENARIO L: Concurrent revision mismatch protection (409 Conflict) ---\n  [PASS] Concurrency violation caught: HTTP 409 (Concurrent modification detected. Current revision is 3, expected 1.).\n\n--- SCENARIO M: Persistence & reload consistency ---\n  [PASS] Reloaded trip retains persistent IDs, replacement stop, and revision 2.\n\n--- SCENARIO N: Unauthorized trip mutation rejected (403 Forbidden) ---\n  [PASS] Unauthorized user mutation blocked: HTTP 403 (Unauthorized: Trip belongs to another user).\n\n===========================================================================\nRESULTS: 14/14 DYNAMIC REROUTING SCENARIOS PASSED (100%)\n===========================================================================\n\n"
+    },
+    {
+      "suite": "itinerary_engine_audit_tests.py",
+      "expected_scenarios": 6,
+      "passed": true,
+      "exit_code": 0,
+      "elapsed_seconds": 12.95,
+      "command": "python -B itinerary_engine_audit_tests.py",
+      "working_directory": "Backend",
+      "output": "==================================================\n[LLM CONFIG]\nProvider: Groq\nModel: qwen/qwen3.8-27b\nAPI key configured: YES\nRate Coordinator: Active (OTPM Budget: 1000 tokens/min)\n==================================================\n\n======================================================================\nTEST A: 4-Day Goa (Nature > Beaches > Temples) with Must-Visit Aguada Fort\n======================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: balanced) ---\n--- ROUTE AGENT: Successfully built 4 priority-based calendar days for Goa ---\nGenerated 4 days.\n[OK] Aguada Fort successfully included and scheduled.\n[OK] Day 1 transit constraints correctly enforced.\n[OK] Day 4 departure constraints correctly enforced.\n[OK] 5 unique attractions scheduled without duplicates.\n[OK] Lunch windows verified between 12:00 and 14:30.\nTEST A PASSED!\n\n\n======================================================================\nTEST B: 5-Day Paris (History > Museums > Food) with Relaxed Pace\n======================================================================\n[OK] Resolved timezone: Europe/Paris\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Paris (pace: relaxed) ---\n--- ROUTE AGENT: Successfully built 5 priority-based calendar days for Paris ---\n[OK] Eiffel Tower and Louvre Museum both scheduled.\n[OK] Relaxed pace duration checks verified (generous visit durations).\nTEST B PASSED!\n\n\n======================================================================\nTEST C: 5-Day Hyderabad -> Sydney Transit Buffers & Packed Pace\n======================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Sydney (pace: packed) ---\n--- ROUTE AGENT: Successfully built 5 priority-based calendar days for Sydney ---\n[OK] Packed pace verified across 3 exploration days.\nTEST C PASSED!\n\n\n======================================================================\nTEST D: Relaxed vs Packed Pace Comparison\n======================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: relaxed) ---\n--- ROUTE AGENT: Successfully built 3 priority-based calendar days for Goa ---\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: packed) ---\n--- ROUTE AGENT: Successfully built 3 priority-based calendar days for Goa ---\nRelaxed total attractions scheduled: 4\nPacked total attractions scheduled:  9\n[OK] Packed pace schedules significantly more attractions than relaxed pace.\nTEST D PASSED!\n\n\n======================================================================\nTEST E: Missing Opening Hours and Coordinates Resilience\n======================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: balanced) ---\n--- ROUTE AGENT: Successfully built 2 priority-based calendar days for Goa ---\n[OK] Verified engine handles missing coordinates & hours without fabricating data or crashing.\nTEST E PASSED!\n\n\n======================================================================\nTEST F: Authoritative Date Validation\n======================================================================\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: balanced) ---\n--- ROUTE AGENT: Successfully built 6 priority-based calendar days for Goa ---\n[OK] Authoritative start_date and end_date correctly governed total days (6 days).\nTEST F PASSED!\n\n\n######################################################################\nALL 6 ITINERARY ENGINE AUDIT TESTS PASSED SUCCESSFULLY!\n######################################################################\n\n\n"
+    },
+    {
+      "suite": "activity_identity_audit_tests.py",
+      "expected_scenarios": 7,
+      "passed": true,
+      "exit_code": 0,
+      "elapsed_seconds": 10.752,
+      "command": "python -B activity_identity_audit_tests.py",
+      "working_directory": "Backend",
+      "output": "==================================================\n[LLM CONFIG]\nProvider: Groq\nModel: qwen/qwen3.8-27b\nAPI key configured: YES\nRate Coordinator: Active (OTPM Budget: 1000 tokens/min)\n==================================================\n======================================================================\nACTIVITY IDENTITY & EXECUTION-STATE COMPATIBILITY AUDIT\n======================================================================\n\n--- TEST 1: Stable Identity Across Reordering ---\n  [PASS] ID A: 'act_attraction_baga_beach_chijbaga'\n  [PASS] ID B: 'act_attraction_aguada_fort_chijagua'\n  [PASS] Both activities retained stable IDs after array index swap.\n\n--- TEST 2: Prevention of Accidental Status Transfer on Reordering ---\n  Position 0 (Aguada Fort): resolved status = 'pending' (expected: 'pending')\n  Position 1 (Baga Beach): resolved status = 'completed' (expected: 'completed')\n  [PASS] Safety check prevented legacy key 1_0 from erroneously transferring to Aguada Fort.\n  [PASS] Completed status remained strictly attached to Baga Beach.\n\n--- TEST 3: Prevention of Accidental Status Transfer on Insertion ---\n  Position 0 (New: Anjuna Market): resolved status = 'pending' (expected: 'pending')\n  Position 1 (Shifted: Baga Beach): resolved status = 'completed' (expected: 'completed')\n  [PASS] Inserting stop at index 0 did not contaminate new stop with previous stop 0 status.\n\n--- TEST 4: Activity Skipping & Undoing by Persistent ID ---\n  [PASS] Activity successfully resolved as 'skipped' by persistent ID.\n  [PASS] Activity successfully reverted to 'pending' after undo.\n\n--- TEST 5: Safe Migration of Legacy Execution State Records ---\n  Migrated Stop A: act_attraction_baga_beach_chijbaga -> completed\n  Migrated Stop B: act_attraction_aguada_fort_chijagua -> skipped\n  Swapped position 0 (Aguada Fort): status = 'skipped' (expected: 'skipped')\n  Swapped position 1 (Baga Beach): status = 'completed' (expected: 'completed')\n  [PASS] Legacy records cleanly migrated to persistent IDs and survived subsequent reordering.\n\n--- TEST 6: Route Agent Stop ID Verification on Realistic Generated Itineraries ---\n--- ROUTE AGENT: Initializing priority-based time-aware schedule for Goa (pace: balanced) ---\n--- ROUTE AGENT: Successfully built 3 priority-based calendar days for Goa ---\n  [PASS] Verified 14 stops across 3 days.\n  [PASS] All 14 stop IDs are unique, persistent, and non-positional.\n    - Sample ID: act_airport_rajiv_gandhi_international_airpo\n    - Sample ID: act_breakfast_breakfast_morning_prep_taj_fort_\n    - Sample ID: act_attraction_fort_aguada\n    - Sample ID: act_restaurant_martin_s_corner_2\n    - Sample ID: act_airport_manohar_international_airport_go\n\n--- TEST 7: Trip Reopen & Refresh Round-Trip Serialization ---\n  [PASS] Round-trip serialization preserved activity ID 'act_airport_rajiv_gandhi_international_airpo' and status 'completed'.\n\n======================================================================\nAUDIT SUMMARY: 7/7 TESTS PASSED (100% SUCCESS)\n======================================================================\n\n"
+    }
+  ],
+  "source_changes_during_tests": []
+}

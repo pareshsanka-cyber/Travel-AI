@@ -147,16 +147,8 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       let lat = act.lat;
       let lon = act.lon;
 
-      if (isValidCoord(lat, lon)) {
-        // Use real backend coordinates — no override
-      } else if (defaultCenter) {
-        // Fallback to correct destination city with small offset
-        const offsetLat = (idx === 0 ? 0.008 : idx === 1 ? -0.006 : 0.004) + (Math.sin(dayNumber + idx) * 0.003);
-        const offsetLon = (idx === 0 ? -0.006 : idx === 1 ? 0.008 : 0.006) + (Math.cos(dayNumber + idx) * 0.003);
-        lat = defaultCenter[0] + offsetLat;
-        lon = defaultCenter[1] + offsetLon;
-      } else {
-        // No valid coords at all — skip this waypoint rather than place it in Delhi
+      if (!isValidCoord(lat, lon)) {
+        // No verified coordinates for this venue — skip marker rather than placing it at an incorrect location
         return;
       }
 
@@ -171,7 +163,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       });
     });
 
-    if (waypoints.length === 0) return;
+    if (waypoints.length === 0 && !defaultCenter) return;
 
     // Destroy existing instance if any
     if (mapInstanceRef.current) {
@@ -179,11 +171,15 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       mapInstanceRef.current = null;
     }
 
+    const centerCoords: [number, number] = waypoints.length > 0
+      ? [waypoints[0].lat, waypoints[0].lon]
+      : defaultCenter!;
+
     // Initialize Map
     const map = L.map(mapContainerRef.current, {
       zoomControl: true,
       scrollWheelZoom: false,
-    }).setView([waypoints[0].lat, waypoints[0].lon], 13);
+    }).setView(centerCoords, 12);
 
     mapInstanceRef.current = map;
 

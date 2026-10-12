@@ -10,7 +10,8 @@ import {
   WeatherCondition,
   BudgetOverview,
   ChatMessage,
-  ApiStatusState
+  ApiStatusState,
+  ExecutionState
 } from '../types';
 
 interface PlannerStudioPageProps {
@@ -21,6 +22,7 @@ interface PlannerStudioPageProps {
   days: ItineraryDay[];
   flights: FlightOption[];
   hotels: HotelOption[];
+  nearbyHotels: HotelOption[];
   weather: WeatherCondition | null;
   budget: BudgetOverview | null;
   messages: ChatMessage[];
@@ -28,10 +30,12 @@ interface PlannerStudioPageProps {
   onPromptChange: (val: string) => void;
   onSendMessage: (textToSend?: string) => void;
   isSending: boolean;
-  activeTab: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
-  onSwitchTab: (tab: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
+  activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
+  onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   onSelectFlight: (id: string) => void;
   onSelectHotel: (id: string) => void;
+  onUpdateExecutionState?: (updates: Partial<ExecutionState>) => Promise<boolean>;
+  onApplyRerouteResult?: (result: any) => void;
   apiStatus: ApiStatusState;
   onClearContext: () => void;
   onNavigateToItineraryHub?: () => void;
@@ -46,6 +50,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   days,
   flights,
   hotels,
+  nearbyHotels,
   weather,
   budget,
   messages,
@@ -57,6 +62,8 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onSwitchTab,
   onSelectFlight,
   onSelectHotel,
+  onUpdateExecutionState,
+  onApplyRerouteResult,
   apiStatus,
   onClearContext,
   onNavigateToItineraryHub,
@@ -87,12 +94,15 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
           days={days}
           flights={flights}
           hotels={hotels}
+          nearbyHotels={nearbyHotels}
           weather={weather}
           budget={budget}
           activeTab={activeTab}
           onSwitchTab={onSwitchTab}
           onSelectFlight={onSelectFlight}
           onSelectHotel={onSelectHotel}
+          onUpdateExecutionState={onUpdateExecutionState}
+          onApplyRerouteResult={onApplyRerouteResult}
         />
       ) : (
         <div className="flex-1 min-w-0 bg-surface-container/50 border border-surface-container-high/40 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center animate-in fade-in">

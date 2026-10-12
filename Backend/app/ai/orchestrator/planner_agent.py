@@ -1,32 +1,24 @@
-from app.ai.llm import llm
 from app.ai.orchestrator.state import TravelState
-from langchain_core.prompts import ChatPromptTemplate
-
-PLANNER_PROMPT = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        "You are an expert travel planner. Your task is to draft a day-by-day travel outline draft for a trip to {destination} for {days} days with a budget of {budget} dollars. The user's preferences are: {preferences}.\n"
-        "Provide a structured day-by-day draft of activities, noting what kinds of flights, hotels, and attractions the other specialist agents should search for. Keep it concise, professional, and clear."
-    ),
-    ("human", "Draft my trip itinerary outline.")
-])
 
 def planner_node(state: TravelState) -> dict:
-    print(f"--- PLANNER AGENT: Drafting itinerary for {state['destination']} ---")
+    destination = state.get("destination", "Destination")
+    days = state.get("days", 3)
+    budget = state.get("budget", 50000.0)
+    currency = state.get("currency", "INR")
+    preferences = state.get("preferences") or "General sightseeing and cultural exploration"
     
-    # Format the prompt using variables from the shared state
-    prompt_val = PLANNER_PROMPT.format_messages(
-        destination=state["destination"],
-        days=state["days"],
-        budget=state["budget"],
-        preferences=state.get("preferences") or "None"
+    print(f"--- PLANNER AGENT: Assembling itinerary outline for {destination} ({days} days) ---")
+    
+    # Deterministic outline generation: fast, zero Groq OTPM consumption, preserves token budget for attraction discovery
+    outline = (
+        f"# Curated {days}-Day Itinerary for {destination}\n\n"
+        f"A bespoke expedition to {destination} planned for {days} days with a target budget of "
+        f"{budget:,.0f} {currency}. Curated specifically for: {preferences}.\n\n"
+        f"Specialist agents will now retrieve real-time flights, verified hotels, live weather, "
+        f"and top-rated attractions."
     )
     
-    # Run the Qwen model
-    response = llm.invoke(prompt_val)
-    
-    # Return the dictionary to update the shared state
     return {
-        "planner_draft": response.content,
+        "planner_draft": outline,
         "completed_steps": state.get("completed_steps", []) + ["planner"]
     }

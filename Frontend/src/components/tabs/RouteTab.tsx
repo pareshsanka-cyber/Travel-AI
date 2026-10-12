@@ -13,11 +13,12 @@ import {
   Star
 } from 'lucide-react';
 import { TripSummary, ItineraryDay, ActivitySegment } from '../../types';
-import { DayDetailView, resolvePlaceImage } from './DayDetailView';
+import { DayDetailView, resolvePlaceImage, getActivityCategoryMeta, CategoryPlaceholder, getCategoryFallbackImage } from './DayDetailView';
 
 interface RouteTabProps {
   trip: TripSummary | null;
   days: ItineraryDay[];
+  onSwitchTab?: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
 }
 
 function StatusBadge({ status }: { status?: string }) {
@@ -110,7 +111,7 @@ function OperatingHoursPanel({ act }: { act: ActivitySegment }) {
   );
 }
 
-export const RouteTab: React.FC<RouteTabProps> = ({ trip, days }) => {
+export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) => {
   const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(null);
 
   // If a specific Day is selected, render the full DayDetailView
@@ -131,6 +132,36 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days }) => {
 
   return (
     <div className="space-y-space-md animate-in fade-in duration-200">
+      {/* Live Companion Mode Banner */}
+      {onSwitchTab && (
+        <div className="p-3 sm:p-3.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-primary/10 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+              <Compass className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-on-surface">Traveler Companion Mode</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  Ready
+                </span>
+              </div>
+              <p className="text-[11px] text-on-surface-variant truncate">
+                Track today's stops, mark complete, skip, and open turn-by-turn navigation.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onSwitchTab('companion-tab')}
+            className="self-start sm:self-auto flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
+          >
+            <span>Open Companion</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Destination Micro Hero Map & Banner */}
       <div className="relative w-full h-44 rounded-xl overflow-hidden shadow-lg border border-surface-container-highest/60">
         <div
@@ -248,15 +279,29 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days }) => {
                           {/* Mini Thumbnail Preview */}
                           {(() => {
                             const imgUrl = resolvePlaceImage(act, trip?.destination);
+                            const categoryMeta = getActivityCategoryMeta(act);
                             return (
-                              <div className="w-full h-24 rounded-md overflow-hidden relative mb-1">
-                                <img
-                                  src={imgUrl}
-                                  alt={act.title}
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                  loading="lazy"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                              <div className="w-full h-24 rounded-md overflow-hidden relative mb-1 bg-surface-container-highest">
+                                {imgUrl ? (
+                                  <img
+                                    src={imgUrl}
+                                    alt={act.title}
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      const fallback = getCategoryFallbackImage(act, trip?.destination);
+                                      if (fallback && e.currentTarget.src !== fallback) {
+                                        e.currentTarget.src = fallback;
+                                      } else {
+                                        e.currentTarget.style.display = 'none';
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <CategoryPlaceholder categoryMeta={categoryMeta} title={act.title} size="sm" />
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
                                 <span className="absolute bottom-1 left-1.5 text-[9px] font-bold text-white uppercase tracking-wider">
                                   {act.timeOfDay}
                                 </span>
@@ -289,6 +334,37 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days }) => {
                           <p className="text-xs text-on-surface-variant leading-relaxed line-clamp-2">
                             {act.description}
                           </p>
+
+                          {/* Interest and Fame Badges */}
+                          {(act.matchType || act.fameLevel || (act.interests && act.interests.length > 0)) && (
+                            <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-surface-container-highest/30">
+                              {act.matchType === 'interest_match' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
+                                  ✨ Matches Interests
+                                </span>
+                              )}
+                              {act.matchType === 'popular_recommendation' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20">
+                                  🌟 Also Popular
+                                </span>
+                              )}
+                              {act.fameLevel === 'widely_known' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
+                                  ⭐ Popular
+                                </span>
+                              )}
+                              {act.fameLevel === 'lesser_known' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700">
+                                  💎 Lesser Known
+                                </span>
+                              )}
+                              {act.interests && act.interests.map((interest, iIdx) => (
+                                <span key={iIdx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-surface-container-highest text-on-surface-variant">
+                                  {interest}
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
                           {/* Operating Hours Status Panel */}
                           <OperatingHoursPanel act={act} />

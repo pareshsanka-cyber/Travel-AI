@@ -30,7 +30,7 @@ def parser_node(state: TravelState) -> dict:
     
     user_msg = state.get("user_message", "")
     prompt_val = PARSER_PROMPT.format_messages(user_message=user_msg)
-    response = llm.invoke(prompt_val)
+    response = llm.invoke(prompt_val, agent_name="parser_agent", max_tokens=150, min_tokens=60)
     
     # Parse the JSON response
     try:

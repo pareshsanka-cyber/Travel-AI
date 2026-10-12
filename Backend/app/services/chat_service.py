@@ -94,6 +94,11 @@ def build_travel_state_from_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "budget_mode": budget_mode,
         "travel_style": travel_style,
         "preferences": preferences_str,
+        "interests": context.get("interests") or context.get("preferences"),
+        "must_visit_places": context.get("must_visit_places"),
+        "pace": context.get("pace") or "balanced",
+        "wake_up_time": context.get("wake_up_time"),
+        "bedtime": context.get("bedtime"),
         "completed_steps": [],
         "is_approved": False,
         "error_logs": []
@@ -217,11 +222,28 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
 
         # Context-to-State Bridge
         initial_state = build_travel_state_from_context(current_context)
-        print(f"--- CHAT SERVICE: Invoking LangGraph for destination '{dest}' ({days} days) ---")
+        
+        print(f"\n==================================================")
+        print(f"[TRAVEL REQUEST]")
+        print(f"Destination: {dest}")
+        print(f"Duration: {days} days")
+        print(f"Travelers: {current_context.get('travelers') or current_context.get('adults') or 2}")
+        print(f"Budget: {current_context.get('budget') or 50000.0} {current_context.get('currency', 'INR')}")
+        print(f"Preferences: {current_context.get('preferences')}")
+        print(f"==================================================\n")
+        
+        import time
+        start_time = time.time()
+        req_id = f"req_{int(start_time)}"
+        print(f"\n[ITINERARY START] request_id={req_id} destination={dest} days={days}")
 
         try:
             final_state = graph.invoke(initial_state)
+            duration_ms = int((time.time() - start_time) * 1000)
+            print(f"[ITINERARY END] request_id={req_id} duration_ms={duration_ms} status=success\n")
         except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            print(f"[ITINERARY ERROR] request_id={req_id} duration_ms={duration_ms} status=failed error={e}\n")
             err_msg = f"Sorry, I encountered an issue generating your itinerary: {e}"
             add_message(conv_id, "assistant", err_msg)
             return {
@@ -251,14 +273,22 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             "preferences": final_state.get("preferences"),
             "planner_draft": final_state.get("planner_draft") or "Itinerary created",
             "flights": final_state.get("flights") or [],
+            "flight_metadata": final_state.get("flight_metadata") or {},
             "hotels": final_state.get("hotels") or [],
+            "nearby_hotels": final_state.get("nearby_hotels") or [],
             "weather": final_state.get("weather") or {},
             "attractions": final_state.get("attractions") or [],
             "restaurants": final_state.get("restaurants") or [],
             "route_details": final_state.get("route_details") or {},
             "budget_breakdown": final_state.get("budget_breakdown") or {},
+            "execution_state": final_state.get("execution_state") or {
+                "is_active": False,
+                "current_day_number": 1,
+                "activity_log": {},
+                "reroute_history": []
+            },
             "travelContext": current_context,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.utcnow().isoformat()
         }
         if user_id:
             trip_data["user_id"] = user_id
@@ -350,6 +380,12 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         )
         trip_doc["planner_draft"] = updated_draft
         trip_doc["id"] = str(trip_doc.pop("_id"))
+        
+        # Ensure datetimes are serializable
+        if "created_at" in trip_doc and hasattr(trip_doc["created_at"], "isoformat"):
+            trip_doc["created_at"] = trip_doc["created_at"].isoformat()
+        if "updated_at" in trip_doc and hasattr(trip_doc["updated_at"], "isoformat"):
+            trip_doc["updated_at"] = trip_doc["updated_at"].isoformat()
 
         reply = f"I've updated your itinerary for {dest} according to your request!"
         add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")

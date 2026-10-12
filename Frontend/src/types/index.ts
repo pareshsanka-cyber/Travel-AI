@@ -47,6 +47,24 @@ export interface ActivitySegment {
   scheduledDate?: string;
   dayOfWeek?: string;
   statusReason?: string;
+  interests?: string[];
+  category?: string;
+  matchType?: string;
+  fameLevel?: string;
+  source?: string;
+  placeId?: string;
+  id?: string;
+  startTime?: string;
+  endTime?: string;
+  duration?: string;
+  travelTimeFromPrev?: string;
+  travelMode?: string;
+  type?: string;
+  matchedInterest?: string;
+  priorityRank?: number;
+  whyVisit?: string;
+  statusLabel?: string;
+  isMealBreak?: boolean;
 }
 
 export type TravelMode = 'driving' | 'walking' | 'cab';
@@ -86,19 +104,50 @@ export interface ItineraryDay {
   legs?: RouteLeg[];
 }
 
+export interface FlightMetadata {
+  source?: string;
+  dataStatus?: 'search_results' | 'historical_record' | 'no_flights_found' | 'error';
+  fetchedAt?: string;
+  lastCheckedAt?: string;
+  departureDate?: string;
+  departureDateDisplay?: string;
+  isPastDate?: boolean;
+  isEstimatedDate?: boolean;
+  origin?: string;
+  destination?: string;
+  googleFlightsUrl?: string;
+  totalOptions?: number;
+  message?: string;
+  error?: string;
+}
+
 export interface FlightOption {
   id: string;
   airlineCode: string;
   airlineName?: string;
+  airlineLogo?: string;
   flightNumber: string;
   aircraft: string;
   departureTime: string;
   departureAirport: string;
+  departureAirportName?: string;
   departureDate?: string;
   departureDateIso?: string;
+  departureDateDisplay?: string;
   arrivalTime: string;
   arrivalAirport: string;
+  arrivalAirportName?: string;
   duration: string;
+  durationMinutes?: number;
+  stops?: number;
+  layovers?: Array<{
+    name: string;
+    duration: string;
+    id?: string;
+  }>;
+  amenities?: string[];
+  extensions?: string[];
+  travelClass?: string;
   onTimePercent?: number;
   serviceType: string;
   baggageInfo: string;
@@ -109,6 +158,12 @@ export interface FlightOption {
   bookingUrl?: string;
   googleFlightsUrl?: string;
   searchUrl?: string;
+  source?: string;
+  fetchedAt?: string;
+  dataStatus?: 'search_results' | 'historical_record' | 'no_flights_found' | 'error';
+  isPastDate?: boolean;
+  isEstimatedDate?: boolean;
+  bookingToken?: string;
 }
 
 export interface HotelOption {
@@ -169,6 +224,20 @@ export interface BudgetOverview {
   savingsInsightBody: string;
 }
 
+export interface ExecutionState {
+  is_active: boolean;
+  current_day_number: number;
+  activity_log: Record<string, {
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+    actual_start_time?: string;
+    actual_end_time?: string;
+    user_notes?: string;
+    activity_id?: string;
+    activity_title?: string;
+  }>;
+  reroute_history: any[];
+}
+
 export interface TripSummary {
   id: string;
   title: string;
@@ -185,6 +254,38 @@ export interface TripSummary {
   routeHeadline: string;
   travelStyle?: string;
   budgetMode?: string;
+  executionState?: ExecutionState;
+  revision?: number;
+  routeDetails?: any;
+}
+
+export interface RerouteProposal {
+  status: 'success' | 'error';
+  proposal_id: string;
+  day_number: number;
+  revision: number;
+  replacement_found: boolean;
+  origin_location_label?: string;
+  skipped_activity: {
+    id: string;
+    title: string;
+    time?: string;
+    category?: string;
+  };
+  replacement_activity: ActivitySegment | null;
+  original_stops: ActivitySegment[];
+  proposed_stops: ActivitySegment[];
+  rescheduled_stops: ActivitySegment[];
+  reason: string;
+}
+
+export interface RerouteApplyResult {
+  status: 'success' | 'error';
+  trip_id: string;
+  revision: number;
+  route_details: any;
+  execution_state: ExecutionState;
+  reroute_record?: any;
 }
 
 export interface ChatMessage {

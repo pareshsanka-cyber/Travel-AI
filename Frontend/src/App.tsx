@@ -39,6 +39,7 @@ function AppContent() {
     days,
     flights,
     hotels,
+    nearbyHotels,
     weather,
     budget,
     savedTrips,
@@ -65,6 +66,8 @@ function AppContent() {
     handleNewChat,
     travelContext,
     updateTravelPreference,
+    handleUpdateExecutionState,
+    handleApplyRerouteResult,
     currentIntent,
   } = useTravelApi();
 
@@ -190,6 +193,7 @@ function AppContent() {
                 days={days}
                 flights={flights}
                 hotels={hotels}
+                nearbyHotels={nearbyHotels}
                 weather={weather}
                 budget={budget}
                 messages={messages}
@@ -201,6 +205,8 @@ function AppContent() {
                 onSwitchTab={setActiveDashboardTab}
                 onSelectFlight={handleSelectFlight}
                 onSelectHotel={handleSelectHotel}
+                onUpdateExecutionState={handleUpdateExecutionState}
+                onApplyRerouteResult={handleApplyRerouteResult}
                 apiStatus={apiStatus}
                 onClearContext={handleClearContext}
                 onNavigateToItineraryHub={() => setActivePage('itinerary-hub')}

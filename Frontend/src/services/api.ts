@@ -16,7 +16,9 @@ import {
   ChatMessage,
   SavedTripSnippet,
   ConversationHistoryItem,
-  ApiStatusState
+  ApiStatusState,
+  RerouteProposal,
+  RerouteApplyResult
 } from '../types';
 
 
@@ -946,7 +948,24 @@ function formatTimeAgo(dateString?: string): string {
 // -------------------------------------------------------------
 
 export function getTripStartDate(trip?: any): { dateObj: Date; isoDate: string; formattedDate: string } {
-  const rawStart = trip?.start_date || trip?.startDate || trip?.travelContext?.start_date || trip?.travel_context?.start_date;
+  // 1. Prioritize authoritative backend flight metadata and flights array date
+  const authoritativeDisplay =
+    trip?.flight_metadata?.departure_date_display ||
+    trip?.flight_metadata?.departureDateDisplay ||
+    trip?.flights?.[0]?.departure_date_display ||
+    trip?.flights?.[0]?.departureDateDisplay;
+
+  const rawStart =
+    trip?.flight_metadata?.departure_date ||
+    trip?.flight_metadata?.departureDate ||
+    trip?.flights?.[0]?.departure_date ||
+    trip?.flights?.[0]?.departureDateIso ||
+    trip?.flights?.[0]?.departureDate ||
+    trip?.start_date ||
+    trip?.startDate ||
+    trip?.travelContext?.start_date ||
+    trip?.travel_context?.start_date;
+
   let baseDate: Date | null = null;
   if (rawStart && typeof rawStart === 'string') {
     const parsed = new Date(rawStart);
@@ -968,7 +987,7 @@ export function getTripStartDate(trip?: any): { dateObj: Date; isoDate: string; 
     }
   }
 
-  // Fallback: If no start_date specified, compute from today + 7 days
+  // Fallback: If no date specified anywhere, compute from today + 7 days
   if (!baseDate || isNaN(baseDate.getTime())) {
     const today = new Date();
     baseDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -979,7 +998,7 @@ export function getTripStartDate(trip?: any): { dateObj: Date; isoDate: string; 
   const dd = String(baseDate.getDate()).padStart(2, '0');
   const isoDate = `${yyyy}-${mm}-${dd}`;
   const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const formattedDate = `${dd} ${monthAbbr[baseDate.getMonth()]} ${yyyy}`;
+  const formattedDate = authoritativeDisplay || `${dd} ${monthAbbr[baseDate.getMonth()]} ${yyyy}`;
 
   return { dateObj: baseDate, isoDate, formattedDate };
 }
@@ -987,131 +1006,56 @@ export function getTripStartDate(trip?: any): { dateObj: Date; isoDate: string; 
 export function resolveAirportCode(place?: string, defaultCode = 'HYD'): string {
   if (!place || typeof place !== 'string') return defaultCode;
   const p = place.toLowerCase().trim();
-  if (p.includes('hyd') || p.includes('hyderabad') || p.includes('begumpet')) return 'HYD';
+
+  // Domestic India Airports
+  if (p.includes('hyd') || p.includes('hyderabad') || p.includes('secunderabad') || p.includes('begumpet')) return 'HYD';
   if (p.includes('cok') || p.includes('kochi') || p.includes('cochin') || p.includes('kerala') || p.includes('ernakulam')) return 'COK';
   if (p.includes('del') || p.includes('delhi') || p.includes('new delhi') || p.includes('ncr')) return 'DEL';
-  if (p.includes('goa') || p.includes('goi') || p.includes('gox') || p.includes('dabolim') || p.includes('mopa')) return 'GOI';
+  if (p.includes('mopa') || p.includes('gox') || p.includes('north goa')) return 'GOX';
+  if (p.includes('goa') || p.includes('goi') || p.includes('dabolim') || p.includes('south goa')) return 'GOI';
   if (p.includes('bom') || p.includes('mumbai') || p.includes('bombay')) return 'BOM';
   if (p.includes('blr') || p.includes('bangalore') || p.includes('bengaluru')) return 'BLR';
   if (p.includes('maa') || p.includes('chennai') || p.includes('madras')) return 'MAA';
   if (p.includes('ccu') || p.includes('kolkata') || p.includes('calcutta')) return 'CCU';
-  if (p.includes('jai') || p.includes('jaipur')) return 'JAI';
+  if (p.includes('jai') || p.includes('jaipur') || p.includes('rajasthan')) return 'JAI';
+  if (p.includes('udr') || p.includes('udaipur')) return 'UDR';
+  if (p.includes('jdh') || p.includes('jodhpur')) return 'JDH';
   if (p.includes('amd') || p.includes('ahmedabad')) return 'AMD';
   if (p.includes('pnq') || p.includes('pune')) return 'PNQ';
   if (p.includes('vns') || p.includes('varanasi') || p.includes('banaras')) return 'VNS';
   if (p.includes('sxr') || p.includes('srinagar') || p.includes('kashmir')) return 'SXR';
+  if (p.includes('ixl') || p.includes('leh') || p.includes('ladakh')) return 'IXL';
   if (p.includes('atq') || p.includes('amritsar')) return 'ATQ';
-  if (p.includes('dxb') || p.includes('dubai')) return 'DXB';
-  if (p.includes('sin') || p.includes('singapore')) return 'SIN';
-  if (p.includes('bkk') || p.includes('bangkok') || p.includes('thailand')) return 'BKK';
-  if (p.includes('tokyo') || p.includes('japan') || p.includes('hnd') || p.includes('nrt')) return 'HND';
-  if (p.includes('paris') || p.includes('france') || p.includes('cdg')) return 'CDG';
-  if (p.includes('london') || p.includes('uk') || p.includes('lhr')) return 'LHR';
-  if (p.includes('bali') || p.includes('dps') || p.includes('indonesia')) return 'DPS';
+  if (p.includes('ixc') || p.includes('chandigarh')) return 'IXC';
+  if (p.includes('trv') || p.includes('trivandrum') || p.includes('thiruvananthapuram')) return 'TRV';
+  if (p.includes('ccj') || p.includes('calicut') || p.includes('kozhikode')) return 'CCJ';
+  if (p.includes('vtz') || p.includes('vizag') || p.includes('visakhapatnam')) return 'VTZ';
+
+  // International Airports (Verified IATA codes for Google Flights)
+  if (p.includes('tokyo') || p.includes('japan') || p.includes('narita') || p.includes('nrt') || p.includes('tyo')) return 'NRT';
+  if (p.includes('haneda') || p.includes('hnd')) return 'HND';
+  if (p.includes('sydney') || p.includes('syd') || p.includes('australia')) return 'SYD';
+  if (p.includes('melbourne') || p.includes('mel')) return 'MEL';
+  if (p.includes('brisbane') || p.includes('bne')) return 'BNE';
+  if (p.includes('perth') || p.includes('per')) return 'PER';
+  if (p.includes('auckland') || p.includes('akl') || p.includes('new zealand')) return 'AKL';
+  if (p.includes('sin') || p.includes('singapore') || p.includes('changi')) return 'SIN';
+  if (p.includes('bkk') || p.includes('bangkok') || p.includes('thailand') || p.includes('suvarnabhumi')) return 'BKK';
+  if (p.includes('hkt') || p.includes('phuket')) return 'HKT';
+  if (p.includes('bali') || p.includes('dps') || p.includes('denpasar') || p.includes('indonesia')) return 'DPS';
+  if (p.includes('kul') || p.includes('kuala lumpur') || p.includes('malaysia')) return 'KUL';
+  if (p.includes('hkg') || p.includes('hong kong')) return 'HKG';
+  if (p.includes('icn') || p.includes('seoul') || p.includes('korea')) return 'ICN';
+  if (p.includes('dxb') || p.includes('dubai') || p.includes('uae')) return 'DXB';
+  if (p.includes('doh') || p.includes('doha') || p.includes('qatar')) return 'DOH';
+  if (p.includes('lhr') || p.includes('london') || p.includes('uk') || p.includes('heathrow')) return 'LHR';
+  if (p.includes('cdg') || p.includes('paris') || p.includes('france') || p.includes('charles de gaulle')) return 'CDG';
+  if (p.includes('jfk') || p.includes('new york') || p.includes('nyc')) return 'JFK';
+  if (p.includes('sfo') || p.includes('san francisco')) return 'SFO';
   
   const m = place.match(/\b([A-Z]{3})\b/);
   if (m) return m[1];
   return defaultCode;
-}
-
-function getRouteScheduleData(depCode: string, arrCode: string) {
-  const pair = `${depCode}-${arrCode}`;
-  switch (pair) {
-    case 'HYD-COK':
-      return {
-        duration: '1h 40m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-6712', departureTime: '07:20 AM', arrivalTime: '09:00 AM', price: 4500, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-531', departureTime: '09:55 AM', arrivalTime: '11:35 AM', price: 4800, aircraft: 'Airbus A321neo • Direct Non-Stop' },
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-728', departureTime: '01:55 PM', arrivalTime: '03:35 PM', price: 4600, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1342', departureTime: '10:45 AM', arrivalTime: '12:25 PM', price: 4100, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-518', departureTime: '04:30 PM', arrivalTime: '06:10 PM', price: 5200, aircraft: 'Airbus A321 • Full Service Direct' },
-        ],
-      };
-    case 'COK-HYD':
-      return {
-        duration: '1h 40m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-6713', departureTime: '09:35 AM', arrivalTime: '11:15 AM', price: 4500, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-532', departureTime: '12:10 PM', arrivalTime: '01:50 PM', price: 4800, aircraft: 'Airbus A321neo • Direct Non-Stop' },
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-729', departureTime: '04:10 PM', arrivalTime: '05:50 PM', price: 4600, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1343', departureTime: '01:05 PM', arrivalTime: '02:45 PM', price: 4100, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-519', departureTime: '06:45 PM', arrivalTime: '08:25 PM', price: 5200, aircraft: 'Airbus A321 • Full Service Direct' },
-        ],
-      };
-    case 'HYD-DEL':
-      return {
-        duration: '2h 15m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-2012', departureTime: '06:00 AM', arrivalTime: '08:15 AM', price: 4800, aircraft: 'Airbus A321neo • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-840', departureTime: '10:15 AM', arrivalTime: '12:35 PM', price: 5500, aircraft: 'Boeing 787-8 • Full Service Direct' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1422', departureTime: '05:20 PM', arrivalTime: '07:45 PM', price: 4600, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-        ],
-      };
-    case 'DEL-HYD':
-      return {
-        duration: '2h 20m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-2013', departureTime: '09:00 AM', arrivalTime: '11:20 AM', price: 4800, aircraft: 'Airbus A321neo • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-841', departureTime: '01:30 PM', arrivalTime: '03:50 PM', price: 5500, aircraft: 'Boeing 787-8 • Full Service Direct' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1423', departureTime: '08:25 PM', arrivalTime: '10:45 PM', price: 4600, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-        ],
-      };
-    case 'HYD-GOI':
-      return {
-        duration: '1h 20m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-344', departureTime: '07:10 AM', arrivalTime: '08:30 AM', price: 4100, aircraft: 'ATR 72-600 • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1123', departureTime: '11:00 AM', arrivalTime: '12:20 PM', price: 4300, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-622', departureTime: '03:45 PM', arrivalTime: '05:05 PM', price: 5100, aircraft: 'Airbus A320neo • Full Service Direct' },
-        ],
-      };
-    case 'GOI-HYD':
-      return {
-        duration: '1h 20m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-345', departureTime: '09:10 AM', arrivalTime: '10:30 AM', price: 4100, aircraft: 'ATR 72-600 • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1124', departureTime: '01:00 PM', arrivalTime: '02:20 PM', price: 4300, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-623', departureTime: '05:45 PM', arrivalTime: '07:05 PM', price: 5100, aircraft: 'Airbus A320neo • Full Service Direct' },
-        ],
-      };
-    case 'HYD-BOM':
-      return {
-        duration: '1h 30m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-5341', departureTime: '06:30 AM', arrivalTime: '08:00 AM', price: 3800, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-618', departureTime: '11:15 AM', arrivalTime: '12:45 PM', price: 4600, aircraft: 'Airbus A321 • Full Service Direct' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1144', departureTime: '05:00 PM', arrivalTime: '06:30 PM', price: 3950, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-        ],
-      };
-    case 'HYD-BLR':
-      return {
-        duration: '1h 10m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-405', departureTime: '07:00 AM', arrivalTime: '08:10 AM', price: 3200, aircraft: 'Airbus A320neo • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1502', departureTime: '12:00 PM', arrivalTime: '01:10 PM', price: 3400, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-512', departureTime: '06:15 PM', arrivalTime: '07:25 PM', price: 4100, aircraft: 'Airbus A321 • Full Service Direct' },
-        ],
-      };
-    case 'DEL-GOI':
-      return {
-        duration: '2h 25m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-204', departureTime: '08:15 AM', arrivalTime: '10:40 AM', price: 6450, aircraft: 'Airbus A321neo • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-883', departureTime: '11:10 AM', arrivalTime: '01:45 PM', price: 7890, aircraft: 'Boeing 787-8 • Full Service Direct' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1341', departureTime: '02:20 PM', arrivalTime: '04:50 PM', price: 5920, aircraft: 'Boeing 737 MAX 8 • Express Direct' },
-        ],
-      };
-    default:
-      return {
-        duration: '2h 10m',
-        flights: [
-          { airlineCode: '6E', airlineName: 'IndiGo', flightNumber: '6E-512', departureTime: '06:15 AM', arrivalTime: '08:25 AM', price: 4500, aircraft: 'Airbus A320 • Direct Non-Stop' },
-          { airlineCode: 'QP', airlineName: 'Akasa Air', flightNumber: 'QP-1342', departureTime: '09:45 AM', arrivalTime: '11:55 AM', price: 4200, aircraft: 'Boeing 737 MAX 8 • Direct Non-Stop' },
-          { airlineCode: 'AI', airlineName: 'Air India', flightNumber: 'AI-840', departureTime: '04:30 PM', arrivalTime: '06:40 PM', price: 5400, aircraft: 'Airbus A321 • Full Service Direct' },
-        ],
-      };
-  }
 }
 
 export function computeTripDates(trip?: any, daysCount?: number): string[] {
@@ -1128,106 +1072,109 @@ export function computeTripDates(trip?: any, daysCount?: number): string[] {
 }
 
 export function fetchFlightOptions(trip?: any): FlightOption[] {
-  const destStr = trip?.destination || trip?.travelContext?.destination || trip?.travel_context?.destination || 'Goa';
+  if (!trip) return [];
+
+  const rawFlights = trip.flights;
+  if (!rawFlights || !Array.isArray(rawFlights) || rawFlights.length === 0) {
+    return [];
+  }
+
+  const destStr = trip?.destination || trip?.travelContext?.destination || trip?.travel_context?.destination || 'Destination';
   const originStr = trip?.origin || trip?.travelContext?.origin || trip?.travel_context?.origin || 'Hyderabad';
-  const travelersCount = Number(trip?.travelers || trip?.travelersCount || trip?.travelContext?.travelers || 2);
+  const travelersCount = Number(trip?.travelers || trip?.travelersCount || trip?.travelContext?.travelers || 1);
   const currency = trip?.currency || trip?.travelContext?.currency || 'INR';
   const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '₹';
 
   const depCode = resolveAirportCode(originStr, 'HYD');
-  const arrCode = resolveAirportCode(destStr, 'GOI');
+  const arrCode = resolveAirportCode(destStr, 'DEL');
   const { isoDate, formattedDate } = getTripStartDate(trip);
-  const scheduleData = getRouteScheduleData(depCode, arrCode);
 
-  if (trip && trip.flights && Array.isArray(trip.flights) && trip.flights.length > 0) {
-    return trip.flights.map((f: any, idx: number) => {
-      const matchedSchedule = scheduleData.flights.find(sf => sf.flightNumber.toLowerCase() === (f.flightNumber || f.flight_no || '').toLowerCase()) || scheduleData.flights[idx % scheduleData.flights.length];
+  return rawFlights.map((f: any, idx: number) => {
+    const fAirlineCode = f.airline_code || f.airlineCode || 'FL';
+    const fAirlineName = f.airline_name || f.airline || f.airlineName || 'Airline';
+    const fAirlineLogo = f.airline_logo || f.airlineLogo;
+    const fFlightNumber = f.flight_no || f.flight_number || f.flightNumber || `FL-${idx + 1}`;
+    const fDepCode = f.departure_airport || f.departureAirport || depCode;
+    const fDepName = f.departure_airport_name || f.departureAirportName;
+    const fArrCode = f.arrival_airport || f.arrivalAirport || arrCode;
+    const fArrName = f.arrival_airport_name || f.arrivalAirportName;
+    const departureTime = f.departure_time || f.departureTime || 'TBD';
+    const arrivalTime = f.arrival_time || f.arrivalTime || 'TBD';
+    const duration = f.duration || 'Direct';
+    const durationMinutes = f.duration_minutes || f.durationMinutes;
+    const aircraft = f.aircraft || 'Commercial Aircraft';
+    const stops = typeof f.stops === 'number' ? f.stops : 0;
+    const layovers = f.layovers || [];
+    const travelClass = f.travel_class || f.travelClass || 'Economy';
+    const extensions = f.extensions || f.amenities || [];
 
-      let rawPrice = typeof f.price === 'number' ? f.price : (parseFloat(f.price) || matchedSchedule?.price || 4500);
-      if (currency === 'INR' && rawPrice < 1500) {
-        rawPrice = matchedSchedule ? matchedSchedule.price : (4200 + (idx * 650));
-      } else if (currency === 'USD' && rawPrice < 30) {
-        rawPrice = 75 + (idx * 20);
-      }
-      const fAirlineCode = f.airlineCode || f.airline_code || matchedSchedule?.airlineCode || (idx === 0 ? '6E' : idx === 1 ? 'QP' : 'AI');
-      const fAirlineName = f.airline || f.airlineName || matchedSchedule?.airlineName || (fAirlineCode === '6E' ? 'IndiGo' : fAirlineCode === 'AI' ? 'Air India' : fAirlineCode === 'QP' ? 'Akasa Air' : 'Airline');
-      const fFlightNumber = f.flightNumber || f.flight_no || matchedSchedule?.flightNumber || (idx === 0 ? '6E-6712' : idx === 1 ? '6E-531' : 'AI-518');
-      const fDep = f.departureAirport || f.origin || depCode;
-      const fArr = f.arrivalAirport || f.destination || arrCode;
-      const fDepCode = resolveAirportCode(fDep, depCode);
-      const fArrCode = resolveAirportCode(fArr, arrCode);
-      
-      const isHydCokMismatch = depCode === 'HYD' && arrCode === 'COK' && (f.duration === '2h 30m' || f.departureTime === '06:00 AM');
-      const departureTime = isHydCokMismatch ? matchedSchedule?.departureTime : (f.departureTime || f.departure || matchedSchedule?.departureTime || '07:20 AM');
-      const arrivalTime = isHydCokMismatch ? matchedSchedule?.arrivalTime : (f.arrivalTime || f.arrival || matchedSchedule?.arrivalTime || '09:00 AM');
-      const duration = isHydCokMismatch ? scheduleData.duration : (f.duration || scheduleData.duration || '1h 40m');
-      const aircraft = f.aircraft || matchedSchedule?.aircraft || 'Direct Non-Stop';
+    const rawPrice = typeof f.price_per_person === 'number'
+      ? f.price_per_person
+      : (typeof f.price === 'number' ? f.price : (parseFloat(f.price) || 0));
 
-      const googleFlightsUrl = `https://www.google.com/travel/flights?q=Flights%20to%20${fArrCode}%20from%20${fDepCode}%20on%20${isoDate}`;
-      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(`${fAirlineName} ${fFlightNumber} ${fDepCode} to ${fArrCode} ${isoDate}`)}`;
+    const flightDepDate = f.departure_date || f.departureDate || isoDate;
+    const flightDisplayDate = f.departure_date_display || f.departureDateDisplay || formattedDate;
 
-      return {
-        id: f.id || `fl-${idx}`,
-        airlineCode: fAirlineCode,
-        airlineName: fAirlineName,
-        flightNumber: fFlightNumber,
-        aircraft,
-        departureTime,
-        departureAirport: fDepCode,
-        departureDate: formattedDate,
-        departureDateIso: isoDate,
-        arrivalTime,
-        arrivalAirport: fArrCode,
-        duration,
-        onTimePercent: f.onTimePercent || (idx === 0 ? 98 : idx === 1 ? 96 : 94),
-        serviceType: f.serviceType || 'Standard Class',
-        baggageInfo: f.baggageInfo || 'Includes 15kg Checked Baggage',
-        pricePerPerson: rawPrice,
-        currency: currencySymbol,
-        totalForPax: rawPrice * travelersCount,
-        isSelected: idx === 0,
-        googleFlightsUrl,
-        searchUrl,
-        bookingUrl: googleFlightsUrl,
-      };
-    });
-  }
+    const googleFlightsUrl = f.google_flights_url || f.googleFlightsUrl ||
+      `https://www.google.com/travel/flights?q=Flights%20to%20${fArrCode}%20from%20${fDepCode}%20on%20${flightDepDate}`;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(`${fAirlineName} ${fFlightNumber} ${fDepCode} to ${fArrCode} ${flightDepDate}`)}`;
 
-  // Realistic route-specific default flights
-  return scheduleData.flights.map((f, idx) => {
-    let fare = f.price;
-    if (currency === 'USD') {
-      fare = Math.round(fare / 80);
-    } else if (currency === 'EUR') {
-      fare = Math.round(fare / 90);
-    }
-    const googleFlightsUrl = `https://www.google.com/travel/flights?q=Flights%20to%20${arrCode}%20from%20${depCode}%20on%20${isoDate}`;
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(`${f.airlineName} ${f.flightNumber} ${depCode} to ${arrCode} ${isoDate}`)}`;
+    const baggageInfo = extensions.find((ext: string) => ext.toLowerCase().includes('bag')) || 'Standard Airline Baggage Policy';
 
     return {
-      id: `fl-${idx + 1}`,
-      airlineCode: f.airlineCode,
-      airlineName: f.airlineName,
-      flightNumber: f.flightNumber,
-      aircraft: f.aircraft,
-      departureTime: f.departureTime,
-      departureAirport: depCode,
-      departureDate: formattedDate,
-      departureDateIso: isoDate,
-      arrivalTime: f.arrivalTime,
-      arrivalAirport: arrCode,
-      duration: scheduleData.duration,
-      onTimePercent: idx === 0 ? 98 : idx === 1 ? 96 : 94,
-      serviceType: idx === 0 ? 'Standard Class' : idx === 1 ? 'Economy Saver' : 'Flexi Plus',
-      baggageInfo: idx === 2 ? 'Includes 25kg Checked Baggage' : 'Includes 15kg Checked Baggage',
-      pricePerPerson: fare,
+      id: f.id || `fl-${idx + 1}`,
+      airlineCode: fAirlineCode,
+      airlineName: fAirlineName,
+      airlineLogo: fAirlineLogo,
+      flightNumber: fFlightNumber,
+      aircraft,
+      departureTime,
+      departureAirport: fDepCode,
+      departureAirportName: fDepName,
+      departureDate: flightDisplayDate,
+      departureDateIso: flightDepDate,
+      departureDateDisplay: flightDisplayDate,
+      arrivalTime,
+      arrivalAirport: fArrCode,
+      arrivalAirportName: fArrName,
+      duration,
+      durationMinutes,
+      stops,
+      layovers,
+      amenities: extensions,
+      extensions,
+      travelClass,
+      serviceType: travelClass,
+      baggageInfo,
+      pricePerPerson: rawPrice,
       currency: currencySymbol,
-      totalForPax: fare * travelersCount,
+      totalForPax: rawPrice * (f.travelers || travelersCount),
       isSelected: idx === 0,
       googleFlightsUrl,
       searchUrl,
       bookingUrl: googleFlightsUrl,
+      bookingToken: f.booking_token || f.bookingToken,
+      source: f.source || 'serpapi_google_flights',
+      fetchedAt: f.fetched_at || f.fetchedAt,
+      dataStatus: f.data_status || f.dataStatus || 'search_results',
+      isPastDate: Boolean(f.is_past_date || f.isPastDate),
+      isEstimatedDate: Boolean(f.is_estimated_date || f.isEstimatedDate)
     };
+  });
+}
+
+export async function searchLiveFlights(params: {
+  destination: string;
+  origin?: string;
+  start_date?: string;
+  end_date?: string;
+  currency?: string;
+  budget?: number;
+  travelers?: number;
+}): Promise<{ flights: any[]; metadata: any }> {
+  return await apiFetch<{ flights: any[]; metadata: any }>('/api/flights/search', {
+    method: 'POST',
+    body: JSON.stringify(params),
   });
 }
 
@@ -1318,6 +1265,45 @@ export function fetchHotelOptions(trip?: any): HotelOption[] {
       cancellationPolicy: 'Free cancellation up to 24h prior',
     },
   ];
+}
+
+export function fetchNearbyHotelOptions(trip?: any): HotelOption[] {
+  const dest = trip?.destination || 'Goa';
+  const days = Number(trip?.days || trip?.daysCount || 3);
+  const nights = Math.max(1, days - 1);
+  const currency = trip?.currency || trip?.travelContext?.currency || 'INR';
+  const userBudget = typeof trip?.budget === 'number' ? trip.budget : (currency === 'INR' ? 70000 : 1000);
+
+  const targetNightly = Math.round((userBudget * 0.40) / nights);
+  const defaultNightly = currency === 'INR' ? Math.max(4500, Math.min(18000, targetNightly)) : Math.max(70, Math.min(300, targetNightly));
+
+  if (trip && trip.nearby_hotels && Array.isArray(trip.nearby_hotels) && trip.nearby_hotels.length > 0) {
+    return trip.nearby_hotels.map((h: any, idx: number) => {
+      let nightly = typeof h.price_per_night === 'number' ? h.price_per_night : (typeof h.price === 'number' ? h.price : defaultNightly);
+      if (currency === 'INR' && nightly < 1500) {
+        nightly = defaultNightly + (idx * 1200);
+      } else if (currency === 'USD' && nightly < 35) {
+        nightly = defaultNightly + (idx * 25);
+      }
+      return {
+        id: h.id || `nht-${idx}`,
+        name: h.name || h.hotel_name || `${dest} Lodge`,
+        location: h.location || h.address || dest,
+        rating: typeof h.rating === 'number' ? h.rating : (parseFloat(h.rating) || 4.2),
+        reviewCount: h.reviewCount || 200,
+        imageUrl: h.imageUrl || (idx % 2 === 0 ? INITIAL_HOTELS[0].imageUrl : INITIAL_HOTELS[1].imageUrl),
+        imageAlt: h.name || 'Nearby Hotel',
+        pricePerNight: nightly,
+        totalPrice: nightly * nights,
+        nights,
+        roomType: h.room_type || h.roomType || 'Standard Room',
+        features: Array.isArray(h.features) ? h.features : (Array.isArray(h.amenities) ? h.amenities : ['WiFi', 'Air Conditioning']),
+        isBooked: false,
+        cancellationPolicy: h.cancellationPolicy || 'Flexible cancellation up to 48h prior',
+      };
+    });
+  }
+  return [];
 }
 
 export function fetchWeatherCondition(trip?: any): WeatherCondition | null {
@@ -2042,7 +2028,168 @@ export function extractTripSummary(trip?: any): TripSummary {
     routeHeadline: trip.planner_draft ? (trip.planner_draft.split('\n')[0].replace(/^#+\s*/, '') || trip.destination) : INITIAL_TRIP.routeHeadline,
     travelStyle: travelStyle || undefined,
     budgetMode: budgetMode || undefined,
+    executionState: trip.execution_state || trip.executionState || undefined,
   };
+}
+
+export function generatePersistentActivityId(
+  stopType?: string,
+  name?: string,
+  placeId?: string,
+  disambiguator?: number
+): string {
+  let typeStr = (stopType || 'activity')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'activity';
+
+  const nameLower = (name || '').toLowerCase();
+  if (nameLower.includes('checkout') || nameLower.includes('check-out')) {
+    typeStr = 'hotel_checkout';
+  } else if (typeStr === 'hotel') {
+    typeStr = 'hotel_stay';
+  } else if (typeStr === 'airport') {
+    if (nameLower.includes('departure') || nameLower.includes('check-in') || nameLower.includes('boarding')) {
+      typeStr = 'airport_dep';
+    } else if (nameLower.includes('arrival') || nameLower.includes('touchdown') || nameLower.includes('baggage')) {
+      typeStr = 'airport_arr';
+    }
+  }
+
+  const nameClean = (name || 'activity')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32) || 'stop';
+
+  const parts = ['act', typeStr, nameClean];
+  if (placeId) {
+    const pidClean = String(placeId).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 8);
+    if (pidClean) {
+      parts.push(pidClean);
+    }
+  }
+
+  const baseId = parts.join('_');
+  if (disambiguator && disambiguator > 1) {
+    return `${baseId}_${disambiguator}`;
+  }
+  return baseId;
+}
+
+export function resolveActivityExecutionRecord(
+  act: ActivitySegment,
+  dayNumber: number,
+  index: number,
+  activityLog?: Record<string, any>
+): { status: 'pending' | 'in_progress' | 'completed' | 'skipped'; record?: any } {
+  if (!activityLog) {
+    return { status: 'pending' };
+  }
+
+  // 1. Primary: Persistent activity ID
+  if (act.id && activityLog[act.id]) {
+    const entry = activityLog[act.id];
+    if (entry && entry.status) {
+      return { status: entry.status, record: entry };
+    }
+  }
+
+  // 2. Secondary: Canonical generated ID
+  const canonicalId = generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
+  if (canonicalId && activityLog[canonicalId]) {
+    const entry = activityLog[canonicalId];
+    if (entry && entry.status) {
+      return { status: entry.status, record: entry };
+    }
+  }
+
+  // 3. Fallback: Legacy `${dayNumber}_${index}` with strict safety checks
+  const legacyKey = `${dayNumber}_${index}`;
+  const legacyEntry = activityLog[legacyKey];
+  if (legacyEntry && legacyEntry.status) {
+    // If tagged with activity_id, verify match
+    if (legacyEntry.activity_id) {
+      if (legacyEntry.activity_id !== act.id && legacyEntry.activity_id !== canonicalId) {
+        return { status: 'pending' };
+      }
+    }
+    // If tagged with activity_title, verify match
+    if (legacyEntry.activity_title) {
+      const storedTitle = legacyEntry.activity_title.trim().toLowerCase();
+      const currentTitle = (act.title || '').trim().toLowerCase();
+      if (storedTitle !== currentTitle) {
+        return { status: 'pending' };
+      }
+    }
+    return { status: legacyEntry.status, record: legacyEntry };
+  }
+
+  // 4. Fallback: Positional key `day_${dayNumber}_act_${index + 1}`
+  const posKey = `day_${dayNumber}_act_${index + 1}`;
+  const posEntry = activityLog[posKey];
+  if (posEntry && posEntry.status) {
+    if (posEntry.activity_id && posEntry.activity_id !== act.id && posEntry.activity_id !== canonicalId) {
+      return { status: 'pending' };
+    }
+    if (posEntry.activity_title && posEntry.activity_title.trim().toLowerCase() !== (act.title || '').trim().toLowerCase()) {
+      return { status: 'pending' };
+    }
+    return { status: posEntry.status, record: posEntry };
+  }
+
+  return { status: 'pending' };
+}
+
+export function migrateLegacyExecutionState(
+  rawState: ExecutionState,
+  days: ItineraryDay[]
+): ExecutionState {
+  if (!rawState || !rawState.activity_log) {
+    return rawState;
+  }
+
+  const log = { ...rawState.activity_log };
+  let hasChanges = false;
+
+  for (const day of days) {
+    const dayNum = day.dayNumber;
+    const activities = day.activities || [];
+
+    activities.forEach((act, idx) => {
+      const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
+      const legacyKey = `${dayNum}_${idx}`;
+      const posKey = `day_${dayNum}_act_${idx + 1}`;
+
+      const legacyEntry = log[legacyKey] || log[posKey];
+      if (legacyEntry && legacyEntry.status) {
+        // Only safely map if not tagged with a mismatched ID or title
+        if (legacyEntry.activity_id && legacyEntry.activity_id !== actId) {
+          return;
+        }
+        if (legacyEntry.activity_title && legacyEntry.activity_title.trim().toLowerCase() !== (act.title || '').trim().toLowerCase()) {
+          return;
+        }
+
+        const tagged = {
+          ...legacyEntry,
+          activity_id: actId,
+          activity_title: act.title,
+        };
+
+        if (!log[actId]) {
+          log[actId] = tagged;
+          hasChanges = true;
+        }
+        if (!log[legacyKey]?.activity_id) {
+          log[legacyKey] = tagged;
+          hasChanges = true;
+        }
+      }
+    });
+  }
+
+  return hasChanges ? { ...rawState, activity_log: log } : rawState;
 }
 
 export function extractItineraryDays(trip?: any): ItineraryDay[] {
@@ -2058,6 +2205,8 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
     return isNaN(num) ? undefined : num;
   };
 
+  const seenTripActivitySlugs: Record<string, number> = {};
+
   // 1. If route_details is available from backend LLM / route_agent
   const dailyRoutes = Array.isArray(trip.route_details)
     ? trip.route_details
@@ -2069,23 +2218,139 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
       const activities: ActivitySegment[] = Array.isArray(d.stops) && d.stops.length > 0
         ? d.stops.map((stop: any, sIdx: number) => {
             const isObj = typeof stop === 'object' && stop !== null;
-            const title = isObj ? (stop.name || stop.title || 'Scheduled Stop') : String(stop);
-            const lat = isObj ? parseCoord(stop.lat) : undefined;
-            const lon = isObj ? parseCoord(stop.lon) : undefined;
-            const timeOfDay: 'Morning' | 'Afternoon' | 'Evening' = sIdx === 0 ? 'Morning' : sIdx === 1 ? 'Afternoon' : 'Evening';
-            const categoryColor: 'primary' | 'secondary' | 'tertiary' = sIdx === 0 ? 'primary' : sIdx === 1 ? 'secondary' : 'tertiary';
+            let title = isObj ? (stop.name || stop.title || 'Scheduled Stop') : String(stop);
+            let lat = isObj ? parseCoord(stop.lat) : undefined;
+            let lon = isObj ? parseCoord(stop.lon) : undefined;
+            let location = (isObj && (stop.address || stop.location)) ? (stop.address || stop.location) : destName;
+            let placeId = isObj ? (stop.place_id || undefined) : undefined;
+
+            // Airport Normalization for verified navigation
+            const titleLower = title.toLowerCase();
+            const isAirportStop = titleLower.includes('airport') || (isObj && (stop.type === 'airport' || stop.category === 'airport'));
+
+            if (isAirportStop) {
+              if (titleLower.includes('hyderabad') || titleLower.includes('rgi') || titleLower.includes('rajiv gandhi') || titleLower.includes('hyd')) {
+                title = 'Rajiv Gandhi International Airport (HYD)';
+                location = 'Shamshabad, Hyderabad, Telangana 500409, India';
+                lat = 17.2403;
+                lon = 78.4294;
+                placeId = placeId || 'ChIJRRvZsX-7yzsRUajqM-wpIFM';
+              } else if (titleLower.includes('delhi') || titleLower.includes('igi') || titleLower.includes('indira gandhi') || titleLower.includes('del')) {
+                title = 'Indira Gandhi International Airport (DEL)';
+                location = 'Palam, New Delhi, Delhi 110037, India';
+                lat = 28.5562;
+                lon = 77.1000;
+                placeId = placeId || 'ChIJb_l2D9IeDTkR-3V_T_7uP0Y';
+              } else if (titleLower.includes('bengaluru') || titleLower.includes('bangalore') || titleLower.includes('kempegowda') || titleLower.includes('blr')) {
+                title = 'Kempegowda International Airport (BLR)';
+                location = 'Devanahalli, Bengaluru, Karnataka 560300, India';
+                lat = 13.1986;
+                lon = 77.7066;
+                placeId = placeId || 'ChIJA4_kF8VUrjsR_4TzL0f20iE';
+              } else if (titleLower.includes('mumbai') || titleLower.includes('chhatrapati') || titleLower.includes('bom')) {
+                title = 'Chhatrapati Shivaji Maharaj International Airport (BOM)';
+                location = 'Sahar, Andheri East, Mumbai, Maharashtra 400099, India';
+                lat = 19.0896;
+                lon = 72.8656;
+                placeId = placeId || 'ChIJq6g9-Y3A5zsR25G_26r0a7A';
+              } else if (titleLower.includes('sydney') || titleLower.includes('kingsford') || titleLower.includes('syd')) {
+                title = 'Sydney Kingsford Smith Airport (SYD)';
+                location = 'Mascot, Sydney NSW 2020, Australia';
+                lat = -33.9399;
+                lon = 151.1753;
+                placeId = placeId || 'ChIJp4Fm_yquEmsR0n0xX0y1G2Y';
+              } else if (titleLower.includes('narita') || (titleLower.includes('tokyo') && titleLower.includes('nrt'))) {
+                title = 'Narita International Airport (NRT)';
+                location = 'Narita, Chiba 282-0004, Japan';
+                lat = 35.7720;
+                lon = 140.3929;
+              } else if (titleLower.includes('haneda') || (titleLower.includes('tokyo') && titleLower.includes('hnd'))) {
+                title = 'Haneda International Airport (HND)';
+                location = 'Ota City, Tokyo 144-0041, Japan';
+                lat = 35.5494;
+                lon = 139.7798;
+              }
+            }
+            const rawTimeStr = isObj ? (stop.start_time || stop.time) : undefined;
+            let timeOfDay: 'Morning' | 'Afternoon' | 'Evening' = sIdx === 0 ? 'Morning' : sIdx === 1 ? 'Afternoon' : 'Evening';
+            if (rawTimeStr && typeof rawTimeStr === 'string') {
+              const match = rawTimeStr.match(/(\d{1,2}):(\d{2})(?:\s*(AM|PM))?/i);
+              if (match) {
+                let hour = parseInt(match[1], 10);
+                const ampm = match[3]?.toUpperCase();
+                if (ampm === 'PM' && hour < 12) hour += 12;
+                if (ampm === 'AM' && hour === 12) hour = 0;
+                if (hour < 12) {
+                  timeOfDay = 'Morning';
+                } else if (hour < 17) {
+                  timeOfDay = 'Afternoon';
+                } else {
+                  timeOfDay = 'Evening';
+                }
+              }
+            }
+            const categoryColor: 'primary' | 'secondary' | 'tertiary' =
+              timeOfDay === 'Morning' ? 'primary' : timeOfDay === 'Afternoon' ? 'secondary' : 'tertiary';
+
+            const scheduledTime = (isObj && (stop.time || stop.start_time))
+              ? (stop.time || `${stop.start_time}${stop.end_time ? ' - ' + stop.end_time : ''}`)
+              : (sIdx === 0 ? '09:00' : sIdx === 1 ? '13:30' : '18:00');
+
+            const slugKey = `${(isObj ? (stop.type || stop.category) : 'activity') || 'activity'}_${title}_${placeId || ''}`;
+            seenTripActivitySlugs[slugKey] = (seenTripActivitySlugs[slugKey] || 0) + 1;
+            const disambiguator = seenTripActivitySlugs[slugKey];
+
+            const persistentId = (isObj && stop.id && !String(stop.id).startsWith('day_'))
+              ? String(stop.id)
+              : generatePersistentActivityId(
+                  isObj ? (stop.type || stop.category) : undefined,
+                  title,
+                  placeId,
+                  disambiguator
+                );
 
             return {
+              id: persistentId,
               timeOfDay,
-              time: sIdx === 0 ? '09:00' : sIdx === 1 ? '13:30' : '18:00',
+              time: scheduledTime,
+              startTime: isObj ? stop.start_time : undefined,
+              endTime: isObj ? stop.end_time : undefined,
+              duration: isObj ? stop.duration : undefined,
+              travelTimeFromPrev: isObj ? stop.travel_time_from_prev : undefined,
+              travelMode: isObj ? stop.travel_mode : undefined,
+              type: isObj ? stop.type : undefined,
+              matchedInterest: isObj ? stop.matched_interest : undefined,
+              priorityRank: isObj ? stop.priority_rank : undefined,
+              statusLabel: isObj ? (stop.status_label || stop.statusLabel) : undefined,
+              isMealBreak: isObj ? Boolean(stop.is_meal_break || stop.isMealBreak) : undefined,
+              whyVisit: isObj ? (stop.why_visit || stop.whyVisit) : undefined,
               title,
-              description: (isObj && stop.description) ? stop.description : `Curated stop in ${destName}.`,
+              description: (() => {
+                const titleLower = title.toLowerCase();
+                const isAirport = titleLower.includes('airport') || (isObj && (stop.type === 'airport' || stop.category === 'airport'));
+                const isHotel = titleLower.includes('hotel') || titleLower.includes('resort') || (isObj && (stop.type === 'hotel' || stop.category === 'hotel'));
+                const isDining = titleLower.includes('restaurant') || (isObj && (stop.type === 'restaurant' || stop.category === 'restaurant'));
+                let fallbackDesc = `Explore ${title} in ${destName}.`;
+                if (isAirport) fallbackDesc = `Flight transit and airport departure/arrival at ${title}.`;
+                else if (isHotel) fallbackDesc = `Accommodations, check-in, and hospitality at ${title}.`;
+                else if (isDining) fallbackDesc = `Curated dining and local cuisine experience at ${title}.`;
+                else if (isObj && stop.category) fallbackDesc = `Explore this notable ${stop.category} point of interest in ${destName}.`;
+                const rawDesc = isObj && stop.description ? String(stop.description).trim() : '';
+                const rawWhy = isObj && stop.why_visit ? String(stop.why_visit).trim() : '';
+                return (rawDesc && rawDesc !== 'Explore this destination highlight.') ? rawDesc : (rawWhy || fallbackDesc);
+              })(),
               categoryColor,
-              location: destName,
-              thumbnail: isObj ? stop.image_url : undefined,
+              location,
+              placeId,
+              thumbnail: (isObj && (stop.image_url || stop.thumbnail || stop.image || stop.imageUrl)) ? (stop.image_url || stop.thumbnail || stop.image || stop.imageUrl) : undefined,
               rating: isObj && stop.rating ? Number(stop.rating) : undefined,
               reviews: isObj && stop.review_count ? Number(stop.review_count) : undefined,
               operatingHours: isObj ? stop.opening_hours : undefined,
+              interests: isObj ? stop.interests : undefined,
+              category: isObj ? stop.category : undefined,
+              matchType: isObj ? stop.match_type : undefined,
+              fameLevel: isObj ? stop.fame_level : undefined,
+              source: isObj ? stop.source : undefined,
               lat,
               lon,
             };
@@ -2095,7 +2360,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
       return {
         ...d,
         dayNumber: idx + 1,
-        date: formattedDates[idx] || `Day ${idx + 1}`,
+        date: d.formatted_date || d.date || formattedDates[idx] || `Day ${idx + 1}`,
         title: d.title || `Day ${idx + 1}: ${destName} Exploration & Sightseeing`,
         transitBadge: d.is_flight_day ? '✈️ Flight Day' : 'Curated Private Chauffeur',
         activities,
@@ -2133,6 +2398,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
       transitBadge: i === 1 ? 'Airport Chauffeur Transfer' : 'Curated Private Chauffeur',
       activities: [
         {
+          id: generatePersistentActivityId('attraction', dayAttraction ? (dayAttraction.name || dayAttraction.title) : `Morning Heritage Tour in ${destName}`, dayAttraction?.place_id, i > 1 ? i : undefined),
           timeOfDay: 'Morning',
           time: '09:00',
           title: dayAttraction ? (dayAttraction.name || dayAttraction.title || 'Morning Exploration') : `Morning Heritage Tour in ${destName}`,
@@ -2153,6 +2419,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           statusReason: dayAttraction?.reason || undefined,
         },
         {
+          id: generatePersistentActivityId('restaurant', dayDining ? (dayDining.name || 'Artisanal Culinary Experience') : `Gastronomy & Local Dining`, dayDining?.place_id, i > 1 ? i : undefined),
           timeOfDay: 'Afternoon',
           time: '13:30',
           title: dayDining ? (dayDining.name || 'Artisanal Culinary Experience') : `Gastronomy & Local Dining`,
@@ -2167,6 +2434,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           recommendedTimeSpent: '1 - 1.5 Hours',
         },
         {
+          id: generatePersistentActivityId('hotel', i === 1 ? `Sunset Check-in at ${dayHotel?.name || 'Hotel'}` : 'Sunset Panoramic Spot & Evening Stroll', dayHotel?.place_id, i > 1 ? i : undefined),
           timeOfDay: 'Evening',
           time: '18:00',
           title: i === 1 ? `Sunset Check-in at ${dayHotel?.name || 'Hotel'}` : 'Sunset Panoramic Spot & Evening Stroll',
@@ -2366,4 +2634,53 @@ export async function deleteConversation(conversationId: string): Promise<void> 
     }
     throw err;
   }
+}
+
+export async function updateExecutionState(tripId: string, executionState: any): Promise<any> {
+  if (!tripId || tripId.startsWith('trip-') || ['goa-coastal-v24', 'tokyo-explorer', 'paris-weekend', 'new-york-culture', 'swiss-alps-adventure'].includes(tripId)) {
+    return;
+  }
+  return await apiFetch<any>(`/api/trips/${tripId}/execution_state`, {
+    method: 'POST',
+    body: JSON.stringify({ execution_state: executionState }),
+  });
+}
+
+export async function previewReroute(
+  tripId: string,
+  payload: {
+    day_number: number;
+    skipped_activity_id: string;
+    current_location?: { lat: number; lon: number };
+    current_time?: string;
+    expected_revision?: number;
+  }
+): Promise<RerouteProposal | null> {
+  if (!tripId || tripId.startsWith('trip-') || ['goa-coastal-v24', 'tokyo-explorer', 'paris-weekend', 'new-york-culture', 'swiss-alps-adventure'].includes(tripId)) {
+    return null;
+  }
+  return await apiFetch<RerouteProposal>(`/api/trips/${tripId}/reroute/preview`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function applyReroute(
+  tripId: string,
+  payload: {
+    day_number: number;
+    skipped_activity_id: string;
+    proposed_stops: any[];
+    replacement_activity_id?: string;
+    reason?: string;
+    expected_revision?: number;
+  }
+): Promise<RerouteApplyResult | null> {
+  if (!tripId || tripId.startsWith('trip-') || ['goa-coastal-v24', 'tokyo-explorer', 'paris-weekend', 'new-york-culture', 'swiss-alps-adventure'].includes(tripId)) {
+    return null;
+  }
+  return await apiFetch<RerouteApplyResult>(`/api/trips/${tripId}/reroute/apply`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
