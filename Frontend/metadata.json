@@ -1,6 +1,0 @@
-{
-  "name": "TravelAI",
-  "description": "Autonomous trip architecture and travel planning frontend for FastAPI backend.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
