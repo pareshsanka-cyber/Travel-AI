@@ -14,6 +14,7 @@ import {
 import { ApiStatusState, TripSummary, SavedTripSnippet } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { usePopoverFocus } from '../motion/usePopoverFocus';
 
 interface HeaderProps {
   showTripSelector?: boolean;
@@ -43,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [isTripDropdownOpen, setIsTripDropdownOpen] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const tripMenu = usePopoverFocus(isTripDropdownOpen, () => setIsTripDropdownOpen(false));
+  const profileMenu = usePopoverFocus(showUserDropdown, () => setShowUserDropdown(false));
   const tripPresets = savedTrips.map(trip => ({ id: trip.id, name: trip.name, location: trip.destinationTag }));
 
   const handleKeyDownSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -55,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`fixed top-0 right-0 h-16 bg-surface/85 backdrop-blur-xl z-30 border-b border-surface-container-high/40 transition-all duration-300 ${
+      className={`motion-header fixed top-0 right-0 h-16 bg-surface/85 backdrop-blur-xl z-30 border-b border-surface-container-high/40 transition-all duration-300 ${
         isSidebarCollapsed ? 'left-0 lg:left-20' : 'left-0 lg:left-72'
       }`}
     >
@@ -80,11 +83,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span className="relative flex h-2 w-2">
               <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  apiStatus.isConnected ? 'bg-tertiary' : 'bg-primary'
-                }`}
-              />
-              <span
                 className={`relative inline-flex rounded-full h-2 w-2 ${
                   apiStatus.isConnected ? 'bg-tertiary' : 'bg-primary'
                 }`}
@@ -99,7 +97,8 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative" hidden={!showTripSelector}>
             <button
               type="button"
-              onClick={() => setIsTripDropdownOpen(!isTripDropdownOpen)}
+              ref={tripMenu.trigger} aria-expanded={isTripDropdownOpen} aria-controls="active-trip-menu"
+              onClick={() => { setShowUserDropdown(false); setIsTripDropdownOpen(!isTripDropdownOpen); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium transition-colors border border-surface-container-high/40"
             >
               <PlaneTakeoff className="w-4 h-4 text-primary" />
@@ -115,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="fixed inset-0 z-40"
                   onClick={() => setIsTripDropdownOpen(false)}
                 />
-                <div className="absolute left-0 mt-2 w-72 rounded-xl bg-surface-container-high/95 backdrop-blur-xl border border-surface-container-highest shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95">
+                <div ref={tripMenu.panel} id="active-trip-menu" className="motion-menu absolute left-0 mt-2 w-72 rounded-xl bg-surface-container-high/95 backdrop-blur-xl border border-surface-container-highest shadow-2xl p-1.5 z-50">
                   <div className="px-2.5 py-1.5 text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">
                     Select Active Trip
                   </div>
@@ -196,7 +195,8 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               aria-label="User Profile"
-              onClick={() => setShowUserDropdown(!showUserDropdown)}
+              ref={profileMenu.trigger} aria-expanded={showUserDropdown} aria-controls="profile-actions"
+              onClick={() => { setIsTripDropdownOpen(false); setShowUserDropdown(!showUserDropdown); }}
               title={user ? `${user.name} (${user.email})` : 'Traveler Profile'}
               className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-[0_0_12px_rgba(137,206,255,0.35)] text-on-primary hover:opacity-90 transition-opacity font-bold text-xs cursor-pointer"
             >
@@ -209,7 +209,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="fixed inset-0 z-40"
                   onClick={() => setShowUserDropdown(false)}
                 />
-                <div className="absolute right-0 top-10 mt-2 w-64 rounded-xl bg-surface-container-high/95 backdrop-blur-xl border border-surface-container-highest shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95">
+                <div ref={profileMenu.panel} id="profile-actions" className="motion-menu absolute right-0 top-10 mt-2 w-64 rounded-xl bg-surface-container-high/95 backdrop-blur-xl border border-surface-container-highest shadow-2xl p-3 z-50">
                   <div className="pb-2.5 border-b border-surface-container-highest/60 mb-2">
                     <div className="font-semibold text-xs text-on-surface truncate">
                       {user?.name || 'Explorer'}

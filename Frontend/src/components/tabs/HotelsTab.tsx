@@ -1,3 +1,4 @@
+import { MotionImage } from '../../motion/SecondaryMotion';
 import { BookDemoButton } from '../BookDemoButton';
 import React, { useState } from 'react';
 import { MapPin, Star, Check } from 'lucide-react';
@@ -51,7 +52,7 @@ export const HotelsTab: React.FC<HotelsTabProps> = ({
           return (
             <div
               key={hotel.id || `hotel-${idx}`}
-              className={`rounded-xl p-space-md shadow-md grid grid-cols-1 md:grid-cols-12 gap-space-md items-center border transition-all ${
+              className={`rounded-xl p-space-md shadow-md grid grid-cols-1 md:grid-cols-12 gap-space-md items-center border motion-selection ${
               isSelected
                 ? 'bg-surface-container border-tertiary/40 ring-1 ring-tertiary/20'
                 : 'bg-surface-container/70 border-surface-container-highest/40 hover:border-surface-container-highest opacity-85 hover:opacity-100'
@@ -59,7 +60,7 @@ export const HotelsTab: React.FC<HotelsTabProps> = ({
           >
             {/* Hotel Image with Review overlay */}
             <div className="md:col-span-4 h-48 rounded-lg overflow-hidden relative">
-              <img
+              <MotionImage
                 src={hotel.imageUrl}
                 alt={hotel.imageAlt}
                 className="w-full h-full object-cover"
@@ -205,7 +206,7 @@ export const HotelsTab: React.FC<HotelsTabProps> = ({
                     aria-busy={savingId === hotel.id}
               >
                 <div className="w-14 h-14 rounded-md overflow-hidden flex-shrink-0 relative">
-                  <img
+                  <MotionImage
                     src={hotel.imageUrl}
                     alt={hotel.imageAlt}
                     className="w-full h-full object-cover"

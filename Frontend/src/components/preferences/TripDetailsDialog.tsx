@@ -39,9 +39,9 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
     onClose();
   };
   const input = 'mt-1 w-full rounded-xl border border-surface-container-highest bg-surface-container-lowest px-3 py-2.5 text-sm';
-  return createPortal(<div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6">
-    <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
-    <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="trip-details-title" tabIndex={-1} className="relative w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-2xl bg-surface-container shadow-xl">
+  return createPortal(<div data-travelai-overlay className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6">
+    <div className="motion-backdrop absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
+    <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="trip-details-title" tabIndex={-1} className="motion-dialog relative w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-2xl bg-surface-container shadow-xl">
       <form onSubmit={submit} noValidate className="p-5 sm:p-6 space-y-5">
         <div className="flex items-center justify-between"><h2 id="trip-details-title" className="text-xl font-semibold">Trip details</h2><button type="button" aria-label="Close trip details" onClick={onClose} className="p-2"><X className="w-5 h-5" /></button></div>
         <p className="text-sm text-on-surface-variant">Set your planning preferences. Your saved itinerary changes only after an accepted request to TravelAI.</p>

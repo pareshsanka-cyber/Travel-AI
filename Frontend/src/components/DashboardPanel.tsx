@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
+import { LayoutGroup } from 'motion/react';
+import { ActiveIndicator } from '../motion/ActiveIndicator';
+import { useContentFade } from '../motion/useInteractionMotion';
 import { createPortal } from 'react-dom';
 import { buildCalendar, buildItineraryText, downloadFile } from '../services/itineraryExport';
 import {
@@ -74,6 +77,8 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [routeMode, setRouteMode] = useState<'overview' | 'days'>(() => sessionStorage.getItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`) === 'days' ? 'days' : 'overview');
 
+  const tabGroup = useId();
+  const contentFade = useContentFade(`${trip?.id}/${activeTab}/${routeMode}`);
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -150,9 +155,9 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
                 : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
             }`}
           >
-            <Compass className={`w-3.5 h-3.5 ${activeTab === 'companion-tab' ? 'animate-spin' : ''}`} />
+            <Compass className="w-3.5 h-3.5" />
             <span>{trip?.plusAccess ? 'Open Companion' : 'Unlock Companion'}</span>
-            {trip?.plusAccess ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> : <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
+            {trip?.plusAccess ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> : <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
           <button
             type="button"
@@ -204,76 +209,33 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
       </div>
 
       {/* Navigation Tabs Strip */}
-      <div className="trip-tabs shrink-0 px-3 pt-2 bg-surface-container/95 border-b border-surface-container-high/40 flex flex-wrap items-center gap-1 sticky top-16 z-20">
-        <button type="button" onClick={() => { setRouteMode('overview'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'overview'); onSwitchTab('route-tab'); }} aria-pressed={activeTab === 'route-tab' && routeMode === 'overview'} className="tab-button px-3 py-2 text-sm text-primary">Overview</button>
-        <button
-          type="button"
-          onClick={() => { setRouteMode('days'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'days'); onSwitchTab('route-tab'); }}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'route-tab' && routeMode === 'days'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <CalendarDays className="w-4 h-4" />
-          <span>Days &amp; map</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSwitchTab('flights-tab')}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'flights-tab'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <Plane className="w-4 h-4" />
-          <span>Flights ({flights.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSwitchTab('hotels-tab')}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'hotels-tab'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <Hotel className="w-4 h-4" />
-          <span>Hotels ({hotels.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSwitchTab('weather-tab')}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'weather-tab'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <CloudSun className="w-4 h-4" />
-          <span>Weather Forecast</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSwitchTab('budget-tab')}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'budget-tab'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          <span>Budget Auditor</span>
-        </button>
+      <LayoutGroup id={`${tabGroup}-${trip?.id}`}>
+      <div className="trip-tabs shrink-0 px-3 pt-2 bg-surface-container/95 border-b border-surface-container-high/40 flex flex-wrap items-center gap-1 sticky top-16 z-20" aria-label="Trip sections">
+        {([
+          { key: 'overview', label: 'Overview', tab: 'route-tab', mode: 'overview', Icon: null },
+          { key: 'days', label: 'Days & map', tab: 'route-tab', mode: 'days', Icon: CalendarDays },
+          { key: 'flights', label: `Flights (${flights.length})`, tab: 'flights-tab', Icon: Plane },
+          { key: 'hotels', label: `Hotels (${hotels.length})`, tab: 'hotels-tab', Icon: Hotel },
+          { key: 'weather', label: 'Weather Forecast', tab: 'weather-tab', Icon: CloudSun },
+          { key: 'budget', label: 'Budget Auditor', tab: 'budget-tab', Icon: Wallet },
+        ] as const).map(item => {
+          const selected = activeTab === item.tab && (!('mode' in item) || routeMode === item.mode);
+          const Icon = item.Icon;
+          return <button key={item.key} type="button" aria-pressed={selected}
+            onClick={() => {
+              if ('mode' in item) { setRouteMode(item.mode); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, item.mode); }
+              onSwitchTab(item.tab);
+            }}
+            className={`motion-tab ${item.key === 'overview' ? 'motion-tab-overview text-sm' : 'text-xs font-medium'} tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg whitespace-nowrap border-t border-x ${selected ? 'text-primary font-semibold' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'}`}>
+            {selected && <ActiveIndicator id="trip-tab" className="motion-tab-indicator" />}
+            {Icon && <Icon className="w-4 h-4" />}<span>{item.label}</span>
+          </button>;
+        })}
       </div>
+      </LayoutGroup>
 
       {/* Tab Content Area */}
-      <div className="flex-1 min-w-0 p-3 sm:p-5 space-y-space-md">
+      <div ref={contentFade} className="flex-1 min-w-0 p-3 sm:p-5 space-y-space-md">
         {trip && !trip.plusAccess && <section aria-label="Trip access" className="flex flex-wrap items-center gap-3 text-sm py-2"><span className="text-on-surface-variant">Basic planning is free.</span><button type="button" onClick={onBookings} className="text-primary underline">Book a flight or hotel — Demo</button><button type="button" onClick={onUpgrade} className="text-primary underline">Upgrade only — ₹499 Demo</button></section>}
         {activeTab === 'companion-tab' && trip?.plusAccess && (
           <CompanionMode

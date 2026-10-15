@@ -3,7 +3,7 @@ import { RefObject, useEffect, useRef } from 'react';
 let locks = 0;
 let originalOverflow = '';
 
-/** Shared by nested preference sheets and the chat drawer. */
+/** Shared focus containment, scroll locking and restoration for modal surfaces. */
 export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
   const close = useRef(onClose);
   close.current = onClose;

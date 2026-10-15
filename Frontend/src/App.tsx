@@ -204,7 +204,7 @@ function AppContent() {
 
       {/* Main Content Area */}
       <div
-        className={`flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${
+        className={`motion-app-workspace flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${
           isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'
         }`}
       >

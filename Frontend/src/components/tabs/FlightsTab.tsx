@@ -163,7 +163,7 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
           return (
             <div
               key={flight.id || `flight-${idx}`}
-              className={`rounded-xl p-space-md shadow-md space-y-space-sm border transition-all ${
+              className={`rounded-xl p-space-md shadow-md space-y-space-sm border motion-selection ${
                 isSelected
                   ? 'bg-surface-container border-primary/40 ring-1 ring-primary/20'
                   : 'bg-surface-container/70 border-surface-container-highest/40 hover:border-surface-container-highest opacity-85 hover:opacity-100'

@@ -1,3 +1,4 @@
+import { useContentFade } from '../motion/useInteractionMotion';
 import React, { useEffect, useState } from 'react';
 import { TripPlusCard } from '../components/TripPlusCard';
 import { BookDemoButton } from '../components/BookDemoButton';
@@ -14,6 +15,7 @@ interface BookingsDeskPageProps {
 export const BookingsDeskPage: React.FC<BookingsDeskPageProps> = ({ trip, flights, hotels, onGoToStudio, onUpgrade, onBook, onOpenOrder }) => {
   const flight = flights.find(f => f.isSelected);
   const hotel = hotels.find(h => h.isSelected);
+  const selectionRef = useContentFade(`${trip?.id}:${flight?.id}:${hotel?.id}`);
   const [orders, setOrders] = useState<DemoOrder[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ export const BookingsDeskPage: React.FC<BookingsDeskPageProps> = ({ trip, flight
     <h1 className="text-2xl font-bold">Travel Selections</h1>
     <p className="text-sm text-primary">Demo booking — no money charged or real reservation made.</p>
     <p className="text-on-surface-variant">Compare and save options for {trip?.title || 'your trip'}. Selections do not reserve tickets, rooms, or transfers. Complete reservations with the provider.</p>
-    <div className="grid md:grid-cols-2 gap-6">
+    <div ref={selectionRef} className="grid md:grid-cols-2 gap-6">
       <section className="p-6 rounded-xl bg-surface-container space-y-3">
         <h2 className="font-semibold">Selected flight</h2>
         {flight ? <><p>{flight.airlineName || flight.airlineCode} ? {flight.flightNumber}</p><p>{flight.departureTime} ? {flight.arrivalTime}</p>

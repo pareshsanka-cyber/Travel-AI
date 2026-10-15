@@ -1,0 +1,54 @@
+/* Local interaction feedback; Leaflet owns all transforms inside its map. */
+:is(#root, [data-travelai-overlay]) :where(button, summary):not(:where(.leaflet-container *, [data-motion-static], [data-motion-static] *)) {
+  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+  transition-duration: var(--motion-feedback);
+  transition-timing-function: var(--motion-ease);
+  scale: 1;
+}
+:is(#root, [data-travelai-overlay]) :where(button, summary):not(:where(.leaflet-container *)):focus-visible {
+  outline: 2px solid var(--sys-primary);
+  outline-offset: 3px;
+}
+:is(#root, [data-travelai-overlay]) :where(button, summary):not(:where(.leaflet-container *, [data-motion-static], [data-motion-static] *)):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):active { scale: .98; }
+:is(#root, [data-travelai-overlay]) :where(button:disabled, button[aria-disabled="true"], button[aria-busy="true"]) { scale: 1; }
+
+.motion-nav-item, .motion-tab { position: relative; isolation: isolate; }
+.motion-active-indicator { position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; background: var(--sys-surface-container-high); box-shadow: 0 1px 2px #0001; }
+.motion-tab-indicator { border: 1px solid var(--sys-surface-container-highest); border-bottom: 0; border-radius: 8px 8px 0 0; }
+.trip-tabs .motion-tab[aria-pressed="true"] { background: transparent; color: var(--sys-primary); }
+.trip-tabs .motion-tab-overview[aria-pressed="true"] { color: var(--sys-on-primary-container); }
+.motion-tab[aria-pressed="true"] > .motion-active-indicator { background: var(--sys-surface-container-high); }
+.motion-tab-overview > .motion-active-indicator { background: var(--sys-primary-container) !important; }
+.motion-tab { border-color: transparent; }
+.motion-sidebar { transition-property: width, translate, transform; transition-duration: var(--motion-overlay); transition-timing-function: var(--motion-ease); }
+.motion-app-workspace, .motion-header { transition-property: margin-left, left; transition-duration: var(--motion-overlay); transition-timing-function: var(--motion-ease); }
+
+@keyframes motion-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes motion-settle { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes motion-menu { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.motion-backdrop { animation: motion-fade var(--motion-overlay) var(--motion-ease); }
+.motion-dialog { animation: motion-settle var(--motion-overlay) var(--motion-ease); }
+.motion-menu, .trip-more-actions[open] > .trip-extra-actions { animation: motion-menu var(--motion-content) var(--motion-ease); }
+.motion-suggestions-extra { display: contents; }
+.motion-suggestions-extra > button { animation: motion-menu var(--motion-content) var(--motion-ease); }
+.motion-composer { transition: border-color var(--motion-feedback) var(--motion-ease), box-shadow var(--motion-feedback) var(--motion-ease); }
+.motion-card, .motion-selection { transition: border-color var(--motion-content) var(--motion-ease), box-shadow var(--motion-content) var(--motion-ease), opacity var(--motion-content) var(--motion-ease); }
+.motion-method { transition: background-color var(--motion-content) var(--motion-ease), border-color var(--motion-content) var(--motion-ease); }
+.motion-weather-card { animation: motion-fade var(--motion-content) var(--motion-ease) backwards; }
+.motion-weather-card:nth-child(2) { animation-delay: 30ms; }
+.motion-weather-card:nth-child(n+3) { animation-delay: 60ms; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .motion-card { transition: border-color var(--motion-content) var(--motion-ease), box-shadow var(--motion-content) var(--motion-ease), translate var(--motion-content) var(--motion-ease); }
+  .motion-card:hover { translate: 0 -2px; }
+}
+@media (max-width: 639px) {
+  @keyframes motion-settle { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: 0ms !important; scroll-behavior: auto !important; }
+  :is(#root, [data-travelai-overlay]) :where(button, summary):not(:where(.leaflet-container *)) { scale: 1 !important; }
+  .motion-dialog, .motion-menu { transform: none !important; }
+}
+@media print {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

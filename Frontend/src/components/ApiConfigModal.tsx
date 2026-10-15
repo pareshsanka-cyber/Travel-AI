@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useModalFocus } from '../hooks/useModalFocus';
 import {
   X,
   Server,
@@ -27,6 +28,8 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
   const [inputUrl, setInputUrl] = useState(apiStatus.endpointUrl);
   const [isTesting, setIsTesting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useModalFocus(panel, isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -113,12 +116,12 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in"
+      className="motion-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-xl rounded-2xl bg-surface-container border border-surface-container-highest shadow-2xl overflow-hidden">
+      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="api-settings-title" tabIndex={-1} className="motion-dialog w-full max-w-xl rounded-2xl bg-surface-container border border-surface-container-highest shadow-2xl overflow-hidden">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-surface-container-high flex items-center justify-between bg-surface-container-low">
           <div className="flex items-center gap-2.5">
@@ -126,7 +129,7 @@ export const ApiConfigModal: React.FC<ApiConfigModalProps> = ({
               <Server className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-on-surface">
+              <h3 id="api-settings-title" className="text-base font-semibold text-on-surface">
                 FastAPI Backend Connection
               </h3>
               <p className="text-xs text-on-surface-variant">

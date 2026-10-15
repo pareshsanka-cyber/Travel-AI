@@ -3,8 +3,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Layers, Map as MapIcon, Globe, Navigation } from 'lucide-react';
 import { ActivitySegment, RouteLeg } from '../../types';
+import { useReducedMotion } from 'motion/react';
+import { claimRouteReveal, revealPath } from '../../motion/routeMotion';
+import { motionTokens } from '../../motion/tokens';
 
 interface DayMapViewProps {
+  tripId?: string;
   activities: ActivitySegment[];
   destination?: string;
   dayNumber: number;
@@ -34,7 +38,8 @@ const MAP_TILE_CONFIGS: Record<MapLayerType, { url: string; attribution: string;
 };
 
 export const DayMapView: React.FC<DayMapViewProps> = ({ 
-  activities, 
+  activities,
+  tripId,
   destination, 
   dayNumber,
   legs,
@@ -45,6 +50,16 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const [mapLayer, setMapLayer] = useState<MapLayerType>('street');
+  const reduced = useReducedMotion();
+  const reducedRef = useRef(reduced); reducedRef.current = reduced;
+  const selection = useRef({ activeLegIndex, onSelectLeg }); selection.current = { activeLegIndex, onSelectLeg };
+  const roadLines = useRef<Array<{ index: number; line: L.Polyline; halo: L.Polyline; fallback: boolean }>>([]);
+  const cleanupMotion = useRef<Array<() => void>>([]);
+  const cancelMotion = () => { cleanupMotion.current.forEach(cleanup => cleanup()); cleanupMotion.current = []; };
+  const mapIdentity = JSON.stringify({ tripId, activities, destination, dayNumber, legs });
+  const geometryIdentity = JSON.stringify({ points: activities.map(a => [a.id, a.lat, a.lon]),
+    legs: legs?.map(leg => [leg.status, leg.isFlightLeg, leg.geometry, leg.fromCoords, leg.toCoords]) });
+  useEffect(() => { if (reduced) cancelMotion(); }, [reduced]);
 
   // Switch tile layer on user selection
   useEffect(() => {
@@ -178,6 +193,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
     // Initialize Map
     const map = L.map(mapContainerRef.current, {
+      renderer: L.svg(),
       zoomControl: true,
       scrollWheelZoom: false,
       zoomAnimation: false,
@@ -196,6 +212,9 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     tileLayerRef.current = initialTileLayer;
 
     const allRoutePoints: L.LatLngTuple[] = [];
+    roadLines.current = [];
+    const revealPaths: Array<{ line: L.Polyline; kind: 'verified' | 'flight' | 'fallback' }> = [];
+    const markerBodies: HTMLElement[] = [];
 
     // Helper: draw a curved flight arc between two coordinate points
     function drawFlightArc(fromC: [number, number], toC: [number, number]) {
@@ -221,13 +240,15 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       }
 
       // Draw dashed arc line
-      L.polyline(arcPoints, {
+      const flightLine = L.polyline(arcPoints, {
         color: '#0ea5e9',
         weight: 3,
         dashArray: '10, 7',
         opacity: 0.9,
         lineCap: 'round',
       }).addTo(map);
+
+      revealPaths.push({ line: flightLine, kind: 'flight' });
 
       // ✈️ plane icon at midpoint of arc
       const midIdx = Math.floor(arcPoints.length / 2);
@@ -246,7 +267,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     // 1. Draw routes (road or flight arc)
     if (legs && legs.length > 0) {
       legs.forEach((leg, idx) => {
-        const isSelectedLeg = activeLegIndex === -1 || idx === activeLegIndex;
+        const isSelectedLeg = selection.current.activeLegIndex === -1 || idx === selection.current.activeLegIndex;
 
         if (leg.isFlightLeg || leg.status === 'flight') {
           // Draw curved flight arc instead of road polyline
@@ -262,26 +283,21 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
         polyCoords.forEach((p) => allRoutePoints.push(p));
 
         if (polyCoords.length > 0) {
-          if (isSelectedLeg) {
-            L.polyline(polyCoords, {
-              color: '#0284c7',
-              weight: 8,
-              opacity: 0.35,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }).addTo(map);
-          }
+          const halo = L.polyline(polyCoords, {
+            color: '#0284c7', weight: 8, opacity: isSelectedLeg ? 0.35 : 0, lineCap: 'round', lineJoin: 'round',
+          }).addTo(map);
 
           const line = L.polyline(polyCoords, {
             color: isSelectedLeg ? '#0284c7' : '#64748b',
             weight: isSelectedLeg ? 5 : 3.5,
             opacity: isSelectedLeg ? 1.0 : 0.65,
-            dashArray: isSelectedLeg ? undefined : '6, 6',
+            dashArray: leg.status !== 'ok' ? '8, 8' : isSelectedLeg ? undefined : '6, 6',
           }).addTo(map);
 
-          if (onSelectLeg) {
-            line.on('click', () => onSelectLeg(idx));
-          }
+          roadLines.current.push({ index: idx, line, halo, fallback: leg.status !== 'ok' });
+          revealPaths.push({ line, kind: leg.status === 'ok' ? 'verified' : 'fallback' });
+          if (leg.status === 'ok') revealPaths.push({ line: halo, kind: 'verified' });
+          line.on('click', () => selection.current.onSelectLeg?.(idx));
         }
       });
     } else {
@@ -290,12 +306,13 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       simpleCoords.forEach((p) => allRoutePoints.push(p));
 
       if (simpleCoords.length > 1) {
-        L.polyline(simpleCoords, {
+        const fallbackLine = L.polyline(simpleCoords, {
           color: '#0284c7',
           weight: 3.5,
           opacity: 0.85,
           dashArray: '8, 8',
         }).addTo(map);
+        revealPaths.push({ line: fallbackLine, kind: 'fallback' });
       }
     }
 
@@ -314,8 +331,8 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       const customIcon = L.divIcon({
         className: 'custom-map-pin',
         html: `
-          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: ${pin.bg}; border: 2.5px solid #ffffff; box-shadow: 0 4px 14px rgba(0,0,0,0.4); color: #ffffff; font-weight: 700; font-size: 13px; font-family: sans-serif;">
-            ${pin.label}
+          <div class="route-waypoint-body" style="position: relative; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: ${pin.bg}; border: 2.5px solid #ffffff; box-shadow: 0 4px 14px rgba(0,0,0,0.4); color: #ffffff; font-weight: 700; font-size: 13px; font-family: sans-serif;">
+            ${i + 1}
             <div style="position: absolute; bottom: -5px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid ${pin.bg};"></div>
           </div>
         `,
@@ -338,9 +355,11 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
         </div>
       `;
 
-      L.marker([wp.lat, wp.lon], { icon: customIcon })
+      const marker = L.marker([wp.lat, wp.lon], { icon: customIcon })
         .addTo(map)
         .bindPopup(popupContent);
+      const body = marker.getElement()?.querySelector<HTMLElement>('.route-waypoint-body');
+      if (body) markerBodies.push(body);
     });
 
     // 3. Fit Bounds to show all route points
@@ -351,11 +370,34 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       map.setView([waypoints[0].lat, waypoints[0].lon], 13);
     }
 
-    let active = true;
+    let active = true, revealed = false;
+    let revealFrame = 0;
+    const startReveal = () => {
+      if (!active || revealed || !mapContainerRef.current?.clientWidth || !mapContainerRef.current?.clientHeight) return;
+      revealed = true;
+      if (!claimRouteReveal(`${tripId || destination}/${dayNumber}`, geometryIdentity) || reducedRef.current) return;
+      const hasRoute = revealPaths.some(entry => entry.kind !== 'fallback');
+      revealPaths.forEach(({ line, kind }) => {
+        const path = line.getElement() as SVGPathElement | undefined;
+        if (!path) return;
+        path.dataset.routeKind = kind;
+        if (kind === 'fallback') {
+          const animation = path.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: motionTokens.content * 1000, easing: motionTokens.cssEase });
+          cleanupMotion.current.push(() => animation.cancel());
+        } else cleanupMotion.current.push(revealPath(path, motionTokens.route * 1000));
+      });
+      markerBodies.forEach((body, index) => {
+        const animation = body.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'translateY(0)' }],
+          { duration: motionTokens.content * 1000, delay: (hasRoute ? motionTokens.route : motionTokens.content) * 1000 + Math.min(index * 40, 160), fill: 'backwards', easing: motionTokens.cssEase });
+        cleanupMotion.current.push(() => animation.cancel());
+      });
+    };
+    map.on('movestart zoomstart', cancelMotion);
     const resize = () => {
       if (!active || mapInstanceRef.current !== map) return;
       map.invalidateSize({ pan: false, animate: false });
       if (allRoutePoints.length > 1) map.fitBounds(L.latLngBounds(allRoutePoints), { padding: [45, 45], maxZoom: 15, animate: false });
+      if (!revealed) { cancelAnimationFrame(revealFrame); revealFrame = requestAnimationFrame(startReveal); }
     };
     const resizeObserver = new ResizeObserver(resize);
     if (mapContainerRef.current) resizeObserver.observe(mapContainerRef.current);
@@ -363,15 +405,28 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
     return () => {
       active = false;
-      resizeObserver.disconnect();
-      cancelAnimationFrame(sizeFrame);
-      map.stop();
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
+      resizeObserver.disconnect(); cancelAnimationFrame(sizeFrame); cancelAnimationFrame(revealFrame); cancelMotion();
+      map.off('movestart zoomstart', cancelMotion); map.stop(); map.remove();
+      if (mapInstanceRef.current === map) mapInstanceRef.current = null;
+      roadLines.current = [];
     };
-  }, [activities, destination, dayNumber, legs, activeLegIndex, onSelectLeg]);
+  }, [mapIdentity]);
+
+  // Selection changes update layers in place; never rebuild or recenter the map.
+  useEffect(() => {
+    const emphasis: Animation[] = [];
+    roadLines.current.forEach(({ index, line, halo, fallback }) => {
+      const selected = activeLegIndex === -1 || index === activeLegIndex;
+      line.setStyle({ color: selected ? '#0284c7' : '#64748b', weight: selected ? 5 : 3.5, opacity: selected ? 1 : 0.65, dashArray: fallback ? '8, 8' : selected ? undefined : '6, 6' });
+      halo.setStyle({ opacity: selected ? 0.35 : 0 });
+      if (selected && activeLegIndex !== -1 && !reducedRef.current) {
+        const animation = line.getElement()?.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: motionTokens.content * 1000 });
+        if (animation) { emphasis.push(animation); cleanupMotion.current.push(() => animation.cancel()); }
+      }
+    });
+    return () => emphasis.forEach(animation => animation.cancel());
+  }, [activeLegIndex, mapIdentity]);
+
 
 
   return (
@@ -427,7 +482,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
         {/* Day Badge */}
         <div className="hidden sm:flex bg-surface-container-lowest/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-surface-container-highest/70 text-xs font-semibold text-on-surface shadow-md items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
           <span>Day {dayNumber} Street Map</span>
         </div>
       </div>

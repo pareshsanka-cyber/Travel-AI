@@ -1,6 +1,7 @@
 import React, { useLayoutEffect } from 'react';
 import { ChatPanel } from '../components/ChatPanel';
 import { DashboardPanel } from '../components/DashboardPanel';
+import { useContentFade } from '../motion/useInteractionMotion';
 import {
   TripSummary,
   ItineraryDay,
@@ -80,6 +81,8 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onNewTrip,
 }) => {
   const showPlan = !trip || plannerView === 'plan';
+  const planFade = useContentFade('plan', showPlan);
+  const tripFade = useContentFade(trip?.id || 'trip', !showPlan);
   useLayoutEffect(() => {
     const view = showPlan ? 'plan' : 'trip';
     const key = `TRAVELAI_SCROLL:${trip?.id || 'new'}:${view}`;
@@ -102,8 +105,9 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
         <button type="button" onClick={onNavigateToItineraryHub} className="text-sm text-primary">← My trips</button>
         {showPlan && trip && <button type="button" onClick={() => changeView('trip')} className="rounded-xl border border-primary/30 px-4 py-2 text-sm text-primary font-semibold">{travelContext?.current_trip_id === trip.id ? (currentIntent === 'MODIFY_ITINERARY' ? 'Return to trip' : 'View generated itinerary') : 'View saved trip'} →</button>}
       </div>
-      <div className="plan-view" hidden={!showPlan}>
+      <div ref={planFade} className="plan-view" hidden={!showPlan}>
       <ChatPanel
+        isVisible={showPlan}
         trip={trip}
         travelContext={travelContext}
         currentIntent={currentIntent}
@@ -119,7 +123,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
       />
       </div>
 
-      <div hidden={showPlan}>
+      <div ref={tripFade} hidden={showPlan}>
       {trip ? (
         <DashboardPanel key={trip.id}
           onOpenChat={editTrip}

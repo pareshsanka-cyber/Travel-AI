@@ -1,3 +1,4 @@
+import { useConfirmedSuccess } from '../motion/SecondaryMotion';
 import { useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { useBookingStatus } from '../hooks/useTripBookings';
@@ -11,6 +12,7 @@ export function BookDemoButton({ kind, id, price, onBook, source = 'discovered' 
   const submitting = useRef(false);
   const bookings = useBookingStatus();
   const order = bookings?.find(kind, id, source);
+  const successRef = useConfirmedSuccess(order?.id, order?.status, bookings?.loading);
   const previous = bookings?.previous.filter(item => item.booking?.kind === kind && item.booking.option_id === id && item.booking.source === source) || [];
   const book = async () => {
     if (submitting.current) return;
@@ -24,8 +26,8 @@ export function BookDemoButton({ kind, id, price, onBook, source = 'discovered' 
     const paid = order.status === 'succeeded';
     const label = paid ? 'Booked — Demo' : order.status === 'pending' ? 'Payment pending' : order.status === 'created' ? 'Checkout not completed' : 'Payment failed — nothing charged';
     const action = paid ? 'View confirmation' : order.status === 'pending' ? 'Check status' : order.status === 'created' ? 'Continue checkout' : 'Try again';
-    return <div className="space-y-2" aria-label={`${kind} booking status`}>
-      <p className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${paid ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-primary/10 text-primary'}`}>{paid && <CheckCircle2 className="w-4 h-4" />}{label}</p>
+    return <div ref={successRef} className="space-y-2" aria-label={`${kind} booking status`}>
+      <p className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${paid ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-primary/10 text-primary'}`}>{paid && <CheckCircle2 data-success-icon className="w-4 h-4" />}{label}</p>
       <p className="text-xs text-on-surface-variant break-all">Reference: {order.id}{paid && kind === 'hotel' ? ` · ${order.booking?.rooms || 1} room(s)` : ''}</p>
       <button type="button" onClick={() => bookings?.openOrder(order.id, paid)} className="rounded-xl px-4 py-2 border border-primary/30 text-primary text-sm font-semibold">{action}</button>
     </div>;

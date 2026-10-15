@@ -1,9 +1,9 @@
+import { SaveHeart } from '../motion/SaveHeart';
 import React, { useState, useMemo } from 'react';
 import {
   Sparkles,
   MapPin,
   Star,
-  Heart,
   Compass,
   Search,
   X,
@@ -234,7 +234,7 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
           return (
             <div
               key={place.id}
-              className="rounded-2xl bg-surface-container border border-surface-container-highest/60 p-5 shadow-lg space-y-3 hover:border-primary/40 transition-all flex flex-col justify-between"
+              className="rounded-2xl bg-surface-container border border-surface-container-highest/60 p-5 shadow-lg space-y-3 hover:border-primary/40 motion-card flex flex-col justify-between"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -248,6 +248,7 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
                   </div>
                   <button
                     type="button"
+                    aria-pressed={isSaved}
                     aria-label={isSaved ? `Remove ${place.name} from saved` : `Save ${place.name} to memory`}
                     onClick={() => toggleSavePlace(place.id, place.name)}
                     className={`p-1.5 rounded-lg transition-colors ${
@@ -257,11 +258,7 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
                     }`}
                     title={isSaved ? 'Saved to Memory' : 'Save to Memory'}
                   >
-                    <Heart
-                      className={`w-4 h-4 transition-transform active:scale-125 ${
-                        isSaved ? 'fill-tertiary' : ''
-                      }`}
-                    />
+                    <SaveHeart saved={isSaved} />
                   </button>
                 </div>
 

@@ -1,3 +1,4 @@
+import { useContentFade } from '../../motion/useInteractionMotion';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../services/api';
 import { WeatherCondition } from '../../types';
@@ -24,6 +25,7 @@ export const WeatherTab = ({ weather, destination, tripId }: WeatherTabProps) =>
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; controller.abort(); };
   }, [tripId, period, revision]);
+  const contentRef = useContentFade(`${tripId}:${period}:${loading ? 'loading' : error ? 'error' : data?.dailyForecast?.length ? 'forecast' : 'unavailable'}:${revision}`);
   const days = data?.dailyForecast || [];
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -35,14 +37,16 @@ export const WeatherTab = ({ weather, destination, tripId }: WeatherTabProps) =>
       </div>}
     </div>
     {period === 'upcoming' && <p className="text-sm text-primary">Next 7 days at the destination. These dates are separate from your saved trip.</p>}
+    <div ref={contentRef} className="min-h-40 space-y-4" aria-busy={loading} data-weather-content>
     {loading ? <p role="status" className="p-6 rounded-xl bg-surface-container">Loading weather from Open-Meteo...</p> : error ? <div role="alert" className="p-6 rounded-xl bg-error-container text-on-error-container"><p>{error}</p><button type="button" className="underline mt-2" onClick={() => setRevision(value => value + 1)}>Retry weather</button></div> : !days.length ? <div className="p-8 rounded-xl bg-surface-container"><h3 className="font-semibold">Forecast unavailable</h3><p className="mt-2 text-on-surface-variant">{data?.summary || 'No daily forecast is saved. Refresh weather to check the provider.'}</p></div> : <>
       <p className="text-sm text-on-surface-variant">{data?.summary}</p>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{days.map(day => <div key={day.date} className="p-5 rounded-xl bg-surface-container space-y-2">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{days.map(day => <div key={day.date} className="motion-weather-card p-5 rounded-xl bg-surface-container space-y-2">
         <p className="font-semibold">{day.date}</p><p>{day.conditionText}</p>
         <p>High {day.tempHigh == null ? 'Unavailable' : `${day.tempHigh}\u00b0C`} · Low {day.tempLow == null ? 'Unavailable' : `${day.tempLow}\u00b0C`}</p>
         <p>Rain chance: {day.rainChancePercent == null ? 'Unavailable' : `${day.rainChancePercent}%`}</p>
       </div>)}</div>
       {data?.fetched_at && <p className="text-xs text-on-surface-variant">Updated {new Date(data.fetched_at).toLocaleString()} · Source: Open-Meteo</p>}
     </>}
+    </div>
   </div>;
 };

@@ -1,3 +1,4 @@
+import { useContentFade } from '../../motion/useInteractionMotion';
 import React from 'react';
 import { 
   Car, 
@@ -42,6 +43,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
   onChangeMode,
   isLoading,
 }) => {
+  const selectedFade = useContentFade(String(activeLegIndex));
   if (!legs || legs.length === 0) return null;
 
   // Detect if any leg is an international flight segment
@@ -282,7 +284,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
             ))}
           </div>
         ) : activeLeg ? (
-          <div className="min-w-0 flex flex-col space-y-3 pt-1">
+          <div ref={selectedFade} className="min-w-0 flex flex-col space-y-3 pt-1">
           {/* Active Leg Summary Card */}
           <div className="p-4 rounded-xl bg-surface-container-low border border-surface-container-highest/60 flex flex-col gap-4 shadow-sm flex-shrink-0">
             <div className="space-y-1.5">

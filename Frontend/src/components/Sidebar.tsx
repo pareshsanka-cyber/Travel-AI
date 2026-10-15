@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useId, useRef, useSyncExternalStore } from 'react';
+import { LayoutGroup } from 'motion/react';
+import { ActiveIndicator } from '../motion/ActiveIndicator';
+import { useModalFocus } from '../hooks/useModalFocus';
 import {
   CreditCard,
   Compass,
@@ -56,18 +59,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
 }) => {
+  const navigationId = useId();
+  const sidebar = useRef<HTMLElement>(null);
+  const desktop = useSyncExternalStore(subscribeDesktop, getDesktop, () => true);
+  useModalFocus(sidebar, isMobileOpen && !desktop, () => onCloseMobile?.());
+  const links = [
+    { id: 'planner-studio', label: 'Plan', Icon: Compass, color: 'text-primary' },
+    { id: 'itinerary-hub', label: 'My trips', Icon: CalendarDays, color: 'text-tertiary' },
+    { id: 'bookings-desk', label: 'Travel Selections', Icon: Plane, color: 'text-secondary' },
+    { id: 'ai-places-memory', label: 'Example Places', Icon: Sparkles, color: 'text-primary' },
+    { id: 'payments', label: 'Payments', Icon: CreditCard, color: '' },
+  ] as const;
   return (
     <>
       {/* Mobile Backdrop */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          className="motion-backdrop fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
           onClick={onCloseMobile}
         />
       )}
 
       <aside
-        className={`fixed left-0 top-0 h-full bg-surface-container-lowest z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)] transition-all duration-300 ${
+        ref={sidebar}
+        inert={!desktop && !isMobileOpen}
+        role={!desktop && isMobileOpen ? 'dialog' : undefined}
+        aria-modal={!desktop && isMobileOpen ? true : undefined}
+        aria-label="Navigation"
+        data-mobile-open={isMobileOpen}
+        tabIndex={-1}
+        className={`motion-sidebar fixed left-0 top-0 h-full bg-surface-container-lowest z-50 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)] transition-all duration-300 ${
           isCollapsed ? 'w-20' : 'w-72'
         } ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -147,78 +168,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Navigation Links */}
+          <LayoutGroup id={navigationId}>
           <nav aria-label="Main Navigation" className="px-space-sm space-y-1">
-            <button
-              type="button"
-              onClick={() => {
-                onSelectPage('planner-studio');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                activePage === 'planner-studio'
-                  ? 'bg-surface-container-high text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Plan"
-            >
-              <Compass className="w-4 h-4 text-primary flex-shrink-0" />
-              {!isCollapsed && <span>Plan</span>}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectPage('itinerary-hub');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                activePage === 'itinerary-hub'
-                  ? 'bg-surface-container-high text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="My trips"
-            >
-              <CalendarDays className="w-4 h-4 text-tertiary flex-shrink-0" />
-              {!isCollapsed && <span>My trips</span>}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectPage('bookings-desk');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                activePage === 'bookings-desk'
-                  ? 'bg-surface-container-high text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Travel Selections"
-            >
-              <Plane className="w-4 h-4 text-secondary flex-shrink-0" />
-              {!isCollapsed && <span>Travel Selections</span>}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectPage('ai-places-memory');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                activePage === 'ai-places-memory'
-                  ? 'bg-surface-container-high text-primary shadow-sm'
-                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Example Places"
-            >
-              <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
-              {!isCollapsed && <span>Example Places</span>}
-            </button>
-            <button type="button" aria-label="Payments" title="Payments" onClick={() => { onSelectPage('payments'); onCloseMobile?.(); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${activePage === 'payments' ? 'bg-surface-container-high text-primary' : 'text-on-surface-variant hover:bg-surface-container-low'} ${isCollapsed ? 'justify-center' : ''}`}>
-              <CreditCard className="w-4 h-4 shrink-0" />{!isCollapsed && <span>Payments</span>}
-            </button>
+            {links.map(({ id, label, Icon, color }) => <button key={id} type="button"
+              aria-current={activePage === id ? 'page' : undefined} aria-label={label} title={label}
+              onClick={() => { onSelectPage(id); onCloseMobile?.(); }}
+              className={`motion-nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${activePage === id ? 'text-primary' : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'} ${isCollapsed ? 'justify-center px-0' : ''}`}>
+              {activePage === id && <ActiveIndicator id="navigation" />}
+              <Icon className={`w-4 h-4 shrink-0 ${color}`} />
+              {!isCollapsed && <span>{label}</span>}
+            </button>)}
           </nav>
+          </LayoutGroup>
 
           {/* History Lists (Conversations & Saved Trips) */}
           {!isCollapsed && (
@@ -354,7 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="relative flex-shrink-0">
                 <div
                   className={`w-2.5 h-2.5 rounded-full ${
-                    apiStatus.isConnected ? 'bg-tertiary animate-ping' : 'bg-primary animate-pulse'
+                    apiStatus.isConnected ? 'bg-tertiary' : 'bg-primary'
                   }`}
                 />
                 <div
@@ -385,3 +346,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
+
+const desktopQuery = '(min-width: 1024px)';
+function getDesktop() { return window.matchMedia(desktopQuery).matches; }
+function subscribeDesktop(notify: () => void) {
+  const query = window.matchMedia(desktopQuery);
+  query.addEventListener('change', notify);
+  return () => query.removeEventListener('change', notify);
+}

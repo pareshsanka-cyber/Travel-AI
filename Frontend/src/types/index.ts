@@ -252,6 +252,8 @@ export interface TripSummary {
   startDate?: string;
   endDate?: string;
   destinationTimezone?: string;
+  /** Explicit backend timezone only; never populated from the display fallback. */
+  scheduleTimezone?: string;
   flightMetadata?: FlightMetadata;
   id: string;
   title: string;

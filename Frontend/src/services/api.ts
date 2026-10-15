@@ -1894,6 +1894,7 @@ export function extractTripSummary(trip?: any): TripSummary {
     startDate: trip.start_date,
     endDate: trip.end_date,
     destinationTimezone: trip.destination_timezone || 'Asia/Kolkata',
+    scheduleTimezone: typeof trip.destination_timezone === 'string' && trip.destination_timezone.trim() ? trip.destination_timezone.trim() : undefined,
     flightMetadata: trip.flight_metadata ? {
       source: trip.flight_metadata.source, dataStatus: trip.flight_metadata.data_status,
       fetchedAt: trip.flight_metadata.fetched_at, departureDate: trip.flight_metadata.departure_date,
@@ -2187,6 +2188,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
               startTime: isObj ? stop.start_time : undefined,
               endTime: isObj ? stop.end_time : undefined,
               timezone: isObj ? stop.timezone : undefined,
+              scheduledDate: isObj ? stop.scheduled_date : undefined,
               duration: isObj ? stop.duration : undefined,
               travelTimeFromPrev: isObj ? stop.travel_time_from_prev : undefined,
               travelMode: isObj ? stop.travel_mode : undefined,

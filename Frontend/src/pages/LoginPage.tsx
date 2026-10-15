@@ -1,3 +1,4 @@
+import { motionTokens } from '../motion/tokens';
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Compass, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
@@ -72,9 +73,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* LEFT SIDE (Bottom-left aligned area) */}
         <motion.div
           id="login-left-brand-section"
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
+          transition={{ duration: motionTokens.overlay, ease: motionTokens.ease }}
           className="lg:self-end mb-12 lg:mb-16 max-w-xl pt-10 lg:pt-0"
         >
           {/* Small badge pill */}
@@ -88,7 +89,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <span className="text-[11px] font-semibold tracking-wider text-slate-200 uppercase">
               TRAVELAI WAYPOINT
             </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-[#89ceff] animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#89ceff]" />
           </div>
 
           {/* Large bold heading */}
@@ -117,9 +118,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* RIGHT SIDE — Glassmorphism Login Card (floating, right-center) */}
         <motion.div
           id="login-glass-card-wrapper"
-          initial={{ opacity: 0, scale: 0.96, y: 20 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.15, ease: 'easeOut' }}
+          transition={{ duration: motionTokens.overlay, ease: motionTokens.ease }}
           className="w-full flex justify-center lg:justify-end my-auto"
         >
           <div
@@ -219,7 +220,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="submit"
                 id="login-submit-btn"
                 disabled={isLoading}
-                className="w-full mt-2 py-3 px-4 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 text-sm shadow-md hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(255,255,255,0.35)] active:scale-[0.99] transition-all duration-200 disabled:opacity-75 cursor-pointer"
+                className="w-full mt-2 py-3 px-4 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 text-sm shadow-md transition-all duration-200 disabled:opacity-75 cursor-pointer"
               >
                 {isLoading ? (
                   <motion.div

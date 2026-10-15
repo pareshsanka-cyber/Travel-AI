@@ -1,3 +1,5 @@
+import { motion, useReducedMotion } from 'motion/react';
+import { motionTokens } from '../../motion/tokens';
 import React from 'react';
 import { ShieldCheck, PiggyBank } from 'lucide-react';
 import { BudgetOverview } from '../../types';
@@ -7,6 +9,7 @@ interface BudgetTabProps {
 }
 
 export const BudgetTab: React.FC<BudgetTabProps> = ({ budget }) => {
+  const reduced = useReducedMotion();
   if (!budget) {
     return (
       <div className="flex flex-col items-center justify-center p-12 rounded-2xl bg-surface-container border border-surface-container-highest/60 text-center space-y-3">
@@ -75,10 +78,13 @@ export const BudgetTab: React.FC<BudgetTabProps> = ({ budget }) => {
               outline: 'bg-outline',
             }[item.colorName] || 'bg-primary';
             return (
-              <div
+              <motion.div
+                initial={reduced ? false : { width: 0 }}
+                animate={{ width: `${item.percentage}%` }}
+                transition={{ duration: reduced ? 0 : motionTokens.overlay, ease: motionTokens.ease }}
+                data-budget-segment
                 key={item.category || `prog-${idx}`}
                 className={`h-full ${bgClass}`}
-                style={{ width: `${item.percentage}%` }}
                 title={`${item.category}: ${budget.currencySymbol}${item.allocatedAmount.toLocaleString()}`}
               />
             );

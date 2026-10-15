@@ -23,8 +23,10 @@ import {
 } from 'lucide-react';
 import { ChatMessage, ApiStatusState, TripSummary } from '../types';
 import { TripDetailsDialog } from './preferences/TripDetailsDialog';
+import { useMessageEntrances } from '../motion/useInteractionMotion';
 
 interface ChatPanelProps {
+  isVisible?: boolean;
   trip?: TripSummary | null;
   travelContext?: Record<string, any> | null;
   currentIntent?: string | null;
@@ -40,6 +42,7 @@ interface ChatPanelProps {
 }
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
+  isVisible = true,
   trip,
   travelContext,
   currentIntent,
@@ -56,6 +59,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [moreSuggestions, setMoreSuggestions] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const messageIds = useMemo(() => messages.map(message => message.id), [messages]);
+  const messageFeed = useMessageEntrances(messageIds, isSending, isVisible);
 
   useEffect(() => {
     const feed = document.getElementById('chatMessageFeed');
@@ -127,11 +132,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {detailsOpen && <TripDetailsDialog context={travelContext} onApply={onUpdatePreference || (() => {})} onClose={() => setDetailsOpen(false)} />}
 
       {/* Message Feed */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed">
+      <div ref={messageFeed} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={isSending}>
         {messages.map((msg) => {
           if (msg.sender === 'user') {
             return (
-              <div key={msg.id} className="flex justify-end">
+              <div key={msg.id} data-message-id={msg.id} className="flex justify-end">
                 <div className="max-w-[85%] sm:max-w-[75%] rounded-xl rounded-tr-xs bg-secondary-container p-space-md shadow-md text-on-surface border border-secondary/20">
                   <p className="text-sm leading-relaxed text-on-surface whitespace-pre-wrap">
                     {msg.text}
@@ -147,7 +152,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
           // Assistant Rich Message
           return (
-            <div key={msg.id} className="flex gap-space-sm">
+            <div key={msg.id} data-message-id={msg.id} className="flex gap-space-sm">
               <div className="w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary mt-1 shadow-sm border border-primary/30">
                 <Bot className="w-4 h-4" />
               </div>
@@ -284,13 +289,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         })}
 
         {isSending && (
-          <div className="flex gap-space-sm items-center text-xs text-on-surface-variant">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary animate-pulse">
+          <div role="status" className="flex gap-space-sm items-center text-xs text-on-surface-variant">
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
               <Bot className="w-4 h-4" />
             </div>
             <div className="p-3 rounded-xl bg-surface-container-high text-xs text-on-surface flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
-              <span>Querying FastAPI reasoning engine...</span>
+              <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" />
+              <span>TravelAI is working on your request…</span>
             </div>
           </div>
         )}
@@ -300,7 +305,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Quick Action Prompt Chips */}
       <div className="px-3 py-2 bg-surface-container-lowest/50 border-t border-surface-container-high/30 flex flex-wrap items-center gap-1.5 shrink-0 max-h-24 overflow-y-auto">
-        {(moreSuggestions ? quickPrompts : quickPrompts.slice(0, 2)).map((chip, idx) => (
+        {quickPrompts.slice(0, 2).map((chip, idx) => (
           <button
             key={chip.label || `prompt-${idx}`}
             type="button"
@@ -311,12 +316,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             {chip.label}
           </button>
         ))}
-        {quickPrompts.length > 2 && <button type="button" onClick={() => setMoreSuggestions(value => !value)} className="text-xs text-primary px-2 py-1 underline">{moreSuggestions ? 'Fewer suggestions' : 'More suggestions'}</button>}
+        {moreSuggestions && <span id="extra-chat-suggestions" className="motion-suggestions-extra">{quickPrompts.slice(2).map(chip => <button key={chip.label} type="button" disabled={isSending} onClick={() => onSendMessage(chip.text)} className="whitespace-nowrap px-2.5 py-1 rounded-full bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface text-xs border border-surface-container-highest/60 shrink-0 disabled:opacity-50">{chip.label}</button>)}</span>}
+        {quickPrompts.length > 2 && <button type="button" aria-expanded={moreSuggestions} aria-controls="extra-chat-suggestions" onClick={() => setMoreSuggestions(value => !value)} className="text-xs text-primary px-2 py-1 underline">{moreSuggestions ? 'Fewer suggestions' : 'More suggestions'}</button>}
       </div>
 
       {/* Chat Input Deck */}
       <div className="p-3 bg-surface-container/90 border-t border-surface-container-high/40 flex flex-col gap-2 shrink-0">
-        <div className="relative rounded-xl bg-surface-container-lowest border border-surface-container-highest/60 shadow-inner p-1.5 flex flex-col gap-1 focus-within:border-primary/50 transition-colors">
+        <div className="motion-composer relative rounded-xl bg-surface-container-lowest border border-surface-container-highest/60 shadow-inner p-1.5 flex flex-col gap-1 focus-within:border-primary/50 transition-colors">
           <textarea
             id="chatPromptInput"
             value={promptInput}
@@ -377,6 +383,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   onSendMessage(trimmed);
                 }
               }}
+              aria-busy={isSending}
               disabled={!promptInput.trim() || isSending}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-primary-container to-secondary-container text-on-primary text-xs sm:text-sm font-medium shadow-lg hover:shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             >

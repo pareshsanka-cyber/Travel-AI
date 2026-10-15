@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import { MotionImage, TripCardMotion } from '../motion/SecondaryMotion';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   CalendarDays,
   MapPin,
@@ -40,6 +41,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
   onDeleteTrip,
   isCreatingTrip = false,
 }) => {
+  const revealed = useRef(new Set<string>());
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'active' | 'archived'>('all');
 
@@ -254,9 +256,10 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
           );
 
           return (
-            <div
+            <TripCardMotion
+              id={tripId} index={idx} seen={revealed.current}
               key={tripId || `trip-${idx}`}
-              className={`rounded-2xl bg-surface-container border overflow-hidden shadow-lg transition-all flex flex-col justify-between ${
+              className={`rounded-2xl bg-surface-container border overflow-hidden shadow-lg motion-card flex flex-col justify-between ${
                 isSelected
                   ? 'border-primary ring-2 ring-primary/30'
                   : 'border-surface-container-highest/60 hover:border-primary/40'
@@ -264,7 +267,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
             >
               <div>
                 <div className="h-44 relative overflow-hidden">
-                  <img
+                  <MotionImage
                     src={imageUrl}
                     alt={title}
                     className="w-full h-full object-cover"
@@ -353,7 +356,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-            </div>
+            </TripCardMotion>
           );
         })}
         </div>

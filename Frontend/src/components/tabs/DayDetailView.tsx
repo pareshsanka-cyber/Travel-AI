@@ -681,6 +681,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
 
           <div className="day-route-map">
             <DayMapView
+              tripId={trip?.id}
               activities={day.activities}
               destination={trip?.destination}
               dayNumber={day.dayNumber}

@@ -1,4 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { CompanionCountdown } from '../CompanionCountdown';
+import { useCompanionMotion } from '../../motion/useCompanionMotion';
+import { changedRerouteIds } from '../../motion/rerouteDiff';
+import { useModalFocus } from '../../hooks/useModalFocus';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Compass,
   CheckCircle2,
@@ -51,6 +55,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
   onApplyRerouteResult,
   onSwitchTab,
 }) => {
+  const proposalPanel = useRef<HTMLDivElement>(null);
+  const pendingAction = useRef(false);
   // 1. Resolve Execution State with safe defaults and automated legacy migration
   const executionState: ExecutionState = useMemo(() => {
     const rawState = trip?.executionState || {
@@ -167,10 +173,15 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
     };
   }, [activities, executionState.activity_log, selectedDayNumber]);
 
+  const journey = useCompanionMotion(`${trip?.id}/${selectedDayNumber}`, progressPercent);
+  const proposalChanges = useMemo(() => activeProposal && activeProposal.mode !== 'skip_only' ? changedRerouteIds(activeProposal.original_stops || [], activeProposal.proposed_stops || []) : new Set<string>(), [activeProposal]);
+
   // 6. Action Handlers
 
   // ✅ Mark Activity Complete
   const handleMarkComplete = async (act: ActivitySegment, actIndex: number) => {
+    if (pendingAction.current) return;
+    pendingAction.current = true;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
     const legacyKey = `${selectedDayNumber}_${actIndex}`;
     setLoadingKey(`${actId}_complete`);
@@ -197,6 +208,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       activity_log: updatedLog,
     });
 
+    pendingAction.current = false;
+    if (success) journey.confirm({ kind: 'complete', id: actId });
     setLoadingKey(null);
     if (!success) {
       setErrorMessage('Unable to save completion. Refresh and try again.');
@@ -205,6 +218,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
   // ⏭️ Skip Activity & Trigger Dynamic AI Rerouting
   const handleSkip = async (act: ActivitySegment, actIndex: number) => {
+    if (pendingAction.current) return;
+    pendingAction.current = true;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
     const legacyKey = `${selectedDayNumber}_${actIndex}`;
     setLoadingKey(`${actId}_skip`);
@@ -231,6 +246,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
     });
 
     if (!success) {
+      pendingAction.current = false;
       setErrorMessage('Unable to save skipped activity. Refresh and try again.');
       setLoadingKey(null);
       return;
@@ -264,18 +280,21 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       }
     }
 
+    pendingAction.current = false;
     setLoadingKey(null);
   };
 
   // ✅ Accept & Apply Dynamic Rerouting Proposal
   const handleAcceptProposal = async () => {
-    if (!activeProposal) return;
+    if (!activeProposal || pendingAction.current) return;
     const tripId = trip?.id || (trip as any)?._id;
     if (!tripId) {
       setActiveProposal(null);
       return;
     }
 
+    pendingAction.current = true;
+    const beforePositions = journey.capture();
     setIsApplyingReroute(true);
     setProposalError(null);
 
@@ -294,6 +313,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
         if (onApplyRerouteResult) {
           onApplyRerouteResult(result);
         }
+        if (activeProposal.mode !== 'skip_only') journey.confirm({ kind: 'reroute', before: beforePositions, changed: proposalChanges });
         setActiveProposal(null);
         setRerouteFeedback({
           type: 'success',
@@ -310,6 +330,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       console.error('[CompanionMode] Apply reroute failed:', err);
       setProposalError(err?.message || 'Failed to apply reroute changes.');
     } finally {
+      pendingAction.current = false;
       setIsApplyingReroute(false);
     }
   };
@@ -323,9 +344,12 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       message: 'Stop marked as skipped. Original schedule preserved.',
     });
   };
+  useModalFocus(proposalPanel, Boolean(activeProposal), () => { if (!isApplyingReroute) handleCancelProposal(); });
 
   // 🔄 Revert/Undo Activity Status (Reset to pending)
   const handleUndoStatus = async (act: ActivitySegment, actIndex: number) => {
+    if (pendingAction.current) return;
+    pendingAction.current = true;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
     const legacyKey = `${selectedDayNumber}_${actIndex}`;
     const posKey = `day_${selectedDayNumber}_act_${actIndex + 1}`;
@@ -341,6 +365,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       activity_log: updatedLog,
     });
 
+    pendingAction.current = false;
+    if (success) journey.confirm({ kind: 'undo', id: actId });
     setLoadingKey(null);
     if (!success) {
       setErrorMessage('Unable to revert status. Please try again.');
@@ -441,7 +467,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   Live Companion Mode
                 </span>
                 <span className="text-xs text-on-surface-variant font-medium">
@@ -511,8 +537,9 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
           </div>
           <div className="w-full h-2 rounded-full bg-surface-container-highest overflow-hidden flex">
             <div
-              className="h-full bg-primary transition-all duration-500 rounded-full"
-              style={{ width: `${progressPercent}%` }}
+              ref={journey.progress} data-testid="companion-progress"
+              className="h-full w-full bg-primary rounded-full origin-left"
+              style={{ transform: `scaleX(${progressPercent / 100})` }}
             />
           </div>
         </div>
@@ -520,14 +547,14 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
       {/* 2. CURRENT / UP NEXT ACTIVITY HERO CARD */}
       {currentActivityObj ? (
-        <div className="p-4 sm:p-6 rounded-2xl bg-gradient-to-br from-surface-container to-surface-container-low border-2 border-primary/40 shadow-xl relative overflow-hidden">
+        <div ref={journey.hero} data-testid="companion-upcoming" className="p-4 sm:p-6 rounded-2xl bg-gradient-to-br from-surface-container to-surface-container-low border-2 border-primary/40 shadow-xl relative overflow-hidden">
           {/* Background glowing aura */}
           <div className="absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
 
           {/* Section Indicator */}
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-on-primary text-[11px] font-bold tracking-wide uppercase shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-on-primary animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-on-primary" />
               Up Next • Stop #{currentActivityObj.index + 1}
             </div>
 
@@ -598,6 +625,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
               <h3 className="text-lg sm:text-xl font-bold text-on-surface tracking-tight leading-snug">
                 {currentActivityObj.act.title}
               </h3>
+
+              <CompanionCountdown key={`${selectedDayNumber}/${currentActivityObj.act.id || currentActivityObj.index}`} activity={currentActivityObj.act} day={currentDay} explicitTripZone={trip?.scheduleTimezone} />
 
               {/* Location & Distance when available */}
               <div className="flex items-center gap-1.5 text-xs text-on-surface-variant mt-1.5 flex-wrap">
@@ -797,8 +826,10 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
               return (
                 <div
-                  key={idx}
-                  className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  key={act.id || `${selectedDayNumber}_${idx}`}
+                  data-activity-id={act.id || `${selectedDayNumber}_${idx}`} data-status={status}
+                  ref={node => { const id = act.id || `${selectedDayNumber}_${idx}`; if (node) journey.rows.current.set(id, node); else journey.rows.current.delete(id); }}
+                  className={`p-3 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                     isCurrent
                       ? 'bg-primary/5 border-primary shadow-sm'
                       : status === 'completed'
@@ -813,7 +844,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                     <div className="mt-0.5 sm:mt-0 flex-shrink-0">
                       {status === 'completed' ? (
                         <div className="w-7 h-7 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 data-completion-check className="w-4 h-4" />
                         </div>
                       ) : status === 'skipped' ? (
                         <div className="w-7 h-7 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center justify-center">
@@ -821,7 +852,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                         </div>
                       ) : isCurrent ? (
                         <div className="w-7 h-7 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-sm">
-                          <span className="w-2 h-2 rounded-full bg-on-primary animate-ping" />
+                          <span className="w-2 h-2 rounded-full bg-on-primary" />
                         </div>
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-surface-container-highest text-on-surface-variant flex items-center justify-center text-xs font-bold">
@@ -947,16 +978,16 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
       {/* 4. DYNAMIC AI REROUTING PROPOSAL MODAL */}
       {activeProposal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <div className="bg-surface-container border border-surface-container-high rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="motion-backdrop fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div ref={proposalPanel} role="dialog" aria-modal="true" aria-labelledby="reroute-dialog-title" tabIndex={-1} className="motion-dialog bg-surface-container border border-surface-container-high rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-surface-container-high/80 flex items-center justify-between bg-surface-container-low">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shadow-sm">
-                  <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+                  <Sparkles className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-bold text-on-surface flex items-center gap-2">
+                  <h3 id="reroute-dialog-title" className="text-sm sm:text-base font-bold text-on-surface flex items-center gap-2">
                     Dynamic AI Rerouting
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 text-primary border border-primary/20 uppercase tracking-wider">
                       Day {activeProposal.day_number}
@@ -1103,11 +1134,10 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                 <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                   {activeProposal.proposed_stops.map((stop: any, sIdx: number) => {
                     const stopTitle = stop.title || stop.name || 'Scheduled Activity';
-                    const rawStatus = stop.status_label || (stop.id === activeProposal.replacement_activity?.id ? (stop.is_meal_break ? 'Meal Break' : 'Replacement') : (stop.rescheduled ? 'Rescheduled' : 'Unchanged'));
-                    const isMealBreak = rawStatus === 'Meal Break' || Boolean(stop.is_meal_break);
-                    const isReplacement = rawStatus === 'Replacement' && !isMealBreak;
-                    const isRescheduled = rawStatus === 'Rescheduled';
-                    const isUnchanged = rawStatus === 'Unchanged' || (!isReplacement && !isMealBreak && !isRescheduled);
+                    const isMealBreak = stop.id === activeProposal.replacement_activity?.id && Boolean(stop.is_meal_break);
+                    const isReplacement = stop.id === activeProposal.replacement_activity?.id && !isMealBreak;
+                    const isRescheduled = activeProposal.mode !== 'skip_only' && proposalChanges.has(String(stop.id)) && !isReplacement && !isMealBreak;
+                    const isUnchanged = !isReplacement && !isMealBreak && !isRescheduled;
 
                     const transitMins = stop.travel_time_from_prev_minutes || (stop.travel_time_from_prev ? parseInt(stop.travel_time_from_prev, 10) : undefined);
                     const transitText = stop.travel_time_from_prev || (transitMins ? `${transitMins} mins` : undefined);
@@ -1115,6 +1145,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                     return (
                       <div
                         key={stop.id || sIdx}
+                        data-proposal-changed={isRescheduled || isReplacement || isMealBreak}
                         className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2.5 ${
                           isReplacement
                             ? 'bg-emerald-500/10 border-emerald-500/30'
@@ -1128,7 +1159,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="flex flex-col flex-shrink-0 w-24">
                             <span className="font-mono text-[11px] font-medium text-on-surface-variant">
-                              {stop.time || `${sIdx + 1}`}
+                              {stop.time || (stop.start_time && stop.end_time ? `${stop.start_time} – ${stop.end_time}` : 'Time unavailable')}
                             </span>
                             {sIdx > 0 && transitText && (
                               <span className="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5">
