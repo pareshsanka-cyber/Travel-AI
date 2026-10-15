@@ -156,6 +156,7 @@ test('trip switching clears purchased status and changed dates expose the origin
   await expect(page.getByText('Booked — Demo', { exact: true })).toBeVisible();
   const menu = page.getByRole('button', { name: 'Open navigation menu' });
   if (await menu.isVisible()) await menu.click();
+  const expand = page.getByRole('button', { name: 'Expand sidebar', exact: true }); if (await expand.isVisible()) await expand.click();
   await page.getByRole('button', { name: /^Other expedition/ }).click();
   await page.getByRole('button', { name: /^Flights \(/ }).click();
   await expect(page.getByText('Booked — Demo', { exact: true })).toHaveCount(0);
@@ -192,7 +193,7 @@ test('unselected flight is saved before booking; refresh, confirmation and Compa
   await expect.poll(() => page.evaluate(() => (window as any).__printed)).toContain('Second airline');
   await page.getByRole('button', { name: 'Back to payment', exact: true }).click();
   await page.getByRole('button', { name: 'Open Companion Mode', exact: true }).click();
-  await expect(page.getByText('Trip Plus active — included with your demo booking.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Plus active \u2713', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark Complete', exact: true })).toBeVisible();
 });
 
@@ -225,7 +226,7 @@ test('sample bookings are visibly fictional and leave the itinerary and travel s
   await expect(page.getByText('Demo booking successful — no money charged', { exact: true })).toBeVisible();
   expect(mock.routeIntact()).toBe(true); expect(mock.trip.flights).toEqual([]); expect(mock.trip.hotels).toEqual([]);
   await page.getByRole('button', { name: 'Return to trip', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Trip Plus active', exact: true })).toBeVisible();
+  await expect(page.getByText('Plus active \u2713', { exact: true })).toBeVisible();
   const menu = page.getByRole('button', { name: 'Open navigation menu' }); if (await menu.isVisible()) await menu.click();
   await page.getByRole('button', { name: 'Travel Selections', exact: true }).click();
   await expect(page.getByRole('button', { name: 'View demo booking', exact: true })).toBeVisible();

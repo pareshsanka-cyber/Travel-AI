@@ -39,13 +39,28 @@ import {
   fetchTrip,
   saveTripSelections,
   ApiError,
+  apiFetch,
 } from '../services/api';
 
 export function useTravelApi() {
+  const [plannerView, setPlannerView] = useState<'plan' | 'trip'>(() => new URL(window.location.href).searchParams.get('view') === 'plan' ? 'plan' : 'trip');
+  const conversationLoad = useRef(0);
+  const [isOpeningEdit, setIsOpeningEdit] = useState(false);
+  const draftKey = (id: string | null) => {
+    let owner = 'session';
+    try { owner = JSON.parse(localStorage.getItem('travelai_user') || '{}').id || owner; } catch {}
+    return `TRAVELAI_PROMPT:${owner}:${id || 'new'}`;
+  };
   // Navigation & View states
   const [activePage, setActivePage] = useState<'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory' | 'payments'>(() => new URL(window.location.href).searchParams.has('payment_order') ? 'payments' : 'planner-studio');
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab'>('route-tab');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab'>(() => { const value = new URL(window.location.href).searchParams.get('tab'); return ['companion-tab','route-tab','flights-tab','hotels-tab','weather-tab','budget-tab'].includes(value || '') ? value as 'route-tab' : 'route-tab'; });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => window.innerWidth >= 1024 && window.innerWidth < 1600);
+  useEffect(() => {
+    const laptop = window.matchMedia('(min-width: 1024px) and (max-width: 1599px)');
+    const update = () => setIsSidebarCollapsed(laptop.matches);
+    laptop.addEventListener('change', update);
+    return () => laptop.removeEventListener('change', update);
+  }, []);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
 
@@ -71,7 +86,7 @@ export function useTravelApi() {
   // Active Trip and Raw Trip History from GET /api/trips/history
   const [rawTripsHistory, setRawTripsHistory] = useState<any[]>([]);
   const [activeTrip, setActiveTrip] = useState<any>(null);
-  const [activeTripId, setActiveTripIdState] = useState<string>('');
+  const [activeTripId, setActiveTripIdState] = useState<string>(() => new URL(window.location.href).searchParams.get('trip_id') || '');
   const activeTripIdRef = useRef(activeTripId);
   activeTripIdRef.current = activeTripId;
 
@@ -93,6 +108,8 @@ export function useTravelApi() {
     }
     return null;
   });
+  const currentConversationRef = useRef(currentConversationId);
+  currentConversationRef.current = currentConversationId;
 
   // Chat & Messaging state: restore from cached messages or default welcome message
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -109,7 +126,8 @@ export function useTravelApi() {
     }
     return [createNewChatWelcomeMessage()];
   });
-  const [promptInput, setPromptInput] = useState('');
+  const [promptInput, setPromptInput] = useState(() => sessionStorage.getItem(draftKey(currentConversationId)) || '');
+  useEffect(() => { sessionStorage.setItem(draftKey(currentConversationId), promptInput); }, [promptInput, currentConversationId]);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
   // Conversational Context & Intent states: restore from cached state if available
@@ -208,6 +226,7 @@ export function useTravelApi() {
     if (!id) {
       setErrorMessage(null);
       syncTripState(null);
+      setPlannerView('plan');
       return true;
     }
 
@@ -232,6 +251,7 @@ export function useTravelApi() {
 
     setErrorMessage(null);
     syncTripState(matchedTrip);
+    setPlannerView('trip');
     return true;
   }, [rawTripsHistory, syncTripState]);
 
@@ -312,6 +332,9 @@ export function useTravelApi() {
           
         if (current) {
           syncTripState(current);
+        } else if (activeTripId) {
+          try { syncTripState(await fetchTrip(activeTripId)); }
+          catch (error) { syncTripState(null); setErrorMessage('This trip is unavailable. Choose another saved trip.'); }
         } else if (!activeTripId && merged.length > 0) {
           if (!hasLoadedRef.current) {
             syncTripState(merged[0]);
@@ -335,6 +358,7 @@ export function useTravelApi() {
 
     // 2. Fetch conversations list (GET /api/chat/conversations)
     setIsLoadingConversations(true);
+    const restoration = conversationLoad.current;
     let targetConvId = currentConversationId;
     if (typeof window !== 'undefined' && !targetConvId) {
       targetConvId = localStorage.getItem('TRAVELAI_CONVERSATION_ID');
@@ -348,6 +372,7 @@ export function useTravelApi() {
       if (convToLoad) {
         try {
           const detail = await fetchConversationDetail(convToLoad);
+          if (restoration !== conversationLoad.current || convToLoad !== currentConversationRef.current) return;
           if (detail && Array.isArray(detail.messages) && detail.messages.length > 0) {
             const mappedMessages: ChatMessage[] = detail.messages.map((m: any, idx: number) => ({
               id: `msg-${convToLoad}-${idx}`,
@@ -507,6 +532,7 @@ export function useTravelApi() {
 
         // Establish active trip immediately before navigation
         syncTripState(generatedTrip);
+        setPlannerView('trip');
 
         setRawTripsHistory((prev) => [generatedTrip, ...prev.filter((t) => (t.id || t._id) !== newTripId)]);
         setSavedTrips((prev) => [
@@ -545,61 +571,42 @@ export function useTravelApi() {
   };
 
   // Handler: Select a conversation from Sidebar
-  const handleSelectConversation = async (conversationId: string) => {
+  const handleSelectConversation = async (conversationId: string, expectedTripId?: string) => {
+    if (isSendingMessage) { setErrorMessage('Wait for the current response before switching conversations.'); return false; }
+    const request = ++conversationLoad.current;
     try {
+      const detail = await fetchConversationDetail(conversationId);
+      if (request !== conversationLoad.current) return false;
+      if (expectedTripId && detail.current_trip_id !== expectedTripId) throw new Error('This conversation does not belong to the selected trip.');
+      if (detail.current_trip_id && !await setActiveTripId(detail.current_trip_id)) return false;
+      if (request !== conversationLoad.current) return false;
       setCurrentConversationId(conversationId);
       localStorage.setItem('TRAVELAI_CONVERSATION_ID', conversationId);
-      
-      // Presets are client-side only
-      if (conversationId.startsWith('c-')) {
-        return;
-      }
-
-      const detail = await fetchConversationDetail(conversationId);
-      if (detail && Array.isArray(detail.messages)) {
-        const mappedMessages: ChatMessage[] = detail.messages.map((m: any, idx: number) => ({
-          id: `msg-${conversationId}-${idx}`,
-          sender: m.role === 'user' ? 'user' : 'assistant',
-          timestamp: m.timestamp
-            ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          text: m.content || '',
-        }));
-        setMessages(mappedMessages);
-      }
-      if (detail?.travel_context) {
-        setTravelContext(detail.travel_context);
-      }
-      if (detail?.current_trip_id) {
-        await setActiveTripId(detail.current_trip_id);
-        if (detail.travel_context) {
-          setRawTripsHistory((prev) =>
-            prev.map((t) => {
-              if ((t.id || t._id) === detail.current_trip_id) {
-                const updated = {
-                  ...t,
-                  travelers: t.travelers ?? detail.travel_context.travelers,
-                  travelersCount: t.travelersCount ?? detail.travel_context.travelers,
-                  budget: typeof t.budget === 'number' ? t.budget : detail.travel_context.budget,
-                  currency: t.currency || detail.travel_context.currency || 'INR',
-                  travel_style: t.travel_style || detail.travel_context.travel_style,
-                  budget_mode: t.budget_mode || detail.travel_context.budget_mode,
-                  travelContext: {
-                    ...(t.travelContext || {}),
-                    ...detail.travel_context,
-                  },
-                };
-                syncTripState(updated);
-                return updated;
-              }
-              return t;
-            })
-          );
-        }
-      }
-    } catch (err) {
-      console.warn(`Could not load detail for conversation ${conversationId}:`, err);
+      setMessages(detail.messages?.length ? detail.messages.map((m: any, index: number) => ({
+        id: `msg-${conversationId}-${index}`, sender: m.role === 'user' ? 'user' : 'assistant', text: m.content || '',
+        timestamp: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+      })) : [{ ...createNewChatWelcomeMessage(), text: expectedTripId ? `What would you like to change about your ${detail.travel_context?.destination || 'saved'} trip?` : 'Tell me about the trip you would like to plan.' }]);
+      setTravelContext(detail.travel_context || null);
+      setCurrentIntent(detail.current_trip_id ? 'MODIFY_ITINERARY' : 'GENERATE_ITINERARY');
+      setPromptInput(sessionStorage.getItem(draftKey(conversationId)) || '');
+      setPlannerView('plan'); setActivePage('planner-studio');
+      return true;
+    } catch (error) {
+      if (request === conversationLoad.current) setErrorMessage(error instanceof Error ? error.message : 'Unable to open this conversation.');
+      return false;
     }
+  };
+
+  const openTripEdit = async () => {
+    if (!trip || isOpeningEdit || isSendingMessage) return false;
+    const id = trip.id;
+    setIsOpeningEdit(true);
+    try {
+      const result = await apiFetch<{ conversation_id: string; current_trip_id: string }>(`/api/trips/${encodeURIComponent(id)}/edit-session`, { method: 'POST' });
+      if (activeTripIdRef.current !== id) return false;
+      return await handleSelectConversation(result.conversation_id, id);
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open trip editing.'); return false; }
+    finally { setIsOpeningEdit(false); }
   };
 
   // Handler: Delete conversation
@@ -695,6 +702,8 @@ export function useTravelApi() {
 
   // Handler: Start a fresh new chat session without sending any default prompt
   const handleNewChat = useCallback(() => {
+    ++conversationLoad.current;
+    setPlannerView('plan');
     setCurrentConversationId(null);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('TRAVELAI_CONVERSATION_ID');
@@ -806,7 +815,17 @@ export function useTravelApi() {
     }
   }, [activeTripId, trip, activeTrip]);
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', plannerView);
+    url.searchParams.set('tab', activeDashboardTab);
+    if (trip?.id) url.searchParams.set('trip_id', trip.id);
+    else if (!isLoadingTrips) url.searchParams.delete('trip_id');
+    window.history.replaceState(null, '', url);
+  }, [plannerView, trip?.id, isLoadingTrips, activeDashboardTab]);
+
   return {
+    plannerView, setPlannerView, openTripEdit, isOpeningEdit,
     refreshTripAccess,
     activePage,
     setActivePage,

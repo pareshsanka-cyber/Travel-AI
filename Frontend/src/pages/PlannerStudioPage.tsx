@@ -1,5 +1,4 @@
-import React from 'react';
-import { Compass, CalendarDays, Plus, Loader2 } from 'lucide-react';
+import React, { useLayoutEffect } from 'react';
 import { ChatPanel } from '../components/ChatPanel';
 import { DashboardPanel } from '../components/DashboardPanel';
 import {
@@ -15,6 +14,10 @@ import {
 } from '../types';
 
 interface PlannerStudioPageProps {
+  plannerView: 'plan' | 'trip';
+  onChangeView: (view: 'plan' | 'trip') => void;
+  onEditTrip: () => Promise<boolean>;
+  isOpeningEdit: boolean;
   onBookings: () => void;
   onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
   onUpgrade: () => void;
@@ -46,6 +49,7 @@ interface PlannerStudioPageProps {
 }
 
 export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
+  plannerView, onChangeView, onEditTrip, isOpeningEdit,
   trip,
   onUpgrade,
   onBookings,
@@ -75,9 +79,30 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onNavigateToItineraryHub,
   onNewTrip,
 }) => {
+  const showPlan = !trip || plannerView === 'plan';
+  useLayoutEffect(() => {
+    const view = showPlan ? 'plan' : 'trip';
+    const key = `TRAVELAI_SCROLL:${trip?.id || 'new'}:${view}`;
+    const frame = requestAnimationFrame(() => window.scrollTo({ top: Number(sessionStorage.getItem(key) || 0), behavior: 'instant' }));
+    const save = () => sessionStorage.setItem(key, String(window.scrollY));
+    window.addEventListener('scroll', save, { passive: true });
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', save); };
+  }, [showPlan, trip?.id]);
+  const changeView = (view: 'plan' | 'trip') => {
+    sessionStorage.setItem(`TRAVELAI_SCROLL:${trip?.id || 'new'}:${showPlan ? 'plan' : 'trip'}`, String(window.scrollY));
+    onChangeView(view);
+  };
+  const editTrip = async () => {
+    sessionStorage.setItem(`TRAVELAI_SCROLL:${trip?.id}:trip`, String(window.scrollY));
+    await onEditTrip();
+  };
   return (
-    <div className="w-full min-w-0 flex-1 flex flex-col xl:flex-row min-h-[calc(100vh-4rem)] p-3 sm:p-4 lg:p-6 gap-4 lg:gap-6">
-      {/* LEFT PANE: Chat & Autonomous Assistant Desk */}
+    <div className="trip-workspace w-full min-w-0 p-3 sm:p-5 lg:p-7">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <button type="button" onClick={onNavigateToItineraryHub} className="text-sm text-primary">← My trips</button>
+        {showPlan && trip && <button type="button" onClick={() => changeView('trip')} className="rounded-xl border border-primary/30 px-4 py-2 text-sm text-primary font-semibold">{travelContext?.current_trip_id === trip.id ? (currentIntent === 'MODIFY_ITINERARY' ? 'Return to trip' : 'View generated itinerary') : 'View saved trip'} →</button>}
+      </div>
+      <div className="plan-view" hidden={!showPlan}>
       <ChatPanel
         trip={trip}
         travelContext={travelContext}
@@ -88,14 +113,17 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
         onPromptChange={onPromptChange}
         onSendMessage={onSendMessage}
         isSending={isSending}
-        onSwitchTab={onSwitchTab}
+        onSwitchTab={tab => { onSwitchTab(tab); changeView('trip'); }}
         apiStatus={apiStatus}
         onClearContext={onClearContext}
       />
+      </div>
 
-      {/* RIGHT PANE: Itinerary & Trip Architecture Dashboard */}
+      <div hidden={showPlan}>
       {trip ? (
-        <DashboardPanel
+        <DashboardPanel key={trip.id}
+          onOpenChat={editTrip}
+          isOpeningEdit={isOpeningEdit || isSending}
           onUpgrade={onUpgrade}
           onBookings={onBookings}
           onBook={onBook}
@@ -113,40 +141,8 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
           onUpdateExecutionState={onUpdateExecutionState}
           onApplyRerouteResult={onApplyRerouteResult}
         />
-      ) : (
-        <div className="flex-1 min-w-0 bg-surface-container/50 border border-surface-container-high/40 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center animate-in fade-in">
-          <div className="max-w-md space-y-5">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner border border-primary/20">
-              <Compass className="w-8 h-8 text-primary animate-pulse" />
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold text-on-surface">No Trip Generated Yet</h2>
-              <p className="text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-                Type your trip request in the chat on the left (e.g. <span className="text-primary font-medium">"Plan a 4-day trip to Goa for 2 people"</span>) and TravelAI will craft your complete itinerary right here!
-              </p>
-            </div>
-
-            <div className="pt-2 flex flex-wrap justify-center gap-2">
-              {[
-                "Plan 4 days in Goa for ₹50,000",
-                "Plan 5 days in Kerala for 2 adults",
-                "Plan 7 days in Tokyo"
-              ].map((sample, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => onSendMessage(sample)}
-                  className="px-3.5 py-2 rounded-xl bg-surface-container-high hover:bg-surface-bright text-on-surface text-xs font-medium border border-surface-container-highest/60 transition-all text-left flex items-center gap-1.5 cursor-pointer shadow-sm hover:border-primary/40"
-                >
-                  <Plus className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                  <span>"{sample}"</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
+      </div>
     </div>
   );
 };

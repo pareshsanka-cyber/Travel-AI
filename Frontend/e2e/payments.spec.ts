@@ -67,10 +67,12 @@ test('locked exports lead to demo checkout; refresh resumes and server success u
   const mock = await demo(page); mock.hold();
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Upgrade this trip' })).toBeVisible();
+  await expect(page.getByText('Basic planning is free.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Unlock Companion', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Upgrade your Goa trip' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to itinerary', exact: true }).click();
+  await expect(page.locator('.trip-dashboard')).toBeVisible();
+  const moreActions = page.locator('.trip-more-actions > summary'); if (await moreActions.isVisible()) await moreActions.click();
   await page.getByRole('button', { name: 'Download itinerary calendar' }).click();
   await expect(page.getByRole('heading', { name: 'Upgrade your Goa trip' })).toBeVisible();
   await expect(page.getByText('DEMO — NO REAL MONEY')).toBeVisible();
@@ -95,7 +97,7 @@ test('locked exports lead to demo checkout; refresh resumes and server success u
   await expect(page.getByText('₹499 · succeeded · Demo')).toBeVisible();
   await page.getByRole('button', { name: 'Open order', exact: true }).click();
   await page.getByRole('button', { name: 'Open Companion Mode', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Trip Plus active', exact: true })).toBeVisible();
+  await expect(page.getByText('Plus active \u2713', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark Complete', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -137,7 +139,7 @@ test('delayed confirmation remains pending after timeout and manual checking is 
 
 test('travel selections separate Trip Plus from reservations and fit the viewport', async ({ page }) => {
   await demo(page); await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Upgrade this trip' })).toBeVisible();
+  await expect(page.getByText('Basic planning is free.', { exact: true })).toBeVisible();
   await navigation(page, 'Travel Selections');
   await expect(page.getByText(/Flight and hotel costs are separate and are not collected/)).toBeVisible();
   await page.getByRole('button', { name: 'Upgrade only — ₹499 Demo', exact: true }).click();
@@ -146,5 +148,5 @@ test('travel selections separate Trip Plus from reservations and fit the viewpor
   expect(width.content).toBeLessThanOrEqual(width.viewport + 1);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Back to itinerary', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Upgrade this trip' })).toBeVisible();
+  await expect(page.getByText('Basic planning is free.', { exact: true })).toBeVisible();
 });

@@ -73,9 +73,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="flex flex-col h-full justify-between">
+        <div className="flex flex-col h-full min-h-0">
           {/* Top Branding Header */}
-          <div className="p-space-md flex items-center justify-between border-b border-surface-container-high/40">
+          <div className={`${isCollapsed ? 'p-2' : 'p-space-md'} flex items-center justify-between border-b border-surface-container-high/40 shrink-0`}>
             {!isCollapsed && (
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-primary to-primary-container flex items-center justify-center shadow-md">
@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     Travel<span className="text-primary">AI</span>
                   </span>
                   <span className="block text-[10px] uppercase font-mono tracking-widest text-on-surface-variant font-medium">
-                    FastAPI Edition
+                    Travel companion
                   </span>
                 </div>
               </div>
@@ -159,10 +159,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-surface-container-high text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Planner Studio"
+              title="Plan"
             >
               <Compass className="w-4 h-4 text-primary flex-shrink-0" />
-              {!isCollapsed && <span>Planner Studio</span>}
+              {!isCollapsed && <span>Plan</span>}
             </button>
 
             <button
@@ -176,10 +176,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-surface-container-high text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Itinerary Hub"
+              title="My trips"
             >
               <CalendarDays className="w-4 h-4 text-tertiary flex-shrink-0" />
-              {!isCollapsed && <span>Itinerary Hub</span>}
+              {!isCollapsed && <span>My trips</span>}
             </button>
 
             <button
@@ -229,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
                     Recent Chats
                   </span>
-                  <span className="text-[11px] font-medium text-tertiary">/api/chat</span>
+
                 </div>
                 <div className="flex flex-col gap-1">
                   {isLoadingConversations ? (
@@ -287,7 +287,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
                     Saved Trips
                   </span>
-                  <span className="text-[11px] font-medium text-primary">/api/trips/history</span>
+
                 </div>
                 <div className="flex flex-col gap-1.5">
                   {isLoadingTrips ? (
@@ -342,7 +342,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* API Status Box Footer */}
-          <div className="p-space-md bg-surface-container-lowest/90 border-t border-surface-container-high/40">
+          <div className="mt-auto p-space-md bg-surface-container-lowest/90 border-t border-surface-container-high/40 shrink-0">
             <button
               type="button"
               onClick={onOpenApiModal}
@@ -371,10 +371,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       apiStatus.isConnected ? 'text-tertiary' : 'text-primary'
                     }`}
                   >
-                    {apiStatus.isConnected ? 'API Status: 200 OK' : 'FastAPI Connected / Standby'}
+                    {apiStatus.isConnected ? 'Connected' : 'Connection unavailable'}
                   </span>
                   <span className="text-[11px] text-on-surface-variant truncate font-mono">
-                    {apiStatus.endpointUrl}
+                    TravelAI service
                   </span>
                 </div>
               )}

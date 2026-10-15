@@ -13,6 +13,12 @@ from app.services.payment_service import plus_source, require_plus
 router = APIRouter()
 
 
+@router.post('/{id}/edit-session')
+def open_edit_session(id: str, user_id: str = Depends(require_user_id)):
+    from app.services.edit_session_service import open_edit_session as open_session
+    return open_session(db, id, user_id)
+
+
 @router.get('/{id}/weather')
 def get_trip_weather(id: str, period: Literal['trip', 'upcoming'] = 'trip', user_id: str = Depends(require_user_id)):
     from app.services.trip_service import owned_trip
@@ -208,12 +214,9 @@ def get_trip_history(x_user_id: str = Depends(require_user_id)):
             query["user_id"] = x_user_id
 
         cursor = db.trips.find(query).sort("created_at", -1).limit(10)
+        from app.services.trip_service import serialize_trip
         for doc in cursor:
-            doc["id"] = str(doc["_id"])
-            del doc["_id"]
-            doc["plus_access_source"] = plus_source(db, doc["id"], x_user_id)
-            doc["plus_access"] = doc["plus_access_source"] is not None
-            trips_list.append(doc)
+            trips_list.append(serialize_trip(doc, db))
     except Exception as e:
         raise HTTPException(
             status_code=500, 
@@ -320,16 +323,15 @@ def update_execution_state(id: str, payload: ExecutionStateRequest, x_user_id: s
             raise HTTPException(status_code=409, detail="Trip changed. Refresh before updating progress.")
         new_state = payload.execution_state.model_dump(exclude_none=True)
         new_state['reroute_history'] = (trip.get('execution_state') or {}).get('reroute_history', [])
-        if new_state.get("activity_log") and trip.get("route_details"):
-            daily_routes = trip.get("route_details", {}).get("day_by_day_route") or []
-            if daily_routes:
-                from app.utils.activity_identity import migrate_legacy_activity_log
-                new_state["activity_log"] = migrate_legacy_activity_log(new_state["activity_log"], daily_routes)
+        from app.utils.activity_identity import migrate_legacy_activity_log, routes_with_activity_ids
+        daily_routes = routes_with_activity_ids((trip.get('route_details') or {}).get('day_by_day_route') or [])
+        if new_state.get('activity_log') and daily_routes:
+            new_state['activity_log'] = migrate_legacy_activity_log(new_state['activity_log'], daily_routes)
 
-        known_ids = {s['id'] for d in (trip.get('route_details') or {}).get('day_by_day_route', []) for s in (d.get('stops') or d.get('activities') or [])}
+        known_ids = {s['id'] for d in daily_routes for s in (d.get('stops') or d.get('activities') or []) if isinstance(s, dict) and s.get('id')}
         known_ids.update((trip.get('execution_state') or {}).get('activity_log', {}).keys())
         legacy_keys = set()
-        for index, day in enumerate((trip.get('route_details') or {}).get('day_by_day_route', [])):
+        for index, day in enumerate(daily_routes):
             day_number = day.get('day') or day.get('day_number') or index + 1
             for stop_index, stop in enumerate(day.get('stops') or day.get('activities') or []):
                 legacy_keys.update({f'{day_number}_{stop_index}', f'day_{day_number}_act_{stop_index + 1}'})
@@ -414,6 +416,8 @@ def preview_reroute(id: str, request: ReroutePreviewRequest, x_user_id: str = De
             current_location=request.current_location,
             current_time_str=request.current_time
         )
+        from app.services.trip_consistency import validate_reroute
+        validate_reroute(trip, request.day_number, request.skipped_activity_id, proposal['proposed_stops'])
         import secrets
         from datetime import timedelta
         proposal["proposal_id"] = secrets.token_urlsafe(24)

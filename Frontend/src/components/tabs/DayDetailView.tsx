@@ -667,10 +667,11 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
       </div>
 
       {/* Interactive Route Map and Turn-by-Turn Directions Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="day-route-container">
+      <div className="day-route-layout">
         {/* Left Column: Map */}
-        <div className="lg:col-span-7 xl:col-span-8 flex flex-col space-y-2">
-          <div className="flex items-center justify-between px-1">
+        <div className="day-route-map-column min-w-0 flex flex-col space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
               <MapPin className="w-4 h-4 text-primary" />
               <span>Interactive Waypoints & Street Route Map</span>
@@ -678,7 +679,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
             <span className="text-[11px] text-on-surface-variant font-medium">Click routes or markers to view details</span>
           </div>
 
-          <div className="flex-1 min-h-[400px]">
+          <div className="day-route-map">
             <DayMapView
               activities={day.activities}
               destination={trip?.destination}
@@ -691,7 +692,7 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
         </div>
 
         {/* Right Column: Directions Drawer */}
-        <div className="lg:col-span-5 xl:col-span-4 flex flex-col h-[500px] lg:h-auto max-h-[600px]">
+        <div className="day-route-directions min-w-0 flex flex-col">
           {legs.length > 0 ? (
             <RouteDirectionsDrawer
               legs={legs}
@@ -714,8 +715,9 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
       </div>
 
       {/* Deep Dive Activities Sequence */}
+      </div>
       <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between px-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
           <h3 className="text-sm font-bold text-on-surface flex items-center gap-2">
             <Compass className="w-4 h-4 text-sky-400" />
             <span>Curated Places & Schedule Breakdown</span>

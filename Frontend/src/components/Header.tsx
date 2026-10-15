@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
 interface HeaderProps {
+  showTripSelector?: boolean;
   apiStatus: ApiStatusState;
   activeTrip: TripSummary | null;
   savedTrips: SavedTripSnippet[];
@@ -27,6 +28,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  showTripSelector = true,
   apiStatus,
   activeTrip,
   savedTrips,
@@ -59,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
     >
       <div className="h-16 w-full px-4 lg:px-8 flex items-center justify-between">
         {/* Left Side: Mobile Menu Button, Brand Icon, Status & Trip Selector */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <button
             type="button"
             aria-label="Open navigation menu"
@@ -74,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenApiModal}
             className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low hover:bg-surface-container-high cursor-pointer transition-colors border border-surface-container-high/60 focus:outline-none"
-            title="Click to configure FastAPI connection"
+            title="Connection settings"
           >
             <span className="relative flex h-2 w-2">
               <span
@@ -89,12 +91,12 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </span>
             <span className="text-xs text-on-surface font-medium">
-              {apiStatus.isConnected ? 'Backend connected' : 'Backend offline'}
+              {apiStatus.isConnected ? 'Connected' : 'Offline'}
             </span>
           </button>
 
           {/* Active Trip Selector Dropdown */}
-          <div className="relative">
+          <div className="relative" hidden={!showTripSelector}>
             <button
               type="button"
               onClick={() => setIsTripDropdownOpen(!isTripDropdownOpen)}
@@ -149,9 +151,9 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Side: Search, Notifications, Settings, Profile */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           {/* Global Search */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-container-lowest text-on-surface-variant border border-surface-container-high/40 w-64 xl:w-80">
+          <div className="hidden min-[1280px]:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-container-lowest text-on-surface-variant border border-surface-container-high/40 w-52 min-[1600px]:w-72">
             <Search className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
             <input
               type="text"
@@ -183,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="API Settings"
               onClick={onOpenApiModal}
               className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
-              title="FastAPI Settings & Backend URL"
+              title="Connection settings"
             >
               <Settings className="w-4 h-4" />
             </button>

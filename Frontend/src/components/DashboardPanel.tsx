@@ -29,10 +29,11 @@ import { FlightsTab } from './tabs/FlightsTab';
 import { HotelsTab } from './tabs/HotelsTab';
 import { WeatherTab } from './tabs/WeatherTab';
 import { BudgetTab } from './tabs/BudgetTab';
-import { TripPlusCard } from './TripPlusCard';
 import { CompanionMode } from './tabs/CompanionMode';
 
 interface DashboardPanelProps {
+  onOpenChat: () => void;
+  isOpeningEdit?: boolean;
   onBookings: () => void;
   onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
   onUpgrade: () => void;
@@ -52,6 +53,7 @@ interface DashboardPanelProps {
 }
 
 export const DashboardPanel: React.FC<DashboardPanelProps> = ({
+  onOpenChat, isOpeningEdit,
   trip,
   onUpgrade,
   onBookings,
@@ -70,6 +72,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   onApplyRerouteResult,
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [routeMode, setRouteMode] = useState<'overview' | 'days'>(() => sessionStorage.getItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`) === 'days' ? 'days' : 'overview');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -102,19 +105,14 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
       showToast('Calendar downloaded. Import it into your calendar app.');
     } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to export this schedule.'); }
   };
-  const handleModify = () => {
-    const input = document.getElementById('chatPromptInput');
-    input?.focus();
-    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    showToast('Tell the assistant which attraction, restaurant, or visit duration to change.');
-  };
+  const handleModify = () => { onOpenChat(); };
 
   return (
     <>
     {showPrint && trip && createPortal(<article id="travelai-print-document"><h1>{trip.title}</h1><p>{trip.duration} | {trip.travelersCount} travelers</p><p>Planning itinerary. Confirm reservations and prices with providers.</p>{budget?.notes && <p>{budget.notes}</p>}{days.map(day => <section key={day.dayNumber}><h2>Day {day.dayNumber} - {day.isoDate || day.date}</h2>{day.activities.map((activity, index) => <p key={activity.id || index}><strong>{activity.startTime || activity.time} - {activity.endTime} {activity.title}</strong><br />{activity.location}<br />{activity.description}</p>)}</section>)}</article>, document.body)}
     <section
       aria-label="Trip Architecture Dashboard"
-      className="w-full xl:w-[54%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 shrink-0 xl:shrink h-[38rem] xl:h-[calc(100vh-7rem)] relative"
+      className="trip-dashboard w-full flex flex-col rounded-2xl bg-surface-container-low/80 border border-surface-container-high/60 shadow-xl min-w-0 relative"
     >
       {/* Toast Notification */}
       {toastMessage && (
@@ -125,14 +123,14 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
       )}
 
       {/* Dashboard Header */}
-      <div className="p-3 sm:p-4 bg-surface-container/95 border-b border-surface-container-high/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="p-3 sm:p-4 bg-surface-container/95 rounded-t-2xl border-b border-surface-container-high/60 flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-base sm:text-lg font-semibold text-on-surface truncate tracking-tight">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-base sm:text-lg font-semibold text-on-surface break-words tracking-tight">
               {trip?.title || 'Goa Coastal Splendor & Heritage'}
             </h1>
             <span className="px-2 py-0.5 rounded-full bg-tertiary/10 text-tertiary text-[10px] font-semibold whitespace-nowrap border border-tertiary/20">
-              {trip?.status || 'Confirmed Plan'}
+              {trip?.plusAccess ? 'Plus active ✓' : 'Free plan'}
             </span>
           </div>
           <p className="text-xs text-on-surface-variant mt-0.5">
@@ -144,7 +142,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
-            aria-label="Toggle live companion mode"
+            aria-label={trip?.plusAccess ? "Open Companion" : "Unlock Companion"}
             onClick={() => trip?.plusAccess ? onSwitchTab('companion-tab') : onUpgrade()}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm border ${
               activeTab === 'companion-tab'
@@ -153,18 +151,22 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             }`}
           >
             <Compass className={`w-3.5 h-3.5 ${activeTab === 'companion-tab' ? 'animate-spin' : ''}`} />
-            <span>Companion Mode</span>
+            <span>{trip?.plusAccess ? 'Open Companion' : 'Unlock Companion'}</span>
             {trip?.plusAccess ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> : <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
           <button
             type="button"
-            aria-label="Modify itinerary"
+            aria-label="Edit with AI"
+            disabled={isOpeningEdit}
             onClick={handleModify}
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface text-xs font-medium transition-colors shadow-sm border border-surface-container-highest/60"
           >
             <Edit className="w-3.5 h-3.5 text-primary" />
-            <span>Modify</span>
+            <span>{isOpeningEdit ? 'Opening…' : 'Edit with AI'}</span>
           </button>
+          <details className="trip-more-actions relative" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+          <summary className="cursor-pointer list-none px-3 py-2 rounded-lg border border-surface-container-highest bg-surface-container-high text-xs font-semibold">More actions ▾</summary>
+          <div className="trip-extra-actions">
           <button
             type="button"
             aria-label="Export itinerary as PDF"
@@ -183,6 +185,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             className="p-2 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface transition-colors shadow-sm border border-surface-container-highest/60"
           >
             <Share2 className="w-3.5 h-3.5" />
+            <span className="trip-action-label">Copy itinerary text</span>
           </button>
           <button
             type="button"
@@ -192,40 +195,28 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             className="p-2 rounded-lg bg-surface-container-high hover:bg-surface-bright text-primary transition-colors shadow-sm border border-surface-container-highest/60"
           >
             <CalendarCheck className="w-3.5 h-3.5" />
+            <span className="trip-action-label">Calendar export</span>
             {!trip?.plusAccess && <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
+          </div>
+          </details>
         </div>
       </div>
 
       {/* Navigation Tabs Strip */}
-      <div className="shrink-0 px-space-md pt-2 bg-surface-container/60 border-b border-surface-container-high/40 flex items-center gap-1 overflow-x-auto no-scrollbar">
+      <div className="trip-tabs shrink-0 px-3 pt-2 bg-surface-container/95 border-b border-surface-container-high/40 flex flex-wrap items-center gap-1 sticky top-16 z-20">
+        <button type="button" onClick={() => { setRouteMode('overview'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'overview'); onSwitchTab('route-tab'); }} aria-pressed={activeTab === 'route-tab' && routeMode === 'overview'} className="tab-button px-3 py-2 text-sm text-primary">Overview</button>
         <button
           type="button"
-          onClick={() => trip?.plusAccess ? onSwitchTab('companion-tab') : onUpgrade()}
+          onClick={() => { setRouteMode('days'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'days'); onSwitchTab('route-tab'); }}
           className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'companion-tab'
-              ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-bold'
-              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
-          }`}
-        >
-          <Compass className="w-4 h-4 text-emerald-500" />
-          <span>Live Companion</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            {trip?.plusAccess ? 'LIVE' : 'PLUS'}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onSwitchTab('route-tab')}
-          className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
-            activeTab === 'route-tab'
+            activeTab === 'route-tab' && routeMode === 'days'
               ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-semibold'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/60'
           }`}
         >
           <CalendarDays className="w-4 h-4" />
-          <span>Day-by-Day Route</span>
+          <span>Days &amp; map</span>
         </button>
 
         <button
@@ -282,8 +273,8 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
       </div>
 
       {/* Tab Content Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-space-md lg:p-space-lg space-y-space-md">
-        {trip && <TripPlusCard trip={trip} onUpgrade={onUpgrade} onBookings={onBookings} />}
+      <div className="flex-1 min-w-0 p-3 sm:p-5 space-y-space-md">
+        {trip && !trip.plusAccess && <section aria-label="Trip access" className="flex flex-wrap items-center gap-3 text-sm py-2"><span className="text-on-surface-variant">Basic planning is free.</span><button type="button" onClick={onBookings} className="text-primary underline">Book a flight or hotel — Demo</button><button type="button" onClick={onUpgrade} className="text-primary underline">Upgrade only — ₹499 Demo</button></section>}
         {activeTab === 'companion-tab' && trip?.plusAccess && (
           <CompanionMode
             trip={trip}
@@ -293,7 +284,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             onSwitchTab={onSwitchTab}
           />
         )}
-        {(activeTab === 'route-tab' || (activeTab === 'companion-tab' && !trip?.plusAccess)) && <RouteTab trip={trip} days={days} onSwitchTab={onSwitchTab} />}
+        {(activeTab === 'route-tab' || (activeTab === 'companion-tab' && !trip?.plusAccess)) && <RouteTab key={trip?.id} mode={routeMode} onOverview={() => { setRouteMode('overview'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'overview'); }} onOpenDay={() => { setRouteMode('days'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`, 'days'); }} trip={trip} days={days} onSwitchTab={onSwitchTab} />}
         {activeTab === 'flights-tab' && (
           <FlightsTab onBook={onBook} flights={flights} onSelectFlight={onSelectFlight} destination={trip?.destination} trip={trip} />
         )}

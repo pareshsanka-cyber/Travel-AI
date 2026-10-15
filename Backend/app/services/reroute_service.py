@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, date
 from typing import Dict, Any, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from app.utils.activity_identity import generate_persistent_activity_id, resolve_activity_status
+from app.utils.activity_identity import generate_persistent_activity_id, resolve_activity_status, routes_with_activity_ids
 from app.ai.agents.attraction_agent import (
     verify_and_enrich_place,
     discover_via_serpapi,
@@ -127,7 +127,7 @@ def generate_reroute_proposal(
     now_in_dest = datetime.now(dest_tz)
 
     route_details = trip.get("route_details") or {}
-    daily_routes = route_details.get("day_by_day_route") or []
+    daily_routes = routes_with_activity_ids(route_details.get("day_by_day_route") or [])
     if not daily_routes:
         raise ValueError("Trip has no day_by_day_route itinerary to reroute")
 
@@ -153,18 +153,24 @@ def generate_reroute_proposal(
     skipped_stop = None
     for idx, s in enumerate(raw_stops):
         s_id = s.get("id")
-        canonical_id = generate_persistent_activity_id(
-            s.get("type") or s.get("category"),
-            s.get("title") or s.get("name"),
-            s.get("place_id")
-        )
-        if s_id == skipped_activity_id or canonical_id == skipped_activity_id:
+        if s_id == skipped_activity_id:
             skipped_idx = idx
             skipped_stop = s
             break
 
     if not skipped_stop:
         raise ValueError(f"Skipped activity '{skipped_activity_id}' not found on day {day_number}")
+
+    from app.services.trip_consistency import has_complete_timings, validate_reroute
+    if not has_complete_timings(raw_stops):
+        remaining = [dict(s) for s in raw_stops if s['id'] != skipped_activity_id]
+        validate_reroute(trip, day_number, skipped_activity_id, remaining)
+        return {'status': 'success', 'proposal_id': f'prop_{int(time.time())}_{day_number}',
+            'day_number': int(day_number), 'revision': int(trip.get('revision', 1)),
+            'mode': 'skip_only', 'replacement_found': False, 'replacement_activity': None,
+            'skipped_activity': dict(skipped_stop, title=skipped_stop.get('name') or skipped_stop.get('title')),
+            'original_stops': raw_stops, 'proposed_stops': remaining, 'rescheduled_stops': [],
+            'reason': 'This older itinerary has incomplete activity timings. Accepting will mark this stop as skipped and keep the saved schedule unchanged.'}
 
     # Partition stops:
     # 1. Historical stops strictly before skipped_idx are frozen untouched
@@ -741,13 +747,16 @@ def apply_reroute_proposal(
         raise HTTPException(status_code=400, detail="Trip has no daily routes to update")
 
     from app.services.trip_consistency import validate_reroute, revision_filter
-    validate_reroute(trip, day_number, skipped_activity_id, proposed_stops)
+    mode = validate_reroute(trip, day_number, skipped_activity_id, proposed_stops)
 
     # Locate and update ONLY the target day
     day_found = False
     for idx, d in enumerate(daily_routes):
         d_num = d.get("day") or d.get("day_number") or (idx + 1)
         if int(d_num) == int(day_number):
+            if mode == 'skip_only':
+                day_found = True
+                break
             cleaned_stops = []
             for s in proposed_stops:
                 s_copy = dict(s)
@@ -799,13 +808,16 @@ def apply_reroute_proposal(
         "updated_at": datetime.utcnow().isoformat()
     }
 
-    from app.services.itinerary_edit_service import render_schedule
-    update_doc["planner_draft"] = render_schedule(route_details)
-    from app.ai.agents.budget_agent import budget_node
-    revised_trip = dict(trip, **update_doc)
-    update_doc["budget_breakdown"] = budget_node(revised_trip)["budget_breakdown"]
-    from app.ai.agents.synthesis_agent import synthesis_node
-    update_doc["final_itinerary"] = synthesis_node(dict(revised_trip, **update_doc))["final_itinerary"]
+    if mode == 'skip_only':
+        update_doc.pop('route_details')
+    else:
+        from app.services.itinerary_edit_service import render_schedule
+        update_doc["planner_draft"] = render_schedule(route_details)
+        from app.ai.agents.budget_agent import budget_node
+        revised_trip = dict(trip, **update_doc)
+        update_doc["budget_breakdown"] = budget_node(revised_trip)["budget_breakdown"]
+        from app.ai.agents.synthesis_agent import synthesis_node
+        update_doc["final_itinerary"] = synthesis_node(dict(revised_trip, **update_doc))["final_itinerary"]
     write = db.trips.update_one(revision_filter(query, trip), {"$set": update_doc})
     if write.matched_count != 1:
         raise HTTPException(status_code=409, detail="The itinerary changed while applying this proposal. Refresh and try again.")
@@ -814,10 +826,11 @@ def apply_reroute_proposal(
         "status": "success",
         "trip_id": str(trip.get("_id") or trip_id),
         "revision": new_revision,
-        "route_details": route_details,
+        "mode": mode or 'reschedule',
+        "route_details": dict(route_details, day_by_day_route=routes_with_activity_ids(daily_routes)),
         "execution_state": exec_state,
         "reroute_record": reroute_record,
-        "planner_draft": update_doc["planner_draft"],
-        "budget_breakdown": update_doc["budget_breakdown"],
-        "final_itinerary": update_doc["final_itinerary"],
+        "planner_draft": update_doc.get("planner_draft", trip.get('planner_draft')),
+        "budget_breakdown": update_doc.get("budget_breakdown", trip.get('budget_breakdown')),
+        "final_itinerary": update_doc.get("final_itinerary", trip.get('final_itinerary')),
     }

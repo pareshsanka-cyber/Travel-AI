@@ -23,6 +23,10 @@ def owned_trip(db, trip_id, user_id):
 
 def serialize_trip(trip, db=None):
     result = dict(trip)
+    routes = (trip.get('route_details') or {}).get('day_by_day_route')
+    if routes:
+        from app.utils.activity_identity import routes_with_activity_ids
+        result['route_details'] = dict(trip['route_details'], day_by_day_route=routes_with_activity_ids(routes))
     result['id'] = str(result.pop('_id', None) or result.get('id'))
     for key in ('created_at', 'updated_at'):
         if isinstance(result.get(key), datetime): result[key] = result[key].isoformat()

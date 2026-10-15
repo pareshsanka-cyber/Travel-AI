@@ -274,6 +274,7 @@ export interface TripSummary {
 }
 
 export interface RerouteProposal {
+  mode?: 'skip_only' | 'reschedule';
   status: 'success' | 'error';
   proposal_id: string;
   day_number: number;

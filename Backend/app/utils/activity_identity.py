@@ -1,5 +1,24 @@
 import re
+import copy
 from typing import Optional, Dict, Any, List, Tuple
+
+
+def routes_with_activity_ids(daily_routes):
+    """Supply stable IDs for legacy stops without mutating saved itinerary data."""
+    routes = copy.deepcopy(daily_routes)
+    seen = {}
+    for day in routes:
+        for stop in day.get('stops') or day.get('activities') or []:
+            if not isinstance(stop, dict):
+                continue
+            kind = stop.get('type') or stop.get('category')
+            title = stop.get('name') or stop.get('title') or 'Scheduled Stop'
+            place = stop.get('place_id') or stop.get('placeId')
+            key = (kind or 'activity', title, place or '')
+            seen[key] = seen.get(key, 0) + 1
+            if not stop.get('id') or str(stop['id']).startswith('day_'):
+                stop['id'] = generate_persistent_activity_id(kind, title, place, seen[key])
+    return routes
 
 
 def generate_persistent_activity_id(

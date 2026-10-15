@@ -214,3 +214,28 @@
   #travelai-print-document h2 { font-size: 16pt; }
   @page { margin: 18mm; }
 }
+
+/* One full-width workspace at a time: Plan, My Trip, then Companion. */
+.trip-workspace { width: 100%; max-width: 1600px; margin-inline: auto; }
+.plan-view { width: 100%; max-width: 1000px; margin-inline: auto; height: calc(100dvh - 152px); display: flex; flex-direction: column; min-height: 0; }
+.plan-view[hidden], .trip-workspace > [hidden] { display: none !important; }
+.plan-view .chat-panel { box-shadow: none; }
+.trip-dashboard { container-type: inline-size; box-shadow: none; }
+.trip-more-actions > .trip-extra-actions { display: none; }
+.trip-more-actions[open] > .trip-extra-actions { display: flex; position: absolute; right: 0; top: calc(100% + 8px); z-index: 35; width: 230px; padding: 12px; gap: 8px; flex-wrap: wrap; border: 1px solid var(--sys-outline-variant); border-radius: 12px; background: var(--sys-surface-container-high); box-shadow: 0 8px 24px #0004; }
+.trip-extra-actions button { min-height: 36px; }
+.trip-action-label { font-size: 12px; margin-left: 6px; }
+.trip-tabs .tab-button { min-height: 40px; }
+.trip-tabs button[aria-pressed="true"] { background: var(--sys-primary-container); color: var(--sys-on-primary-container); border-radius: 8px 8px 0 0; }
+.day-route-container { container-type: inline-size; }
+.day-route-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.day-route-map { height: clamp(300px, 48dvh, 520px); min-width: 0; }
+@container (min-width: 960px) { .day-route-layout { grid-template-columns: minmax(0, 1fr) 320px; } }
+@media (max-width: 639px) {
+  .trip-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trip-tabs .tab-button { white-space: normal; min-width: 0; padding-inline: 8px; }
+}
+@media (max-height: 700px) {
+  .chat-panel > div:first-child { max-height: 44dvh; overflow-y: auto; flex-shrink: 0; }
+  .chat-panel > div:nth-last-child(2) { max-height: 48px; }
+}

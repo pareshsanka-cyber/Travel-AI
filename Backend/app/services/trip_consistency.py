@@ -18,8 +18,17 @@ def clock_minutes(value):
     return int(h) * 60 + int(m)
 
 
+def has_complete_timings(stops):
+    try:
+        return bool(stops) and all(clock_minutes(s.get('end_time')) > clock_minutes(s.get('start_time')) for s in stops)
+    except ValueError:
+        return False
+
+
 def validate_reroute(trip, day_number, skipped_id, stops):
-    day = next((d for i, d in enumerate(trip['route_details']['day_by_day_route'])
+    from app.utils.activity_identity import routes_with_activity_ids
+    routes = routes_with_activity_ids(trip['route_details']['day_by_day_route'])
+    day = next((d for i, d in enumerate(routes)
                 if int(d.get('day') or d.get('day_number') or i + 1) == int(day_number)), None)
     if not day:
         raise ValueError('Day not found.')
@@ -30,6 +39,12 @@ def validate_reroute(trip, day_number, skipped_id, stops):
     log = (trip.get('execution_state') or {}).get('activity_log') or {}
     if log.get(skipped_id, {}).get('status') in {'completed', 'in_progress'}:
         raise ValueError('Completed or in-progress activities cannot be skipped.')
+    if not has_complete_timings(original):
+        expected = [s for s in original if s['id'] != skipped_id]
+        clean = [{k: v for k, v in s.items() if k not in {'rescheduled', 'status_label'}} for s in stops]
+        if clean != expected:
+            raise ValueError('This older itinerary has incomplete timings. Generate a new preview to skip the stop without changing the saved schedule.')
+        return 'skip_only'
     if not stops or len(stops) > 100:
         raise ValueError('A reroute must contain between 1 and 100 activities.')
     ids = set()

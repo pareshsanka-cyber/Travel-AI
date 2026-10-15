@@ -16,6 +16,8 @@ import { TripSummary, ItineraryDay, ActivitySegment } from '../../types';
 import { DayDetailView, resolvePlaceImage, getActivityCategoryMeta, CategoryPlaceholder, getCategoryFallbackImage } from './DayDetailView';
 
 interface RouteTabProps {
+  mode?: 'overview' | 'days';
+  onOverview?: () => void; onOpenDay?: () => void;
   trip: TripSummary | null;
   days: ItineraryDay[];
   onSwitchTab?: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
@@ -111,90 +113,32 @@ function OperatingHoursPanel({ act }: { act: ActivitySegment }) {
   );
 }
 
-export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) => {
-  const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(null);
+export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab, mode = 'overview', onOverview, onOpenDay }) => {
+  const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(() => { const value = sessionStorage.getItem(`TRAVELAI_DAY:${trip?.id}`); return value ? Number(value) : null; });
 
+  const selectDay = (day: number | null) => {
+    setSelectedDayNumber(day);
+    if (day === null) sessionStorage.removeItem(`TRAVELAI_DAY:${trip?.id}`);
+    else sessionStorage.setItem(`TRAVELAI_DAY:${trip?.id}`, String(day));
+  };
   // If a specific Day is selected, render the full DayDetailView
-  if (selectedDayNumber !== null) {
+  if (mode === 'days') {
     const selectedDay = days.find((d) => d.dayNumber === selectedDayNumber) || days[0];
     if (selectedDay) {
       return (
-        <DayDetailView
+        <><nav aria-label="Trip days" className="flex flex-wrap gap-2 mb-4">{days.map(day => <button type="button" key={day.dayNumber} aria-pressed={day.dayNumber === (selectedDayNumber || days[0]?.dayNumber)} onClick={() => { selectDay(day.dayNumber); onOpenDay?.(); }} className="px-4 py-2 rounded-xl border border-primary/30 text-sm text-primary">Day {day.dayNumber}</button>)}</nav><DayDetailView
           trip={trip}
           day={selectedDay}
           totalDays={days.length}
-          onBack={() => setSelectedDayNumber(null)}
-          onSelectDay={(num) => setSelectedDayNumber(num)}
-        />
+          onBack={() => { onOverview?.(); }}
+          onSelectDay={selectDay}
+        /></>
       );
     }
   }
 
   return (
     <div className="space-y-space-md animate-in fade-in duration-200">
-      {/* Live Companion Mode Banner */}
-      {onSwitchTab && (
-        <div className="p-3 sm:p-3.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-primary/10 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex-shrink-0">
-              <Compass className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-on-surface">Traveler Companion Mode</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                  {trip?.plusAccess ? 'Ready' : 'Trip Plus'}
-                </span>
-              </div>
-              <p className="text-[11px] text-on-surface-variant truncate">
-                Track today's stops, mark complete, skip, and open turn-by-turn navigation.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onSwitchTab('companion-tab')}
-            className="self-start sm:self-auto flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
-          >
-            <span>{trip?.plusAccess ? 'Open Companion' : 'Unlock Companion'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Destination Micro Hero Map & Banner */}
-      <div className="relative w-full h-44 rounded-xl overflow-hidden shadow-lg border border-surface-container-highest/60">
-        <div
-          className="w-full h-full bg-cover bg-center"
-          data-location={trip?.destination || 'Goa, India'}
-          style={{
-            backgroundImage: `url('${
-              trip?.heroImageUrl ||
-              'https://lh3.googleusercontent.com/aida-public/AB6AXuBlx7gAJoMQBXDwbj6pcwTqIFcYOsmHvoW4FP-ompYmqI5sdLnZA_V_Vo7s2KaplYKZasc62M2PUG1oCM8TH0Z07k10P6QveYrXQL7OAzs_LtZujhGa5DgZj2B1Lt83FtvfbX5cf4OzbSPNc0HxZSxA0n70yRDsXRUzj3Cs3tyKLFvOticj1qWp-a5SvwUFFe5M7wTtu3leSHjY1VvKgmhcc0WV-OM1qDNk60-lJxEzj7UZUxDQDjkCFg'
-            }')`,
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-surface-container-lowest via-surface-container-lowest/50 to-transparent p-space-md flex flex-col justify-end">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[11px] font-semibold uppercase tracking-wider border border-primary/30">
-                {trip?.bespokeCircuitLabel || 'Bespoke Circuit'}
-              </span>
-              <div className="font-semibold text-lg sm:text-xl text-on-surface mt-1">
-                {trip?.routeHeadline || 'Curated Daily Route & Highlights'}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[11px] text-on-surface-variant font-medium">Click Any Day For Maps & Places</div>
-              <div className="text-sm font-semibold text-tertiary flex items-center gap-1.5 justify-end">
-                <span className="w-2 h-2 rounded-full bg-tertiary animate-pulse" />
-                <span>{days.length} Days Available</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Vertical Timeline Architecture */}
       {(!days || days.length === 0) ? (
         <div className="flex flex-col items-center justify-center p-12 rounded-2xl bg-surface-container border border-surface-container-highest/60 text-center space-y-3">
@@ -225,7 +169,7 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) =
 
                 {/* Day Card (Clickable to open Detail Page) */}
                 <div 
-                  onClick={() => setSelectedDayNumber(day.dayNumber)}
+                  onClick={() => { selectDay(day.dayNumber); onOpenDay?.(); }}
                   className="cursor-pointer group rounded-xl bg-surface-container p-space-md shadow-md border border-surface-container-highest/40 hover:border-primary/60 hover:shadow-xl transition-all duration-200 space-y-space-sm"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -252,7 +196,7 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) =
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedDayNumber(day.dayNumber);
+                          selectDay(day.dayNumber); onOpenDay?.();
                         }}
                         className="flex items-center gap-1 text-xs font-bold text-primary group-hover:translate-x-0.5 transition-transform bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20"
                       >
@@ -262,116 +206,10 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) =
                     </div>
                   </div>
 
-                  {/* 3 Activities Columns */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1">
-                    {day.activities.map((act, actIdx) => {
-                      const colorClasses = {
-                        primary: 'text-primary',
-                        secondary: 'text-secondary',
-                        tertiary: 'text-tertiary',
-                      }[act.categoryColor] || 'text-primary';
-
-                      return (
-                        <div
-                          key={`${day.dayNumber || dIdx}-act-${actIdx}-${act.timeOfDay}`}
-                          className="p-space-sm rounded-lg bg-surface-container-low border border-surface-container-high/40 hover:border-surface-container-high space-y-1.5 transition-all"
-                        >
-                          {/* Mini Thumbnail Preview */}
-                          {(() => {
-                            const imgUrl = resolvePlaceImage(act, trip?.destination);
-                            const categoryMeta = getActivityCategoryMeta(act);
-                            return (
-                              <div className="w-full h-24 rounded-md overflow-hidden relative mb-1 bg-surface-container-highest">
-                                {imgUrl ? (
-                                  <img
-                                    src={imgUrl}
-                                    alt={act.title}
-                                    referrerPolicy="no-referrer"
-                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                    loading="lazy"
-                                    onError={(e) => {
-                                      const fallback = getCategoryFallbackImage(act, trip?.destination);
-                                      if (fallback && e.currentTarget.src !== fallback) {
-                                        e.currentTarget.src = fallback;
-                                      } else {
-                                        e.currentTarget.style.display = 'none';
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <CategoryPlaceholder categoryMeta={categoryMeta} title={act.title} size="sm" />
-                                )}
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
-                                <span className="absolute bottom-1 left-1.5 text-[9px] font-bold text-white uppercase tracking-wider">
-                                  {act.timeOfDay}
-                                </span>
-                              </div>
-                            );
-                          })()}
-
-                          <div className="flex items-center justify-between gap-1">
-                            <span className={`text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider ${colorClasses}`}>
-                              {act.timeOfDay} • {act.time}
-                            </span>
-                            {act.rating && (
-                              <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-500">
-                                <Star className="w-2.5 h-2.5 fill-amber-500" />
-                                {act.rating}
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-xs font-semibold text-on-surface line-clamp-1">
-                            {act.title}
-                          </p>
-
-                          {act.location && (
-                            <p className="text-[10px] text-on-surface-variant flex items-center gap-1 line-clamp-1">
-                              <MapPin className="w-2.5 h-2.5 flex-shrink-0" /> {act.location}
-                            </p>
-                          )}
-
-                          <p className="text-xs text-on-surface-variant leading-relaxed line-clamp-2">
-                            {act.description}
-                          </p>
-
-                          {/* Interest and Fame Badges */}
-                          {(act.matchType || act.fameLevel || (act.interests && act.interests.length > 0)) && (
-                            <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-surface-container-highest/30">
-                              {act.matchType === 'interest_match' && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-primary/10 text-primary border border-primary/20">
-                                  ✨ Matches Interests
-                                </span>
-                              )}
-                              {act.matchType === 'popular_recommendation' && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20">
-                                  🌟 Also Popular
-                                </span>
-                              )}
-                              {act.fameLevel === 'widely_known' && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-300 dark:border-amber-700">
-                                  ⭐ Popular
-                                </span>
-                              )}
-                              {act.fameLevel === 'lesser_known' && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700">
-                                  💎 Lesser Known
-                                </span>
-                              )}
-                              {act.interests && act.interests.map((interest, iIdx) => (
-                                <span key={iIdx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-surface-container-highest text-on-surface-variant">
-                                  {interest}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Operating Hours Status Panel */}
-                          <OperatingHoursPanel act={act} />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <ol className="divide-y divide-surface-container-highest/40">
+                    {day.activities.slice(0, 3).map((activity, index) => <li key={activity.id || index} className="flex items-start gap-3 py-3 text-sm"><span className="text-primary shrink-0 w-24">{activity.startTime || activity.time}</span><span className="min-w-0"><span className="font-medium">{activity.title}</span>{activity.location && <span className="block text-xs text-on-surface-variant mt-1">{activity.location}</span>}</span></li>)}
+                  </ol>
+                  {day.activities.length > 3 && <p className="text-xs text-primary">+{day.activities.length - 3} more stops ? Explore this day to see all</p>}
                 </div>
               </div>
             );

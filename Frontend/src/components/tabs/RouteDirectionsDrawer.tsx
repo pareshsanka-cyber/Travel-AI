@@ -54,7 +54,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
     const distKm = firstFlight ? Math.round(firstFlight.distanceKm) : null;
 
     return (
-      <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md h-full flex flex-col overflow-hidden">
+      <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md flex flex-col min-w-0">
         {/* Flight Day Header */}
         <div className="flex flex-col gap-3 pb-4 border-b border-surface-container-highest/50">
           <div className="flex items-center gap-3">
@@ -83,7 +83,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
         </div>
 
         {/* Flight Day Info */}
-        <div className="flex-1 overflow-y-auto space-y-3 mt-4">
+        <div className="min-w-0 space-y-3 mt-4">
           <div className="flex items-start gap-3 p-3 rounded-xl bg-sky-500/8 border border-sky-500/20">
             <div className="w-8 h-8 rounded-full bg-sky-500/20 text-sky-500 flex items-center justify-center flex-shrink-0 mt-0.5">
               <Navigation className="w-4 h-4" />
@@ -121,7 +121,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
   const activeLeg = isEntireDay ? null : (legs[activeLegIndex] || legs[0]);
 
   return (
-    <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md space-y-4 h-full flex flex-col overflow-hidden">
+    <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md space-y-4 flex flex-col min-w-0">
 
       {/* Header: Title & Travel Mode Switcher */}
       <div className="flex flex-col gap-4 pb-3 border-b border-surface-container-highest/50 flex-shrink-0">
@@ -209,7 +209,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
       </div>
 
       {/* Leg Tabs Selector */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none flex-shrink-0">
+      <div className="flex items-center gap-2 flex-wrap pb-1 flex-shrink-0">
         {/* Entire Day Button */}
         <button
           type="button"
@@ -243,9 +243,9 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="min-w-0 flex flex-col">
         {isEntireDay ? (
-          <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin space-y-3">
+          <div className="min-w-0 pr-1 scrollbar-thin space-y-3">
             <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider px-1">
               All Legs Summary
             </div>
@@ -255,7 +255,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
                 onClick={() => onSelectLeg(idx)}
                 className="w-full text-left p-3.5 rounded-xl bg-surface-container-low border border-surface-container-highest/60 hover:border-primary/50 transition-colors flex items-center justify-between gap-3 shadow-sm group"
               >
-                <div className="flex-1">
+                <div className="flex-1 min-w-0 break-words">
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="w-5 h-5 rounded-full bg-surface-container-highest text-on-surface flex items-center justify-center text-[10px] font-bold">
                       {idx + 1}
@@ -282,7 +282,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
             ))}
           </div>
         ) : activeLeg ? (
-          <div className="flex-1 flex flex-col overflow-hidden space-y-3 pt-1">
+          <div className="min-w-0 flex flex-col space-y-3 pt-1">
           {/* Active Leg Summary Card */}
           <div className="p-4 rounded-xl bg-surface-container-low border border-surface-container-highest/60 flex flex-col gap-4 shadow-sm flex-shrink-0">
             <div className="space-y-1.5">
@@ -331,7 +331,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
           </div>
 
           {/* Turn-by-Turn Instruction Steps List */}
-          <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin space-y-2">
+          <div className="min-w-0 pr-1 scrollbar-thin space-y-2">
             <div className="flex items-center justify-between px-1">
               <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
                 Step-by-Step Directions

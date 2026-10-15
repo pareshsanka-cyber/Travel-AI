@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Layers, Map as MapIcon, Globe, Navigation } from 'lucide-react';
 import { ActivitySegment, RouteLeg } from '../../types';
 
@@ -179,6 +180,8 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     const map = L.map(mapContainerRef.current, {
       zoomControl: true,
       scrollWheelZoom: false,
+      zoomAnimation: false,
+      fadeAnimation: false,
     }).setView(centerCoords, 12);
 
     mapInstanceRef.current = map;
@@ -343,16 +346,26 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     // 3. Fit Bounds to show all route points
     if (allRoutePoints.length > 1) {
       const bounds = L.latLngBounds(allRoutePoints);
-      map.fitBounds(bounds, { padding: [45, 45], maxZoom: 15 });
+      map.fitBounds(bounds, { padding: [45, 45], maxZoom: 15, animate: false });
     } else if (waypoints.length === 1) {
       map.setView([waypoints[0].lat, waypoints[0].lon], 13);
     }
 
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 200);
+    let active = true;
+    const resize = () => {
+      if (!active || mapInstanceRef.current !== map) return;
+      map.invalidateSize({ pan: false, animate: false });
+      if (allRoutePoints.length > 1) map.fitBounds(L.latLngBounds(allRoutePoints), { padding: [45, 45], maxZoom: 15, animate: false });
+    };
+    const resizeObserver = new ResizeObserver(resize);
+    if (mapContainerRef.current) resizeObserver.observe(mapContainerRef.current);
+    const sizeFrame = requestAnimationFrame(resize);
 
     return () => {
+      active = false;
+      resizeObserver.disconnect();
+      cancelAnimationFrame(sizeFrame);
+      map.stop();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -362,11 +375,11 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
 
   return (
-    <div className="relative w-full h-full min-h-[350px] lg:min-h-[500px] rounded-2xl overflow-hidden shadow-lg border border-surface-container-highest/60">
+    <div className="relative w-full h-full min-h-0 rounded-2xl overflow-hidden shadow-lg border border-surface-container-highest/60">
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Floating Status & Map Style Switcher Controls */}
-      <div className="absolute top-3 right-3 z-[400] flex items-center gap-2">
+      <div className="absolute top-3 left-14 right-3 z-[400] flex flex-wrap justify-end items-center gap-2">
         {/* Layer Selector Pill */}
         <div className="bg-surface-container-lowest/90 backdrop-blur-md p-1 rounded-xl border border-surface-container-highest/70 text-xs font-semibold shadow-md flex items-center gap-1">
           <button

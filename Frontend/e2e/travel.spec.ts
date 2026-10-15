@@ -89,6 +89,8 @@ test('choices persist after reloading and calendar contains actual visits', asyn
   await expect(page.getByText('Garden Hotel',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Open Planner Studio',exact:true}).click();
   const downloadEvent = page.waitForEvent('download');
+  await expect(page.locator('.trip-dashboard')).toBeVisible();
+  const moreActions = page.locator('.trip-more-actions > summary'); if (await moreActions.isVisible()) await moreActions.click();
   await page.getByRole('button',{name:'Download itinerary calendar',exact:true}).click();
   const download = await downloadEvent;
   expect(download.suggestedFilename()).toBe('travelai-goa.ics');
@@ -106,7 +108,7 @@ test('a new traveler can create an itinerary and sign out', async ({page}) => {
   await page.getByLabel('Email',{exact:true}).fill(user.email);
   await page.getByLabel('Password',{exact:true}).fill('valid-password');
   await page.getByRole('button',{name:'Sign In',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'No Trip Generated Yet'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Plan your next trip'})).toBeVisible();
   await page.locator('#chatPromptInput').fill('Plan a 2-day trip from Hyderabad to Goa for 2 adults with a budget of INR 15000');
   await page.locator('#chatPromptInput').press('Enter');
   await expect(page.getByRole('heading',{name:'Goa Curated Itinerary',exact:true})).toBeVisible();
@@ -118,34 +120,19 @@ test('a new traveler can create an itinerary and sign out', async ({page}) => {
   expect(await page.evaluate(() => localStorage.getItem('travelai_token'))).toBeNull();
 });
 
-test('date picker uses today, disables past days and applies a valid range', async ({ page }) => {
-  await page.clock.install({ time: new Date('2030-06-15T12:00:00Z') });
-  await installMock(page);
-  await page.addInitScript(() => localStorage.setItem('TRAVELAI_TRAVEL_CONTEXT', JSON.stringify({ start_date: '1 Jan 2020', end_date: '3 Jan 2020', days: 3 })));
-  await signIn(page);
-  await page.getByRole('button', { name: /When\?/ }).click();
-  const picker = page.getByRole('dialog', { name: 'Date Range Selector', exact: true });
-  await expect(picker.getByText('June 2030', { exact: true })).toBeVisible();
-  await expect(picker.getByRole('button', { name: 'Previous Month', exact: true })).toBeDisabled();
-  await expect(picker.getByRole('button', { name: '14 Jun 2030', exact: true })).toBeDisabled();
-  await expect(picker.getByRole('button', { name: '15 Jun 2030', exact: true })).toBeEnabled();
-  await picker.getByRole('button', { name: '15 Jun 2030', exact: true }).click();
-  await picker.getByRole('button', { name: '17 Jun 2030', exact: true }).click();
-  await picker.getByRole('button', { name: 'Apply Dates', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}').start_date)).toBe('15 Jun 2030');
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}').end_date)).toBe('17 Jun 2030');
-});
-
-test('an open calendar updates its minimum date when the day changes', async ({ page }) => {
+test('Trip details allows future dates and rejects a newly entered past date', async ({ page }) => {
   await page.clock.install({ time: new Date('2030-06-15T12:00:00Z') });
   await installMock(page); await signIn(page);
-  await page.getByRole('button', { name: /When\?/ }).click();
-  const picker = page.getByRole('dialog', { name: 'Date Range Selector', exact: true });
-  await picker.getByRole('button', { name: '15 Jun 2030', exact: true }).click();
-  await page.clock.setSystemTime(new Date('2030-06-16T12:00:00Z'));
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(picker.getByRole('button', { name: '15 Jun 2030', exact: true })).toBeDisabled();
-  await expect(picker.getByRole('button', { name: 'Apply Dates', exact: true })).toBeDisabled();
-  await picker.getByRole('button', { name: '16 Jun 2030', exact: true }).click();
-  await expect(picker.getByRole('button', { name: 'Apply Dates', exact: true })).toBeEnabled();
+  const menu = page.getByRole('button', { name: 'Open navigation menu' }); if (await menu.isVisible()) await menu.click();
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await page.getByRole('button', { name: 'Trip details', exact: true }).click();
+  const details = page.getByRole('dialog', { name: 'Trip details', exact: true });
+  await expect(details.getByLabel('Start date', { exact: true })).toHaveAttribute('min', '2030-06-15');
+  await details.getByLabel('Start date', { exact: true }).fill('2030-06-14');
+  await details.getByRole('button', { name: 'Apply trip details', exact: true }).click();
+  await expect(details.getByRole('alert')).toContainText('Choose today or future dates');
+  await details.getByLabel('Start date', { exact: true }).fill('2030-06-15');
+  await details.getByLabel('End date', { exact: true }).fill('2030-06-17');
+  await details.getByRole('button', { name: 'Apply trip details', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}').start_date)).toBe('2030-06-15');
 });

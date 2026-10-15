@@ -26,6 +26,7 @@ import { RegisterPage } from './pages/RegisterPage';
 
 function AppContent() {
   const {
+    plannerView, setPlannerView, openTripEdit, isOpeningEdit,
     activePage,
     setActivePage,
     activeDashboardTab,
@@ -117,6 +118,7 @@ function AppContent() {
     setCheckoutTripId(null);
     await bookings.refresh();
     setActiveDashboardTab(tab || (companion ? 'companion-tab' : 'route-tab'));
+    setPlannerView('trip');
     setActivePage('planner-studio');
   };
 
@@ -175,6 +177,7 @@ function AppContent() {
         activePage={activePage}
         onSelectPage={(page) => {
           orderUrl(null); setCheckoutTripId(null); setActivePage(page);
+          if (page === 'planner-studio') setPlannerView('plan');
         }}
         conversations={conversations}
         isLoadingConversations={isLoadingConversations}
@@ -184,7 +187,7 @@ function AppContent() {
         onOpenApiModal={() => setIsApiModalOpen(true)}
         onDeleteConversation={handleDeleteConversation}
         onDeleteTrip={handleDeleteTrip}
-        onSelectConversation={handleSelectConversation}
+        onSelectConversation={async id => { await handleSelectConversation(id); }}
         onSelectTrip={async (id) => {
           const success = await setActiveTripId(id);
           if (success) {
@@ -207,6 +210,7 @@ function AppContent() {
       >
         {/* Top Header */}
         <Header
+          showTripSelector={activePage !== 'planner-studio' || plannerView !== 'plan'}
           apiStatus={apiStatus}
           activeTrip={trip}
           savedTrips={savedTrips}
@@ -230,6 +234,7 @@ function AppContent() {
               setActiveTripId(matched.id || matched._id);
             } else {
               setPromptInput(query);
+              setPlannerView('plan');
             }
             setActivePage('planner-studio');
           }}
@@ -243,6 +248,10 @@ function AppContent() {
               fallbackMessage="An unexpected error occurred while loading Planner Studio. You can reload the page, try again, or switch to another section from the navigation."
             >
               <PlannerStudioPage
+                plannerView={plannerView}
+                onChangeView={setPlannerView}
+                onEditTrip={openTripEdit}
+                isOpeningEdit={isOpeningEdit}
                 onUpgrade={upgrade}
                 onBook={bookDemo}
                 onBookings={goToBookings}
@@ -291,7 +300,7 @@ function AppContent() {
                 onOpenTrip={async (id) => {
                   return await setActiveTripId(id);
                 }}
-                onGoToStudio={() => setActivePage('planner-studio')}
+                onGoToStudio={() => { setPlannerView('trip'); setActivePage('planner-studio'); }}
                 onNewTrip={handleNewTrip}
                 onDeleteTrip={handleDeleteTrip}
                 isCreatingTrip={isSendingMessage}
@@ -311,7 +320,7 @@ function AppContent() {
                 trip={trip}
                 flights={flights}
                 hotels={[...hotels, ...nearbyHotels]}
-                onGoToStudio={() => setActivePage('planner-studio')}
+                onGoToStudio={() => { setPlannerView('trip'); setActivePage('planner-studio'); }}
                 onNavigateToItineraryHub={() => setActivePage('itinerary-hub')}
               />
             </ErrorBoundary>

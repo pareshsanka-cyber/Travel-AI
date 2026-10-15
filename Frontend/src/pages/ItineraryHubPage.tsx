@@ -71,11 +71,11 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
               <CalendarDays className="w-5 h-5" />
             </span>
             <h1 className="text-xl sm:text-2xl font-bold text-on-surface">
-              Itinerary Hub
+              My trips
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-on-surface-variant mt-1">
-            Archived, active, and generated trips synchronized via FastAPI
+            Your saved itineraries, ready to review or continue.
           </p>
         </div>
 
@@ -98,7 +98,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-on-primary text-xs sm:text-sm font-semibold hover:bg-primary-fixed transition-colors shadow-md self-start sm:self-auto"
           >
             <Compass className="w-4 h-4" />
-            <span>{currentTrip ? 'Open Active in Studio' : 'Go to Studio'}</span>
+            <span>{currentTrip ? 'Open current trip' : 'Start planning'}</span>
           </button>
         </div>
       </div>
@@ -176,7 +176,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
           <div className="space-y-1">
             <h3 className="text-base font-semibold text-on-surface">No Saved Itineraries Found</h3>
             <p className="text-xs text-on-surface-variant max-w-sm">
-              Create a new bespoke itinerary or connect your FastAPI server to synchronize your trip history.
+              Plan a new trip to build your collection of saved itineraries.
             </p>
           </div>
           {onNewTrip && (
@@ -349,7 +349,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
                   }}
                   className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface text-xs font-semibold transition-colors border border-surface-container-highest/60"
                 >
-                  <span>Load into Planner Studio</span>
+                  <span>Open trip</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>

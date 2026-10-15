@@ -168,6 +168,42 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(set(response.json()['execution_state']['activity_log']),{'a'})
 
+    def test_legacy_companion_ids_and_progress_survive_refresh_without_rewriting_trip(self):
+        stored = self.db.trips.docs[0]
+        stored.pop('revision', None)
+        stored['route_details'] = {'day_by_day_route': [
+            {'day': 1, 'stops': [{'name': 'Hyderabad Airport', 'type': 'airport'}, {'name': 'Hotel', 'type': 'hotel'}]},
+            {'day': 2, 'stops': [{'name': 'Hotel', 'type': 'hotel'}]}]}
+        original = copy.deepcopy(stored['route_details'])
+        endpoint = '/api/trips/' + str(self.trip['_id'])
+        detail = self.client.get(endpoint, headers=self.headers).json()
+        history = self.client.get('/api/trips/history', headers=self.headers).json()[0]
+        self.assertEqual(history['route_details'], detail['route_details'])
+        routes = detail['route_details']['day_by_day_route']
+        airport_id = routes[0]['stops'][0]['id']
+        self.assertNotEqual(routes[0]['stops'][1]['id'], routes[1]['stops'][0]['id'])
+        for status, revision in [('completed', 1), ('skipped', 2)]:
+            result = self.client.post(endpoint + '/execution_state', headers=self.headers, json={
+                'expected_revision': revision, 'execution_state': {'is_active': True,
+                    'activity_log': {airport_id: {'status': status, 'activity_id': airport_id}}}})
+            self.assertEqual(result.status_code, 200, result.text)
+            refreshed = self.client.get(endpoint, headers=self.headers).json()
+            self.assertEqual(refreshed['execution_state']['activity_log'][airport_id]['status'], status)
+        self.assertEqual(stored['route_details'], original)
+        invalid = self.client.post(endpoint + '/execution_state', headers=self.headers, json={
+            'expected_revision': 3, 'execution_state': {'activity_log': {'invented': {'status': 'completed'}}}})
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_legacy_positional_progress_uses_server_activity_id(self):
+        stored = self.db.trips.docs[0]
+        stored['route_details']['day_by_day_route'][0]['stops'][0].pop('id')
+        endpoint = '/api/trips/' + str(self.trip['_id'])
+        identity = self.client.get(endpoint, headers=self.headers).json()['route_details']['day_by_day_route'][0]['stops'][0]['id']
+        result = self.client.post(endpoint + '/execution_state', headers=self.headers, json={
+            'expected_revision': 1, 'execution_state': {'activity_log': {'1_0': {'status': 'completed'}}}})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(set(result.json()['execution_state']['activity_log']), {identity})
+
     def test_reroute_requires_server_preview(self):
         response = self.client.post('/api/trips/'+str(self.trip['_id'])+'/reroute/apply',headers=self.headers,
             json={'proposal_id':'forged','day_number':1,'skipped_activity_id':'a','proposed_stops':[{'id':'made_up'}]})
@@ -182,6 +218,63 @@ class SecurityTests(unittest.TestCase):
             json={'proposal_id':'valid','day_number':1,'skipped_activity_id':'a','proposed_stops':[{'id':'made_up'}]})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['route_details']['day_by_day_route'][0]['stops'][0]['id'],'b')
+
+    def test_legacy_reroute_preview_accept_and_refresh_preserve_saved_schedule(self):
+        stored = self.db.trips.docs[0]
+        stored.pop('revision', None)
+        stored['destination'] = 'Sydney, Australia'
+        stored['route_details'] = {'day_by_day_route': [
+            {'day': 1, 'stops': [{'name': 'Hyderabad Airport', 'type': 'airport'},
+                {'name': 'Sydney, Australia Airport', 'type': 'airport'}, {'name': 'Sydney Hotel', 'type': 'hotel'}]},
+            {'day': 2, 'stops': [{'name': 'Sydney Hotel', 'type': 'hotel'}]}]}
+        before = copy.deepcopy(stored)
+        endpoint = '/api/trips/' + str(self.trip['_id'])
+        identity = self.client.get(endpoint, headers=self.headers).json()['route_details']['day_by_day_route'][0]['stops'][1]['id']
+        with patch('app.services.reroute_service.resolve_destination_coordinates') as discovery:
+            preview = self.client.post(endpoint + '/reroute/preview', headers=self.headers, json={
+                'day_number': 1, 'skipped_activity_id': identity, 'expected_revision': 1})
+            discovery.assert_not_called()
+        self.assertEqual(preview.status_code, 200, preview.text)
+        proposal = preview.json()
+        self.assertEqual(proposal['mode'], 'skip_only')
+        self.assertFalse(proposal['rescheduled_stops'])
+        self.assertEqual(stored, before)  # Cancelling a preview leaves everything intact.
+        payload = dict(proposal_id=proposal['proposal_id'], day_number=1, skipped_activity_id=identity,
+            proposed_stops=[{'id': 'browser-tampered'}], expected_revision=1)
+        accepted = self.client.post(endpoint + '/reroute/apply', headers=self.headers, json=payload)
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        refreshed = self.client.get(endpoint, headers=self.headers).json()
+        self.assertEqual(refreshed['execution_state']['activity_log'][identity]['status'], 'skipped')
+        for key in ('route_details', 'budget_breakdown', 'planner_draft', 'final_itinerary'):
+            self.assertEqual(stored.get(key), before.get(key))
+        self.assertEqual(self.client.post(endpoint + '/reroute/apply', headers=self.headers, json=payload).status_code, 409)
+
+    def test_legacy_reroute_blocks_skipping_completed_and_changing_untimed_stops(self):
+        from app.utils.activity_identity import routes_with_activity_ids
+        trip = copy.deepcopy(self.trip)
+        stops = trip['route_details']['day_by_day_route'][0]['stops']
+        for stop in stops:
+            stop.pop('id', None); stop.pop('start_time', None); stop.pop('end_time', None)
+        identified = routes_with_activity_ids(trip['route_details']['day_by_day_route'])[0]['stops']
+        skipped = identified[0]['id']
+        changed = dict(identified[1], start_time='09:00', end_time='10:00')
+        with self.assertRaisesRegex(ValueError, 'incomplete timings'):
+            validate_reroute(trip, 1, skipped, [changed])
+        trip['execution_state']['activity_log'][skipped] = {'status': 'completed'}
+        with self.assertRaisesRegex(ValueError, 'cannot be skipped'):
+            validate_reroute(trip, 1, skipped, identified[1:])
+
+    def test_timed_legacy_reroute_accepts_same_ids_as_preview(self):
+        from app.utils.activity_identity import routes_with_activity_ids
+        stored = self.db.trips.docs[0]
+        for day in stored['route_details']['day_by_day_route']:
+            for stop in day['stops']:
+                stop.pop('id', None)
+        identified = routes_with_activity_ids(stored['route_details']['day_by_day_route'])[0]['stops']
+        result = apply_reroute_proposal(self.db, str(stored['_id']), 1, identified[0]['id'], identified[1:],
+            expected_revision=1, x_user_id=self.owner)
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['route_details']['day_by_day_route'][0]['stops'][0]['id'], identified[1]['id'])
 
     def test_conversation_ownership(self):
         conversations=Collection([{'conversation_id':'private','user_id':'other','travel_context':{}}]); messages=Collection([{'conversation_id':'private'}])

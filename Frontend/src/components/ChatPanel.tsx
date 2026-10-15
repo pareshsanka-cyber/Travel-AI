@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import {
   Compass,
   MapPin,
@@ -22,7 +22,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { ChatMessage, ApiStatusState, TripSummary } from '../types';
-import { TravelPreferenceBar } from './preferences/TravelPreferenceBar';
+import { TripDetailsDialog } from './preferences/TripDetailsDialog';
 
 interface ChatPanelProps {
   trip?: TripSummary | null;
@@ -53,10 +53,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   apiStatus,
   onClearContext,
 }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [moreSuggestions, setMoreSuggestions] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const feed = document.getElementById('chatMessageFeed');
+    if (feed) feed.scrollTop = feed.scrollHeight;
   }, [messages, isSending]);
 
   // Dynamic context-aware suggestions based on current active trip or travel context
@@ -114,41 +117,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <section
-      aria-label="Chat & Assistant Desk"
-      className="w-full xl:w-[46%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 shrink-0 xl:shrink h-[38rem] xl:h-[calc(100vh-7rem)]"
+      aria-label="TravelAI conversation"
+      className="chat-panel w-full flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl min-w-0 min-h-0 flex-1 overflow-hidden"
     >
-      {/* Live Context Status Bar */}
-      <div className="p-3 sm:p-4 bg-surface-container/95 border-b border-surface-container-high/60 flex flex-col gap-2.5 relative z-30 overflow-visible">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-primary/10 text-primary">
-              <Compass className="w-4 h-4 text-primary" />
-            </span>
-            <div>
-              <span className="font-semibold text-sm sm:text-base text-on-surface tracking-tight">
-                TravelAI Dispatch Engine
-              </span>
-              <span className="hidden sm:block text-[10px] text-on-surface-variant font-mono">
-                Conversational Expedition Architect
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-high text-primary border border-surface-container-highest/80 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
-            <span className="text-[10px] font-semibold tracking-wider font-mono uppercase">
-              {currentIntent || 'GENERATE_ITINERARY'}
-            </span>
-          </div>
-        </div>
-
-        {/* Professional Travel Preference Controls */}
-        <TravelPreferenceBar
-          trip={trip}
-          travelContext={travelContext}
-          messages={messages}
-          onUpdatePreference={onUpdatePreference || (() => {})}
-        />
+      <div className="p-4 sm:p-5 border-b border-surface-container-high/60 flex flex-wrap justify-between items-center gap-3 shrink-0">
+        <div className="min-w-0"><h2 className="font-semibold text-lg">{travelContext?.current_trip_id ? `Edit your ${travelContext.destination || 'saved'} trip` : 'Plan your next trip'}</h2><p className="text-sm text-on-surface-variant mt-1">{[travelContext?.destination || 'Choose a destination', travelContext?.days ? `${travelContext.days} days` : '', travelContext?.travelers ? `${travelContext.travelers} travelers` : ''].filter(Boolean).join(' · ')}</p></div>
+        <button type="button" onClick={() => setDetailsOpen(true)} className="rounded-xl border border-primary/30 px-4 py-2 text-primary text-sm font-semibold">Trip details</button>
       </div>
+      {detailsOpen && <TripDetailsDialog context={travelContext} onApply={onUpdatePreference || (() => {})} onClose={() => setDetailsOpen(false)} />}
 
       {/* Message Feed */}
       <div className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed">
@@ -156,7 +132,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           if (msg.sender === 'user') {
             return (
               <div key={msg.id} className="flex justify-end">
-                <div className="max-w-[85%] rounded-xl rounded-tr-xs bg-secondary-container p-space-md shadow-md text-on-surface border border-secondary/20">
+                <div className="max-w-[85%] sm:max-w-[75%] rounded-xl rounded-tr-xs bg-secondary-container p-space-md shadow-md text-on-surface border border-secondary/20">
                   <p className="text-sm leading-relaxed text-on-surface whitespace-pre-wrap">
                     {msg.text}
                   </p>
@@ -323,8 +299,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       </div>
 
       {/* Quick Action Prompt Chips */}
-      <div className="px-space-md py-1.5 bg-surface-container-lowest/50 border-t border-surface-container-high/30 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        {quickPrompts.map((chip, idx) => (
+      <div className="px-3 py-2 bg-surface-container-lowest/50 border-t border-surface-container-high/30 flex flex-wrap items-center gap-1.5 shrink-0 max-h-24 overflow-y-auto">
+        {(moreSuggestions ? quickPrompts : quickPrompts.slice(0, 2)).map((chip, idx) => (
           <button
             key={chip.label || `prompt-${idx}`}
             type="button"
@@ -335,10 +311,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             {chip.label}
           </button>
         ))}
+        {quickPrompts.length > 2 && <button type="button" onClick={() => setMoreSuggestions(value => !value)} className="text-xs text-primary px-2 py-1 underline">{moreSuggestions ? 'Fewer suggestions' : 'More suggestions'}</button>}
       </div>
 
       {/* Chat Input Deck */}
-      <div className="p-space-md bg-surface-container/90 border-t border-surface-container-high/40 flex flex-col gap-2">
+      <div className="p-3 bg-surface-container/90 border-t border-surface-container-high/40 flex flex-col gap-2 shrink-0">
         <div className="relative rounded-xl bg-surface-container-lowest border border-surface-container-highest/60 shadow-inner p-1.5 flex flex-col gap-1 focus-within:border-primary/50 transition-colors">
           <textarea
             id="chatPromptInput"

@@ -299,7 +299,9 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
           type: 'success',
           message: activeProposal.replacement_found
             ? `Itinerary updated! Added "${activeProposal.replacement_activity?.title || 'replacement stop'}" to your day.`
-            : 'Itinerary updated! Remaining stops were smoothly rescheduled.',
+            : activeProposal.mode === 'skip_only'
+              ? 'Stop marked as skipped. Your saved schedule is unchanged.'
+              : 'Itinerary updated! Remaining stops were smoothly rescheduled.',
         });
       } else {
         setProposalError('Conflict: This trip was modified concurrently. Please refresh the page.');
@@ -961,7 +963,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                     </span>
                   </h3>
                   <p className="text-[11px] text-on-surface-variant">
-                    {activeProposal.replacement_found ? 'Verified replacement found' : 'Schedule rebalanced'}
+                    {activeProposal.mode === 'skip_only' ? 'Skip stop without changing timings' : activeProposal.replacement_found ? 'Verified replacement found' : 'Schedule rebalanced'}
                   </p>
                 </div>
               </div>
@@ -1086,7 +1088,9 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                 <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start gap-2.5">
                   <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                   <div className="text-xs text-on-surface-variant leading-relaxed">
-                    <strong className="text-on-surface font-semibold">No replacement needed:</strong> No verified alternative fits the remaining schedule before evening without rushing. Your remaining stops have been smoothly advanced.
+                    {activeProposal.mode === 'skip_only'
+                      ? 'Activity timings are unavailable for this older itinerary. No replacement or new timings will be added; your other stops stay as planned.'
+                      : <><strong className="text-on-surface font-semibold">No replacement needed:</strong> No verified alternative fits the remaining schedule before evening without rushing. Your remaining stops have been smoothly advanced.</>}
                   </div>
                 </div>
               )}
