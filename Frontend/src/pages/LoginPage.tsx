@@ -21,8 +21,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [forgotModalOpen, setForgotModalOpen] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotSuccess, setForgotSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,6 +160,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </div>
                   <input
                     id="login-email-input"
+                    aria-label="Email"
+                    autoComplete="username"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -181,6 +181,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </div>
                   <input
                     id="login-password-input"
+                    aria-label="Password"
+                    autoComplete="current-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -242,36 +244,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
                   id="login-error-message"
+                  role="alert"
                   className="text-red-400 text-xs text-center mt-2 px-1 py-1 rounded bg-red-950/40 border border-red-800/40"
                 >
                   {errorMessage}
                 </motion.div>
               )}
             </form>
-
-            {/* Divider "or continue with" */}
-            <div id="login-or-divider" className="relative flex items-center justify-center my-6">
-              <div className="border-t border-white/10 w-full" />
-              <span className="bg-transparent px-3 text-[11px] text-slate-400 uppercase tracking-wider shrink-0 font-normal">
-                or continue with
-              </span>
-              <div className="border-t border-white/10 w-full" />
-            </div>
-
-            {/* Quick Demo Credentials Helper */}
-            <div className="mb-4 text-center">
-              <button
-                type="button"
-                id="quick-demo-btn"
-                onClick={() => {
-                  setEmail('explorer@travelai.com');
-                  setPassword('AlpineRoads2026!');
-                }}
-                className="text-[11px] text-slate-400/90 hover:text-[#89ceff] transition-colors underline decoration-dotted"
-              >
-                Auto-fill demo credentials
-              </button>
-            </div>
 
             {/* Don't have an account? Create one */}
             <div id="login-register-redirect" className="text-center text-xs text-slate-400">
@@ -289,57 +268,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </motion.div>
       </div>
 
-      {/* Forgot Password Simple Modal */}
-      {forgotModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm p-6 rounded-2xl border border-white/10 shadow-2xl bg-[#1e222c]"
-          >
-            <h3 className="text-lg font-bold text-white mb-2">Reset Password</h3>
-            <p className="text-xs text-slate-300 mb-4">
-              Enter your registered email address and we'll send a recovery link.
-            </p>
-            {forgotSuccess ? (
-              <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-200 mb-4">
-                Recovery link sent! Please check your inbox.
-              </div>
-            ) : (
-              <input
-                type="email"
-                value={forgotEmail}
-                onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 rounded-xl border border-white/10 bg-white/5 focus:outline-none focus:ring-1 focus:ring-[#89ceff]/50 mb-4"
-              />
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotModalOpen(false);
-                  setForgotSuccess(false);
-                }}
-                className="px-3.5 py-2 text-xs text-slate-300 hover:text-white rounded-lg"
-              >
-                Close
-              </button>
-              {!forgotSuccess && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (forgotEmail) setForgotSuccess(true);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold bg-[#89ceff] text-slate-950 rounded-lg hover:bg-sky-300 transition-colors"
-                >
-                  Send Link
-                </button>
-              )}
-            </div>
-          </motion.div>
+      {forgotModalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onKeyDown={event => { if (event.key === 'Escape') setForgotModalOpen(false); }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="recovery-title" className="w-full max-w-sm p-6 rounded-2xl border border-white/10 bg-slate-900">
+          <h3 id="recovery-title" className="font-bold text-white mb-2">Password recovery</h3>
+          <p className="text-sm text-slate-300 mb-4">Email password recovery is not configured for this installation. Contact the project administrator to recover access.</p>
+          <button autoFocus type="button" onClick={() => setForgotModalOpen(false)} className="px-4 py-2 rounded-lg bg-sky-200 text-slate-900">Close</button>
         </div>
-      )}
+      </div>}
     </div>
   );
 };

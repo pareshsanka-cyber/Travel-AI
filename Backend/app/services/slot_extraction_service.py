@@ -102,7 +102,10 @@ def extract_context_tags(text: str) -> Dict[str, Any]:
                     
                     # Split range e.g. "28 Sep 2026 to 3 Oct 2026 (5 days)" or "28 Sep 2026 - 3 Oct 2026"
                     clean_dates = re.sub(r'\(.*?\)', '', v).strip()
-                    dates_m = re.search(r'(.+?)\s*(?:to|–|-)\s*(.+)', clean_dates, re.IGNORECASE)
+                    # Hyphens inside ISO dates are not range separators.
+                    dates_m = re.search(r'(.+?)\s+(?:to|–|—|-)\s+(.+)', clean_dates, re.IGNORECASE)
+                    if not dates_m:
+                        dates_m = re.fullmatch(r'(\d{4}-\d{2}-\d{2})\s*(?:to|–|—|-)\s*(\d{4}-\d{2}-\d{2})', clean_dates, re.IGNORECASE)
                     if dates_m:
                         result['start_date'] = dates_m.group(1).strip()
                         result['end_date'] = dates_m.group(2).strip()
@@ -230,6 +233,10 @@ def merge_travel_context(existing_context: Dict[str, Any], extracted_slots: Dict
             # Overwrite scalar only if new value is non-empty/valid
             updated[key] = value
             
+    if updated.get('start_date') and updated.get('end_date'):
+        computed_days = calculate_days_from_dates(updated['start_date'], updated['end_date'])
+        if computed_days:
+            updated['days'] = computed_days
     return updated
 
 def analyze_user_message(
@@ -269,7 +276,8 @@ def analyze_user_message(
     python_currency = normalize_currency_and_numbers(user_message)
     if python_currency and "slots" in analysis:
         for k, v in python_currency.items():
-            if k not in analysis["slots"] or analysis["slots"][k] is None:
+            # Explicit preference-bar values must win over an LLM interpretation.
+            if k in {'start_date', 'end_date', 'days', 'origin', 'destination', 'travelers'} or k not in analysis["slots"] or analysis["slots"][k] is None:
                 analysis["slots"][k] = v
 
     # Deterministic override for itinerary modifications when trip exists

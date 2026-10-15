@@ -23,6 +23,7 @@ export const BudgetTab: React.FC<BudgetTabProps> = ({ budget }) => {
 
   return (
     <div className="space-y-space-md animate-in fade-in duration-200">
+      <p className="text-sm text-on-surface-variant">{budget.notes || "Incomplete estimate. Confirm food, transport, and other costs with providers."}</p>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
@@ -44,7 +45,7 @@ export const BudgetTab: React.FC<BudgetTabProps> = ({ budget }) => {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
           <div>
             <span className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider block">
-              Total Allocated Expenditure
+              Known-cost subtotal
             </span>
             <div className="text-2xl sm:text-3xl font-bold text-on-surface mt-0.5">
               {budget.currencySymbol}{budget.allocatedExpenditure.toLocaleString()}{' '}

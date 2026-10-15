@@ -4,7 +4,6 @@ import {
   PlaneTakeoff,
   ChevronDown,
   Search,
-  Bell,
   Settings,
   User,
   Check,
@@ -12,13 +11,14 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import { ApiStatusState, TripSummary } from '../types';
+import { ApiStatusState, TripSummary, SavedTripSnippet } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
 interface HeaderProps {
   apiStatus: ApiStatusState;
   activeTrip: TripSummary | null;
+  savedTrips: SavedTripSnippet[];
   onOpenApiModal: () => void;
   onToggleMobileSidebar: () => void;
   isSidebarCollapsed: boolean;
@@ -29,6 +29,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   apiStatus,
   activeTrip,
+  savedTrips,
   onOpenApiModal,
   onToggleMobileSidebar,
   isSidebarCollapsed,
@@ -40,29 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isTripDropdownOpen, setIsTripDropdownOpen] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: '1',
-      title: 'Goa Flight Alert',
-      desc: 'IndiGo 6E-204 fare synchronized via FastAPI :8001.',
-      read: false,
-    },
-    {
-      id: '2',
-      title: 'Taj Holiday Village Confirmation',
-      desc: 'Sea-view Cottage booked with complimentary breakfast.',
-      read: false,
-    },
-  ]);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const tripPresets = [
-    { id: 'goa-coastal-v24', name: 'Goa Coastal Splendor & Heritage', location: 'Goa, India' },
-    { id: 'tokyo-explorer', name: 'Tokyo Explorer & High-Speed Transit', location: 'Tokyo, Japan' },
-    { id: 'rajasthan-heritage', name: 'Rajasthan Royal Haveli Heritage', location: 'Jaipur, India' },
-  ];
+  const tripPresets = savedTrips.map(trip => ({ id: trip.id, name: trip.name, location: trip.destinationTag }));
 
   const handleKeyDownSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -72,14 +51,10 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
-
   return (
     <header
       className={`fixed top-0 right-0 h-16 bg-surface/85 backdrop-blur-xl z-30 border-b border-surface-container-high/40 transition-all duration-300 ${
-        isSidebarCollapsed ? 'left-20' : 'left-0 lg:left-72'
+        isSidebarCollapsed ? 'left-0 lg:left-20' : 'left-0 lg:left-72'
       }`}
     >
       <div className="h-16 w-full px-4 lg:px-8 flex items-center justify-between">
@@ -114,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </span>
             <span className="text-xs text-on-surface font-medium">
-              {apiStatus.isConnected ? 'FastAPI: localhost:8001 Connected' : 'FastAPI: Standby (Port 8001)'}
+              {apiStatus.isConnected ? 'Backend connected' : 'Backend offline'}
             </span>
           </button>
 
@@ -193,64 +168,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Action buttons */}
           <div className="flex items-center gap-1">
-            <div className="relative">
-              <button
-                type="button"
-                aria-label="Notifications"
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors relative"
-                title="Notifications"
-              >
-                <Bell className="w-4 h-4" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
-                )}
-              </button>
-
-              {showNotifications && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowNotifications(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-80 rounded-xl bg-surface-container-high/95 backdrop-blur-xl border border-surface-container-highest shadow-2xl p-3 z-50">
-                    <div className="flex items-center justify-between pb-2 border-b border-surface-container-highest/60">
-                      <span className="text-xs font-semibold text-on-surface">
-                        Notifications {unreadCount > 0 && `(${unreadCount})`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleMarkAllRead}
-                        className="text-[11px] text-primary hover:underline font-medium focus:outline-none"
-                      >
-                        Mark all read
-                      </button>
-                    </div>
-                    <div className="py-2 space-y-2 text-xs">
-                      {notifications.map((n) => (
-                        <div
-                          key={n.id}
-                          className={`p-2 rounded-lg transition-colors ${
-                            n.read
-                              ? 'bg-surface-container-low/40 opacity-70'
-                              : 'bg-surface-container-low/90 border border-primary/20'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between font-medium text-on-surface">
-                            <span>{n.title}</span>
-                            {!n.read && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <div className="text-[11px] text-on-surface-variant">{n.desc}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
             <button
               type="button"
               aria-label="Toggle Theme"

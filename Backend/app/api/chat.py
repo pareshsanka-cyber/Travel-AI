@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
 from typing import List, Optional
 from app.schemas.chat import (
     ChatMessageRequest,
@@ -14,10 +14,12 @@ from app.services.conversation_service import (
     delete_conversation
 )
 
+from app.utils.auth_utils import require_user_id
+
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 @router.post("/message", response_model=ChatMessageResponse)
-def send_chat_message(request: ChatMessageRequest, x_user_id: Optional[str] = Header(None)):
+def send_chat_message(request: ChatMessageRequest, x_user_id: str = Depends(require_user_id)):
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="Message content cannot be empty.")
     
@@ -28,12 +30,14 @@ def send_chat_message(request: ChatMessageRequest, x_user_id: Optional[str] = He
             user_id=x_user_id
         )
         return response_data
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error processing chat message: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process chat message: {str(e)}")
 
 @router.get("/conversations", response_model=List[ConversationSummaryResponse])
-def get_conversations_list(x_user_id: Optional[str] = Header(None)):
+def get_conversations_list(x_user_id: str = Depends(require_user_id)):
     try:
         convs = list_conversations(user_id=x_user_id)
         return convs
@@ -41,8 +45,8 @@ def get_conversations_list(x_user_id: Optional[str] = Header(None)):
         raise HTTPException(status_code=500, detail=f"Failed to list conversations: {str(e)}")
 
 @router.get("/conversations/{id}", response_model=ConversationDetailResponse)
-def get_conversation_detail(id: str):
-    conv = get_conversation(id)
+def get_conversation_detail(id: str, user_id: str = Depends(require_user_id)):
+    conv = get_conversation(id, user_id=user_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
@@ -59,8 +63,8 @@ def get_conversation_detail(id: str):
     }
 
 @router.delete("/conversations/{id}")
-def remove_conversation(id: str):
-    success = delete_conversation(id)
+def remove_conversation(id: str, user_id: str = Depends(require_user_id)):
+    success = delete_conversation(id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "deleted", "conversation_id": id}

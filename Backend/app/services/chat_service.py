@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 from bson import ObjectId
+from fastapi import HTTPException
 from app.database.mongodb import db
 from app.ai.orchestrator.langgraph_graph import graph
 from app.ai.llm import llm
@@ -238,6 +239,8 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         print(f"\n[ITINERARY START] request_id={req_id} destination={dest} days={days}")
 
         try:
+            from app.services.planning_dates import validate_planning_dates
+            validate_planning_dates(initial_state.get('start_date'), initial_state.get('end_date'))
             final_state = graph.invoke(initial_state)
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"[ITINERARY END] request_id={req_id} duration_ms={duration_ms} status=success\n")
@@ -258,6 +261,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         resolved_budget = float(final_state.get("budget") or current_context.get("budget") or 50000.0)
         resolved_travelers = int(final_state.get("travelers") or current_context.get("travelers") or current_context.get("adults") or 2)
         trip_data = {
+            "revision": 1,
             "user_message": user_message,
             "destination": final_state.get("destination") or dest,
             "origin": final_state.get("origin") or current_context.get("origin") or "Hyderabad",
@@ -271,9 +275,16 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             "travel_style": current_context.get("travel_style") or "STANDARD",
             "budget_mode": current_context.get("budget_mode") or "FLEXIBLE",
             "preferences": final_state.get("preferences"),
+            "interests": final_state.get("interests"),
+            "must_visit_places": final_state.get("must_visit_places"),
+            "pace": final_state.get("pace"),
+            "bedtime": final_state.get("bedtime"),
+            "wake_up_time": final_state.get("wake_up_time"),
+            "final_itinerary": final_state.get("final_itinerary"),
             "planner_draft": final_state.get("planner_draft") or "Itinerary created",
             "flights": final_state.get("flights") or [],
             "flight_metadata": final_state.get("flight_metadata") or {},
+            "destination_timezone": final_state.get("destination_timezone"),
             "hotels": final_state.get("hotels") or [],
             "nearby_hotels": final_state.get("nearby_hotels") or [],
             "weather": final_state.get("weather") or {},
@@ -301,15 +312,16 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             if "_id" in trip_data:
                 del trip_data["_id"]
         except Exception as e:
-            print(f"Failed saving trip to MongoDB: {e}")
-            trip_id = "temp_trip_id"
-            trip_data["id"] = trip_id
+            raise HTTPException(status_code=503, detail="Unable to save itinerary. Please try again.") from e
 
         # Update current_trip_id in conversation
         current_context["current_trip_id"] = trip_id
         update_travel_context(conv_id, current_context, current_trip_id=trip_id)
 
         assistant_msg = f"I've created your complete {days}-day itinerary to {dest}!"
+        schedule_notes = (trip_data.get('route_details') or {}).get('schedule_notes', [])
+        if schedule_notes:
+            assistant_msg += '\n\nSome stops could not fit safely within your day:\n' + '\n'.join('- ' + note for note in schedule_notes)
         add_message(
             conv_id,
             "assistant",
@@ -326,7 +338,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             "data": {
                 "type": "itinerary",
                 "trip_id": trip_id,
-                "itinerary": trip_data
+                "itinerary": dict(trip_data, plus_access=False)
             }
         }
 
@@ -345,7 +357,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
 
         # Fetch trip from database
         try:
-            trip_doc = db.trips.find_one({"_id": ObjectId(current_trip_id)})
+            trip_doc = db.trips.find_one({"_id": ObjectId(current_trip_id), "user_id": user_id})
         except Exception:
             trip_doc = None
 
@@ -361,25 +373,25 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             }
 
         dest = trip_doc.get("destination", "Destination")
-        existing_draft = trip_doc.get("planner_draft", "")
-
-        prompt_val = MODIFIER_PROMPT.format_messages(
-            destination=dest,
-            planner_draft=existing_draft,
-            user_instruction=user_message
-        )
+        from app.services.itinerary_edit_service import modify_itinerary
+        from app.services.trip_consistency import revision_filter
         try:
-            updated_draft = llm.invoke(prompt_val).content.strip()
+            updated_trip = modify_itinerary(trip_doc, user_message)
         except Exception:
-            updated_draft = existing_draft
-
-        # Update document in DB
-        db.trips.update_one(
-            {"_id": ObjectId(current_trip_id)},
-            {"$set": {"planner_draft": updated_draft, "updated_at": datetime.utcnow()}}
-        )
-        trip_doc["planner_draft"] = updated_draft
+            reply = "I could not safely apply that change. Try removing or replacing a named attraction or restaurant, or changing its visit duration. Your schedule is unchanged."
+            add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+            return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                    "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+        changes = {k: updated_trip[k] for k in ('route_details', 'planner_draft', 'budget_breakdown', 'final_itinerary')}
+        changes.update(revision=int(trip_doc.get('revision', 1)) + 1, updated_at=datetime.utcnow().isoformat())
+        write = db.trips.update_one(revision_filter({"_id": ObjectId(current_trip_id), "user_id": user_id}, trip_doc), {"$set": changes})
+        if write.matched_count != 1:
+            raise HTTPException(status_code=409, detail="The itinerary changed while editing. Refresh and try again.")
+        trip_doc.update(changes)
         trip_doc["id"] = str(trip_doc.pop("_id"))
+        from app.services.payment_service import plus_source
+        trip_doc["plus_access_source"] = plus_source(db, trip_doc["id"], user_id)
+        trip_doc["plus_access"] = trip_doc["plus_access_source"] is not None
         
         # Ensure datetimes are serializable
         if "created_at" in trip_doc and hasattr(trip_doc["created_at"], "isoformat"):

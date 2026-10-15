@@ -1,5 +1,6 @@
 import sys
 import os
+import hashlib
 
 # Add the Backend root directory to the system path so we can import from app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -55,7 +56,8 @@ def ingest_documents():
             batch_num = (i // batch_size) + 1
             total_batches = (total_chunks + batch_size - 1) // batch_size
             print(f"Processing batch {batch_num}/{total_batches} (Chunks {i} to {min(i + batch_size, total_chunks)})...")
-            vector_store.add_documents(batch)
+            identities = [hashlib.sha256((doc.metadata.get('source', '') + '\n' + doc.page_content).encode()).hexdigest() for doc in batch]
+            vector_store.add_documents(batch, ids=identities)
         print("--- RAG INGESTION: Ingestion completed successfully! ---")
     except Exception as e:
         print(f"Error inserting documents into ChromaDB: {e}")

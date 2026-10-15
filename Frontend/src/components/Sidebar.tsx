@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  CreditCard,
   Compass,
   CalendarDays,
   Plane,
@@ -15,8 +16,8 @@ import {
 import { ApiStatusState, ConversationHistoryItem, SavedTripSnippet } from '../types';
 
 interface SidebarProps {
-  activePage: 'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory';
-  onSelectPage: (page: 'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory') => void;
+  activePage: 'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory' | 'payments';
+  onSelectPage: (page: 'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory' | 'payments') => void;
   conversations: ConversationHistoryItem[];
   isLoadingConversations?: boolean;
   savedTrips: SavedTripSnippet[];
@@ -158,10 +159,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-surface-container-high text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Dispatch Studio"
+              title="Planner Studio"
             >
               <Compass className="w-4 h-4 text-primary flex-shrink-0" />
-              {!isCollapsed && <span>Dispatch Studio</span>}
+              {!isCollapsed && <span>Planner Studio</span>}
             </button>
 
             <button
@@ -192,10 +193,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-surface-container-high text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Bookings Desk"
+              title="Travel Selections"
             >
               <Plane className="w-4 h-4 text-secondary flex-shrink-0" />
-              {!isCollapsed && <span>Bookings Desk</span>}
+              {!isCollapsed && <span>Travel Selections</span>}
             </button>
 
             <button
@@ -209,10 +210,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-surface-container-high text-primary shadow-sm'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="AI Places Memory"
+              title="Example Places"
             >
               <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
-              {!isCollapsed && <span>AI Places Memory</span>}
+              {!isCollapsed && <span>Example Places</span>}
+            </button>
+            <button type="button" aria-label="Payments" title="Payments" onClick={() => { onSelectPage('payments'); onCloseMobile?.(); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${activePage === 'payments' ? 'bg-surface-container-high text-primary' : 'text-on-surface-variant hover:bg-surface-container-low'} ${isCollapsed ? 'justify-center' : ''}`}>
+              <CreditCard className="w-4 h-4 shrink-0" />{!isCollapsed && <span>Payments</span>}
             </button>
           </nav>
 
@@ -236,7 +240,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   ) : conversations.length === 0 ? (
                     <div className="px-3 py-2 rounded-xl bg-surface-container-low text-[11px] text-on-surface-variant border border-surface-container-high/40 text-center">
-                      No recent conversations yet. Start a chat in Dispatch Studio to begin planning.
+                      No recent conversations yet. Start a chat in Planner Studio to begin planning.
                     </div>
                   ) : (
                     conversations.map((item, idx) => (

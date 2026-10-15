@@ -241,7 +241,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
           const travelersLabel = `${travelersCount} ${travelersCount === 1 ? 'Traveler' : 'Travelers'}`;
           const travelStyle = item.travel_style || item.travelStyle || item.travelContext?.travel_style || item.travel_context?.travel_style;
           const budgetMode = item.budget_mode || item.budgetMode || item.travelContext?.budget_mode || item.travel_context?.budget_mode;
-          const status = item.status || 'Confirmed Plan';
+          const status = item.status || 'Planned';
           const highlight = item.routeHeadline
             || item.preferences
             || (item.planner_draft ? item.planner_draft.split('\n')[0].replace(/^#+\s*/, '') : 'Curated Luxury Route');
@@ -349,7 +349,7 @@ export const ItineraryHubPage: React.FC<ItineraryHubPageProps> = ({
                   }}
                   className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-surface-container-high hover:bg-primary hover:text-on-primary text-on-surface text-xs font-semibold transition-colors border border-surface-container-highest/60"
                 >
-                  <span>Load into Dispatch Studio</span>
+                  <span>Load into Planner Studio</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, X, Check } from 'lucide-react';
 
 interface WhenPopoverProps {
@@ -16,10 +16,14 @@ const MONTH_NAMES = [
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+function localToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
 function parseDateStr(str?: string): Date {
   if (!str) {
     const d = new Date();
-    d.setDate(d.getDate() + 7);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
   // If ISO YYYY-MM-DD
@@ -46,7 +50,6 @@ function parseDateStr(str?: string): Date {
   }
 
   const fallback = new Date();
-  fallback.setDate(fallback.getDate() + 7);
   return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
 }
 
@@ -62,9 +65,22 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
   onClose,
 }) => {
   // Initialize start & end dates
-  const initialStart = useMemo(() => parseDateStr(startDate), [startDate]);
+  const [today, setToday] = useState(localToday);
+  useEffect(() => {
+    const update = () => setToday(previous => {
+      const next = localToday();
+      return next.getTime() === previous.getTime() ? previous : next;
+    });
+    const timer = setInterval(update, 60000);
+    window.addEventListener('focus', update);
+    return () => { clearInterval(timer); window.removeEventListener('focus', update); };
+  }, []);
+  const initialStart = useMemo(() => {
+    const parsed = parseDateStr(startDate);
+    return parsed < today ? today : parsed;
+  }, [startDate, today]);
   const initialEnd = useMemo(() => {
-    if (endDate) return parseDateStr(endDate);
+    if (endDate && parseDateStr(endDate) >= initialStart) return parseDateStr(endDate);
     const d = new Date(initialStart);
     d.setDate(d.getDate() + (days && days > 0 ? days - 1 : 5));
     return d;
@@ -79,6 +95,7 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
 
   // Navigation handlers
   const handlePrevMonth = () => {
+    if (new Date(viewYear, viewMonth, 1) <= new Date(today.getFullYear(), today.getMonth(), 1)) return;
     if (viewMonth === 0) {
       setViewMonth(11);
       setViewYear((prev) => prev - 1);
@@ -114,6 +131,12 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
   // Date selection logic
   const handleDayClick = (dayNum: number) => {
     const clickedDate = new Date(viewYear, viewMonth, dayNum);
+    if (clickedDate < localToday()) return;
+    if (selectedStart < localToday()) {
+      setSelectedStart(clickedDate);
+      setSelectedEnd(clickedDate);
+      return;
+    }
 
     // If no start date or start & end are already selected, start a new selection
     const isStartSame = selectedStart.toDateString() === selectedEnd.toDateString();
@@ -136,12 +159,15 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
 
   // Quick Presets handler
   const applyQuickPreset = (presetDays: number) => {
-    const newEnd = new Date(selectedStart);
-    newEnd.setDate(selectedStart.getDate() + (presetDays - 1));
+    const start = selectedStart < today ? today : selectedStart;
+    setSelectedStart(start);
+    const newEnd = new Date(start);
+    newEnd.setDate(start.getDate() + (presetDays - 1));
     setSelectedEnd(newEnd);
   };
 
   const handleConfirm = () => {
+    if (selectedStart < localToday() || selectedEnd < selectedStart) { setToday(localToday()); return; }
     const formattedStart = formatDisplayDate(selectedStart);
     const formattedEnd = formatDisplayDate(selectedEnd);
     onSelectDates(formattedStart, formattedEnd, calculatedDuration.days);
@@ -171,6 +197,7 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
       </div>
 
       {/* Selected Range Display Banner */}
+      <p className="mb-3 text-xs text-on-surface-variant">Choose today or a future date. Past dates are unavailable.</p>
       <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-tertiary/10 border border-tertiary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
         <div>
           <span className="text-[10px] font-semibold uppercase text-tertiary tracking-wider block">
@@ -228,7 +255,8 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="p-1 rounded-md hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors"
+              disabled={new Date(viewYear, viewMonth, 1) <= new Date(today.getFullYear(), today.getMonth(), 1)}
+              className="p-1 rounded-md hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-30"
               title="Previous Month"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -268,13 +296,18 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
             const isStart = currentCellDate.toDateString() === selectedStart.toDateString();
             const isEnd = currentCellDate.toDateString() === selectedEnd.toDateString();
             const isInRange = currentCellDate > selectedStart && currentCellDate < selectedEnd;
+            const isPast = currentCellDate < today;
 
             return (
               <button
                 key={`day-${dayNum}`}
                 type="button"
+                disabled={isPast}
+                aria-label={formatDisplayDate(currentCellDate)}
+                aria-current={currentCellDate.getTime() === today.getTime() ? 'date' : undefined}
+                aria-pressed={isStart || isEnd}
                 onClick={() => handleDayClick(dayNum)}
-                className={`h-7 w-full text-xs font-medium rounded-md transition-all flex items-center justify-center ${
+                className={`h-7 w-full text-xs font-medium rounded-md transition-all flex items-center justify-center disabled:opacity-25 disabled:cursor-not-allowed ${
                   isStart || isEnd
                     ? 'bg-tertiary text-on-tertiary font-bold shadow-xs'
                     : isInRange
@@ -301,7 +334,8 @@ export const WhenPopover: React.FC<WhenPopoverProps> = ({
         <button
           type="button"
           onClick={handleConfirm}
-          className="px-4 py-1.5 rounded-lg bg-tertiary text-on-tertiary text-xs font-semibold hover:opacity-90 transition-opacity flex items-center gap-1.5 shadow-md"
+          disabled={selectedStart < today || selectedEnd < selectedStart}
+          className="px-4 py-1.5 rounded-lg bg-tertiary text-on-tertiary text-xs font-semibold hover:opacity-90 transition-opacity flex items-center gap-1.5 shadow-md disabled:opacity-40"
         >
           <Check className="w-3.5 h-3.5" />
           <span>Apply Dates</span>

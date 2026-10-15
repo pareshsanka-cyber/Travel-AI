@@ -51,7 +51,7 @@ class MockCollection:
         if "$set" in update:
             for k, v in update["$set"].items():
                 self.doc[k] = copy.deepcopy(v)
-        return MagicMock(modified_count=1)
+        return MagicMock(modified_count=1, matched_count=1)
 
 
 class MockDB:

@@ -527,8 +527,9 @@ def fetch_real_flights_serpapi(
             dep_raw = first_segment.get("departure_airport", {}).get("time", "")
             arr_raw = last_segment.get("arrival_airport", {}).get("time", "")
 
-            dep_time = dep_raw.split()[-1] if " " in dep_raw else dep_raw
-            arr_time = arr_raw.split()[-1] if " " in arr_raw else arr_raw
+            from app.services.flight_timing import provider_timestamp
+            dep_date, dep_time = provider_timestamp(dep_raw)
+            arr_date, arr_time = provider_timestamp(arr_raw)
 
             total_duration_mins = flight_group.get("total_duration") or 0
             hours = total_duration_mins // 60
@@ -574,11 +575,14 @@ def fetch_real_flights_serpapi(
                 "departure_airport": departure_code,
                 "departure_airport_name": first_segment.get("departure_airport", {}).get("name", departure_code),
                 "departure_time": dep_time,
-                "departure_date": iso_outbound,
+                "departure_date": dep_date or iso_outbound,
                 "departure_date_display": display_date,
                 "arrival_airport": arrival_code,
                 "arrival_airport_name": last_segment.get("arrival_airport", {}).get("name", arrival_code),
                 "arrival_time": arr_time,
+                "arrival_date": arr_date,
+                "departure_datetime": dep_raw,
+                "arrival_datetime": arr_raw,
                 "duration": duration_str,
                 "duration_minutes": total_duration_mins,
                 "price": float(raw_price),

@@ -15,6 +15,9 @@ import {
 } from '../types';
 
 interface PlannerStudioPageProps {
+  onBookings: () => void;
+  onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
+  onUpgrade: () => void;
   trip: TripSummary | null;
   travelContext?: Record<string, any> | null;
   currentIntent?: string | null;
@@ -32,8 +35,8 @@ interface PlannerStudioPageProps {
   isSending: boolean;
   activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
   onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
-  onSelectFlight: (id: string) => void;
-  onSelectHotel: (id: string) => void;
+  onSelectFlight: (id: string) => Promise<boolean>;
+  onSelectHotel: (id: string) => Promise<boolean>;
   onUpdateExecutionState?: (updates: Partial<ExecutionState>) => Promise<boolean>;
   onApplyRerouteResult?: (result: any) => void;
   apiStatus: ApiStatusState;
@@ -44,6 +47,9 @@ interface PlannerStudioPageProps {
 
 export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   trip,
+  onUpgrade,
+  onBookings,
+  onBook,
   travelContext,
   currentIntent,
   onUpdatePreference,
@@ -70,7 +76,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onNewTrip,
 }) => {
   return (
-    <div className="w-full flex-1 flex flex-col xl:flex-row min-h-[calc(100vh-4rem)] p-3 sm:p-4 lg:p-6 gap-4 lg:gap-6 overflow-hidden">
+    <div className="w-full min-w-0 flex-1 flex flex-col xl:flex-row min-h-[calc(100vh-4rem)] p-3 sm:p-4 lg:p-6 gap-4 lg:gap-6">
       {/* LEFT PANE: Chat & Autonomous Assistant Desk */}
       <ChatPanel
         trip={trip}
@@ -90,6 +96,9 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
       {/* RIGHT PANE: Itinerary & Trip Architecture Dashboard */}
       {trip ? (
         <DashboardPanel
+          onUpgrade={onUpgrade}
+          onBookings={onBookings}
+          onBook={onBook}
           trip={trip}
           days={days}
           flights={flights}

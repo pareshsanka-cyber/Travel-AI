@@ -3,7 +3,6 @@ import {
   TripSummary,
   ItineraryDay,
   ActivitySegment,
-  PlaceMemoryItem,
   FlightOption,
   HotelOption,
   WeatherCondition,
@@ -29,16 +28,7 @@ import {
   deleteConversation,
   updateExecutionState,
   setApiStatusListener,
-  INITIAL_CONVERSATIONS,
-  INITIAL_CHAT_MESSAGES,
   createNewChatWelcomeMessage,
-  INITIAL_TRIP,
-  INITIAL_ITINERARY_DAYS,
-  INITIAL_FLIGHTS,
-  INITIAL_HOTELS,
-  INITIAL_WEATHER,
-  INITIAL_BUDGET,
-  PRESET_TRIPS,
   getApiBaseUrl,
   setApiBaseUrl,
   parseMetadataFromUserMessage,
@@ -46,11 +36,14 @@ import {
   mergeTravelContexts,
   checkTripPlanningConstraints,
   deleteTrip,
+  fetchTrip,
+  saveTripSelections,
+  ApiError,
 } from '../services/api';
 
 export function useTravelApi() {
   // Navigation & View states
-  const [activePage, setActivePage] = useState<'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory'>('planner-studio');
+  const [activePage, setActivePage] = useState<'planner-studio' | 'itinerary-hub' | 'bookings-desk' | 'ai-places-memory' | 'payments'>(() => new URL(window.location.href).searchParams.has('payment_order') ? 'payments' : 'planner-studio');
   const [activeDashboardTab, setActiveDashboardTab] = useState<'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab'>('route-tab');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -79,6 +72,8 @@ export function useTravelApi() {
   const [rawTripsHistory, setRawTripsHistory] = useState<any[]>([]);
   const [activeTrip, setActiveTrip] = useState<any>(null);
   const [activeTripId, setActiveTripIdState] = useState<string>('');
+  const activeTripIdRef = useRef(activeTripId);
+  activeTripIdRef.current = activeTripId;
 
   // Core Trip & Entity Data (Synchronized from activeTrip)
   const [trip, setTrip] = useState<TripSummary | null>(null);
@@ -187,18 +182,6 @@ export function useTravelApi() {
     setActiveTripIdState(tripId);
     
     const tripSummary = extractTripSummary(tripObj);
-    if (typeof window !== 'undefined' && tripId) {
-      try {
-        const cached = localStorage.getItem(`TRAVELAI_EXEC_STATE_${tripId}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          tripSummary.executionState = {
-            ...(tripSummary.executionState || {}),
-            ...parsed,
-          };
-        }
-      } catch {}
-    }
     setTrip(tripSummary);
     setDays(extractItineraryDays(tripObj));
     setFlights(fetchFlightOptions(tripObj));
@@ -208,8 +191,20 @@ export function useTravelApi() {
     setBudget(fetchBudgetOverview(tripObj));
   }, []);
 
+  const refreshTripAccess = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const fresh = await fetchTrip(id);
+      setRawTripsHistory(prev => [fresh, ...prev.filter(item => (item.id || item._id) !== id)]);
+      if (activeTripIdRef.current === id) syncTripState(fresh);
+      return fresh.plus_access === true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to refresh trip access.');
+      return false;
+    }
+  }, [syncTripState]);
+
   // Guarded setActiveTripId: Verifies existence before setting, returns boolean, sets errorMessage on failure
-  const setActiveTripId = useCallback((id: string | null): boolean => {
+  const setActiveTripId = useCallback(async (id: string | null, forceRefresh = false): Promise<boolean> => {
     if (!id) {
       setErrorMessage(null);
       syncTripState(null);
@@ -221,13 +216,18 @@ export function useTravelApi() {
       return false;
     }
 
-    const matchedTrip = rawTripsHistory.find(
+    let matchedTrip = rawTripsHistory.find(
       (t: any) => (t.id || t._id) === id
     );
 
-    if (!matchedTrip) {
-      setErrorMessage(`Trip with ID "${id}" could not be found.`);
-      return false;
+    if (!matchedTrip || forceRefresh) {
+      try {
+        matchedTrip = await fetchTrip(id);
+        setRawTripsHistory(previous => [matchedTrip, ...previous.filter(item => (item.id || item._id) !== id)]);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to load this trip.');
+        return false;
+      }
     }
 
     setErrorMessage(null);
@@ -400,7 +400,6 @@ export function useTravelApi() {
     textToSend?: string
   ): Promise<{ success: boolean; trip: any | null; error?: string }> => {
     const text = (typeof textToSend === 'string' && textToSend.trim() !== '' ? textToSend : promptInput).trim();
-    console.log('[CHAT DEBUG] handleSendMessage called. textToSend:', textToSend, 'promptInput:', promptInput, 'resolved text:', text);
     if (!text) {
       return { success: false, trip: null, error: 'Message cannot be empty.' };
     }
@@ -428,7 +427,6 @@ export function useTravelApi() {
 
     // If user is attempting to plan a trip with missing constraints, provide immediate conversational guidance
     if (checkResult.isPlanRequest && !checkResult.isFullySatisfied) {
-      console.log('[CHAT DEBUG] handleSendMessage: missing trip constraints, returning guidance message');
       const guidanceAssistantMsg: ChatMessage = {
         id: `assistant-guidance-${Date.now()}`,
         sender: 'assistant',
@@ -441,14 +439,12 @@ export function useTravelApi() {
     }
 
     try {
-      console.log('[CHAT DEBUG] handleSendMessage: calling sendChatMessage with text:', text, 'currentConversationId:', currentConversationId);
       // Enrich prompt with fallback context from preference bar ONLY for backend understanding
       // (Backend LLM sees unmentioned preferences, user chat bubble remains exactly what user typed)
       const promptToSend = buildChatPromptWithFallbackContext(text, checkResult.mergedContext);
 
       // POST /api/chat/message with EXACTLY { message, conversation_id }
       const response = await sendChatMessage(promptToSend, currentConversationId);
-      console.log('[CHAT DEBUG] handleSendMessage: sendChatMessage succeeded with conversation_id:', response.rawResponse?.conversation_id);
       
       // CRITICAL: Persist conversation_id so subsequent messages thread correctly
       if (response.rawResponse?.conversation_id) {
@@ -569,13 +565,13 @@ export function useTravelApi() {
             : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           text: m.content || '',
         }));
-        setMessages(mappedMessages.length > 0 ? mappedMessages : INITIAL_CHAT_MESSAGES);
+        setMessages(mappedMessages);
       }
       if (detail?.travel_context) {
         setTravelContext(detail.travel_context);
       }
       if (detail?.current_trip_id) {
-        setActiveTripId(detail.current_trip_id);
+        await setActiveTripId(detail.current_trip_id);
         if (detail.travel_context) {
           setRawTripsHistory((prev) =>
             prev.map((t) => {
@@ -655,10 +651,13 @@ export function useTravelApi() {
       // If deleted trip was active, transition to the next available trip
       if (activeTripId === id) {
         const remaining = rawTripsHistory.filter((t) => (t.id || t._id) !== id);
-        const next = remaining[0] || PRESET_TRIPS[0];
+        const next = remaining[0] || null;
         if (next) {
           setActiveTripId(next.id || next._id);
           syncTripState(next);
+        } else {
+          setActiveTripIdState('');
+          syncTripState(null);
         }
       }
     } catch (err: any) {
@@ -668,117 +667,31 @@ export function useTravelApi() {
     }
   };
 
-  // Handler: Select Flight
-  const handleSelectFlight = (flightId: string) => {
-    setFlights((prev) =>
-      prev.map((f) => ({
-        ...f,
-        isSelected: f.id === flightId,
-      }))
-    );
-  };
-
-  // Handler: Select Hotel
-  const handleSelectHotel = (hotelId: string) => {
-    setHotels((prev) =>
-      prev.map((h) => ({
-        ...h,
-        isBooked: h.id === hotelId,
-      }))
-    );
-  };
-
-  // Handler: Append Place from AI Places Memory directly to active trip route
-  const handleAppendPlaceToRoute = useCallback(
-    (place: PlaceMemoryItem): boolean => {
-      if (!place || !place.name) {
-        setErrorMessage('Invalid place object provided.');
-        return false;
-      }
-
-      if (!activeTrip || !activeTripId) {
-        setErrorMessage('No active trip available. Please select or create a trip first.');
-        return false;
-      }
-
-      let timeOfDay: 'Morning' | 'Afternoon' | 'Evening' = 'Afternoon';
-      let time = '15:30';
-      let categoryColor: 'primary' | 'secondary' | 'tertiary' = 'primary';
-
-      if (place.tag === 'dining') {
-        categoryColor = 'secondary';
-        timeOfDay = 'Evening';
-        time = '19:30';
-      } else if (place.tag === 'beach') {
-        categoryColor = 'tertiary';
-        timeOfDay = 'Afternoon';
-        time = '16:00';
-      } else {
-        categoryColor = 'primary';
-        timeOfDay = 'Morning';
-        time = '11:00';
-      }
-
-      const newActivity: ActivitySegment = {
-        timeOfDay,
-        time,
-        title: place.name,
-        description: `${place.category} in ${place.location}. ${place.note} (${place.price})`,
-        categoryColor,
-        location: place.location,
-      };
-
-      let updatedDays: ItineraryDay[] = [];
-      if (!days || days.length === 0) {
-        updatedDays = [
-          {
-            dayNumber: 1,
-            date: 'Day 1',
-            title: `Day 1: ${activeTrip.destination || 'Destination'} Exploration`,
-            transitBadge: 'Curated Route',
-            activities: [newActivity],
-          },
-        ];
-      } else {
-        const targetDayIndex = days.length >= 2 ? 1 : 0;
-        updatedDays = days.map((day, idx) => {
-          if (idx === targetDayIndex) {
-            return {
-              ...day,
-              activities: [...day.activities, newActivity],
-            };
-          }
-          return day;
-        });
-      }
-
-      const currentWaypoints = activeTrip.activeWaypointsCount || (trip?.activeWaypointsCount ?? 4);
-      const updatedTrip = {
-        ...activeTrip,
-        route_details: updatedDays,
-        activeWaypointsCount: currentWaypoints + 1,
-      };
-
-      setActiveTrip(updatedTrip);
-      setDays(updatedDays);
-      setTrip((prev) =>
-        prev
-          ? {
-              ...prev,
-              activeWaypointsCount: currentWaypoints + 1,
-            }
-          : prev
-      );
-      setRawTripsHistory((prev) =>
-        prev.map((t) => ((t.id || t._id) === activeTripId ? updatedTrip : t))
-      );
-      setActiveDashboardTab('route-tab');
+  const selectionInFlight = useRef(false);
+  const handleSaveSelection = async (selection: { flight_id?: string; hotel_id?: string }): Promise<boolean> => {
+    if (!activeTripId || !trip || selectionInFlight.current) return false;
+    const requestedTripId = activeTripId;
+    selectionInFlight.current = true;
+    try {
+      const result = await saveTripSelections(requestedTripId, trip.revision || 1, selection);
+      if (activeTripIdRef.current === requestedTripId) syncTripState(result.trip);
+      setRawTripsHistory(previous => previous.map(item => (item.id || item._id) === requestedTripId ? result.trip : item));
       setErrorMessage(null);
-
       return true;
-    },
-    [activeTrip, activeTripId, days, trip]
-  );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const fresh = await fetchTrip(requestedTripId);
+          if (activeTripIdRef.current === requestedTripId) syncTripState(fresh);
+          setRawTripsHistory(previous => previous.map(item => (item.id || item._id) === requestedTripId ? fresh : item));
+        } catch {}
+      }
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to save your selection.');
+      return false;
+    } finally { selectionInFlight.current = false; }
+  };
+  const handleSelectFlight = (flightId: string) => handleSaveSelection({ flight_id: flightId });
+  const handleSelectHotel = (hotelId: string) => handleSaveSelection({ hotel_id: hotelId });
 
   // Handler: Start a fresh new chat session without sending any default prompt
   const handleNewChat = useCallback(() => {
@@ -819,35 +732,26 @@ export function useTravelApi() {
       reroute_history: []
     };
     
-    const newState = { ...currentState, ...updates };
-    
-    // 1. Instantly update React Trip state
-    setTrip(prev => prev ? { ...prev, executionState: newState } : prev);
-    setActiveTrip((prev: any) => prev ? { ...prev, execution_state: newState, executionState: newState } : prev);
-    setRawTripsHistory((prev) =>
-      prev.map((t) => ((t.id || t._id) === activeTripId ? { ...t, execution_state: newState, executionState: newState } : t))
-    );
-
-    // 2. Persist to localStorage for rock-solid reload & offline persistence
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(newState));
-      } catch {}
-    }
-    
-    // 3. Persist to server
+    const requestedState = { ...currentState, ...updates };
     try {
-      await updateExecutionState(activeTripId, newState);
+      const response = await updateExecutionState(activeTripId, requestedState, trip.revision || 1);
+      if (!response) throw new Error('This trip cannot save progress.');
+      const newState = response.execution_state;
+      setTrip(prev => prev ? { ...prev, executionState: newState, revision: response.revision } : prev);
+      setActiveTrip((prev: any) => prev ? { ...prev, execution_state: newState, executionState: newState, revision: response.revision } : prev);
+      setRawTripsHistory(prev => prev.map(t => (t.id || t._id) === activeTripId ? { ...t, execution_state: newState, revision: response.revision } : t));
+      localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(newState));
       return true;
-    } catch (e) {
-      console.warn("Execution state saved locally, remote sync warning:", e);
-      return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to save progress. Refresh and try again.');
+      return false;
     }
   }, [trip, activeTripId]);
 
   const handleApplyRerouteResult = useCallback((rerouteResult: any) => {
     if (!activeTripId || !rerouteResult) return;
-    const { route_details, execution_state, revision } = rerouteResult;
+    const { route_details, execution_state, revision, planner_draft, budget_breakdown, final_itinerary } = rerouteResult;
+    setBudget(fetchBudgetOverview({ ...activeTrip, budget_breakdown }));
     
     // 1. Update React Trip state
     setActiveTrip((prev: any) => {
@@ -855,6 +759,7 @@ export function useTravelApi() {
       return {
         ...prev,
         route_details,
+        planner_draft, budget_breakdown, final_itinerary,
         execution_state,
         executionState: execution_state,
         revision: revision || ((prev.revision || 1) + 1),
@@ -876,6 +781,7 @@ export function useTravelApi() {
           ? {
               ...t,
               route_details,
+              planner_draft, budget_breakdown, final_itinerary,
               execution_state,
               executionState: execution_state,
               revision: revision || ((t.revision || 1) + 1),
@@ -898,9 +804,10 @@ export function useTravelApi() {
         localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(execution_state));
       } catch {}
     }
-  }, [activeTripId, trip]);
+  }, [activeTripId, trip, activeTrip]);
 
   return {
+    refreshTripAccess,
     activePage,
     setActivePage,
     activeDashboardTab,
@@ -938,7 +845,6 @@ export function useTravelApi() {
     activeTripId,
     setActiveTripId,
     activeTrip,
-    handleAppendPlaceToRoute,
     errorMessage,
     setErrorMessage,
     rawTripsHistory,

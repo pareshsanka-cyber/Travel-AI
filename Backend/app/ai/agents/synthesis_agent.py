@@ -9,11 +9,11 @@ def synthesis_node(state: TravelState) -> dict:
     print(f"--- SYNTHESIS AGENT: Generating final concierge summary for {destination} ---")
     
     weather = state.get("weather") or {}
-    weather_summary = weather.get("summary") or f"Expected pleasant conditions for exploring {destination}."
+    weather_summary = weather.get("summary") or "Forecast unavailable for the requested dates."
     
     budget_breakdown = state.get("budget_breakdown") or {}
     total_cost = budget_breakdown.get("total_trip_cost")
-    cost_text = f"Estimated total cost is approximately {total_cost:,.0f} {currency}." if total_cost else f"Target budget allocated: {budget:,.0f} {currency}."
+    cost_text = f"Known-cost subtotal: {float(total_cost or 0):,.0f} {currency}. " + budget_breakdown.get("notes", "Confirm all prices with providers.")
     
     routes = state.get("route_details", {})
     daily_routes = routes.get("day_by_day_route", []) if isinstance(routes, dict) else (routes if isinstance(routes, list) else [])
@@ -28,8 +28,13 @@ def synthesis_node(state: TravelState) -> dict:
         f"**Local Forecast:** {weather_summary}\n\n"
         f"Review your complete schedule below and switch to **Companion Mode** when you're ready to start exploring!"
     )
+    schedule_notes = routes.get('schedule_notes', []) if isinstance(routes, dict) else []
+    if schedule_notes:
+        summary += '\n\n**Schedule adjustments:**\n' + '\n'.join('- ' + note for note in schedule_notes)
     
+    from app.services.itinerary_edit_service import render_schedule
     return {
+        "planner_draft": render_schedule(routes),
         "final_itinerary": summary,
         "completed_steps": state.get("completed_steps", []) + ["synthesis"]
     }

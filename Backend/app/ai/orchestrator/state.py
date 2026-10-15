@@ -25,6 +25,8 @@ class TravelState(TypedDict):
     end_date: Optional[str]
     travelers: Optional[int]
     currency: Optional[str]
+    budget_mode: Optional[str]
+    travel_style: Optional[str]
     interests: Optional[List[str]]
     must_visit_places: Optional[List[str]]
     pace: Optional[str]

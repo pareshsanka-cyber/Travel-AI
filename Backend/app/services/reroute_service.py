@@ -724,9 +724,8 @@ def apply_reroute_proposal(
         raise HTTPException(status_code=404, detail="Trip not found")
 
     # Authorization Check
-    if trip.get("user_id"):
-        if not x_user_id or x_user_id != trip["user_id"]:
-            raise HTTPException(status_code=403, detail="Unauthorized: Trip belongs to another user")
+    if x_user_id is not None and trip.get("user_id") != x_user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Trip belongs to another user")
 
     # Revision Check (Concurrency Protection)
     current_revision = int(trip.get("revision", 1))
@@ -740,6 +739,9 @@ def apply_reroute_proposal(
     daily_routes = list(route_details.get("day_by_day_route") or [])
     if not daily_routes:
         raise HTTPException(status_code=400, detail="Trip has no daily routes to update")
+
+    from app.services.trip_consistency import validate_reroute, revision_filter
+    validate_reroute(trip, day_number, skipped_activity_id, proposed_stops)
 
     # Locate and update ONLY the target day
     day_found = False
@@ -797,7 +799,16 @@ def apply_reroute_proposal(
         "updated_at": datetime.utcnow().isoformat()
     }
 
-    db.trips.update_one(query, {"$set": update_doc})
+    from app.services.itinerary_edit_service import render_schedule
+    update_doc["planner_draft"] = render_schedule(route_details)
+    from app.ai.agents.budget_agent import budget_node
+    revised_trip = dict(trip, **update_doc)
+    update_doc["budget_breakdown"] = budget_node(revised_trip)["budget_breakdown"]
+    from app.ai.agents.synthesis_agent import synthesis_node
+    update_doc["final_itinerary"] = synthesis_node(dict(revised_trip, **update_doc))["final_itinerary"]
+    write = db.trips.update_one(revision_filter(query, trip), {"$set": update_doc})
+    if write.matched_count != 1:
+        raise HTTPException(status_code=409, detail="The itinerary changed while applying this proposal. Refresh and try again.")
 
     return {
         "status": "success",
@@ -805,5 +816,8 @@ def apply_reroute_proposal(
         "revision": new_revision,
         "route_details": route_details,
         "execution_state": exec_state,
-        "reroute_record": reroute_record
+        "reroute_record": reroute_record,
+        "planner_draft": update_doc["planner_draft"],
+        "budget_breakdown": update_doc["budget_breakdown"],
+        "final_itinerary": update_doc["final_itinerary"],
     }

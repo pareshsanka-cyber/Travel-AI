@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { buildCalendar, buildItineraryText, downloadFile } from '../services/itineraryExport';
 import {
   CalendarDays,
   Plane,
@@ -10,7 +12,8 @@ import {
   Share2,
   CalendarCheck,
   Check,
-  Compass
+  Compass,
+  LockKeyhole
 } from 'lucide-react';
 import {
   TripSummary,
@@ -26,9 +29,13 @@ import { FlightsTab } from './tabs/FlightsTab';
 import { HotelsTab } from './tabs/HotelsTab';
 import { WeatherTab } from './tabs/WeatherTab';
 import { BudgetTab } from './tabs/BudgetTab';
+import { TripPlusCard } from './TripPlusCard';
 import { CompanionMode } from './tabs/CompanionMode';
 
 interface DashboardPanelProps {
+  onBookings: () => void;
+  onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
+  onUpgrade: () => void;
   trip: TripSummary | null;
   days: ItineraryDay[];
   flights: FlightOption[];
@@ -38,14 +45,17 @@ interface DashboardPanelProps {
   budget: BudgetOverview | null;
   activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
   onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
-  onSelectFlight: (id: string) => void;
-  onSelectHotel: (id: string) => void;
+  onSelectFlight: (id: string) => Promise<boolean>;
+  onSelectHotel: (id: string) => Promise<boolean>;
   onUpdateExecutionState?: (updates: Partial<ExecutionState>) => Promise<boolean>;
   onApplyRerouteResult?: (result: any) => void;
 }
 
 export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   trip,
+  onUpgrade,
+  onBookings,
+  onBook,
   days,
   flights,
   hotels,
@@ -66,50 +76,45 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleShare = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(window.location.href);
-      showToast('Shareable itinerary URL copied to clipboard!');
-    } else {
-      showToast('Share link ready!');
+  const [showPrint, setShowPrint] = useState(false);
+  const filename = (trip?.destination || 'itinerary').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const handleShare = async () => {
+    if (!trip) return;
+    const text = buildItineraryText(trip, days);
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Itinerary text copied. Your account link remains private.');
+    } catch {
+      downloadFile(`travelai-${filename}.txt`, text, 'text/plain;charset=utf-8');
+      showToast('Clipboard unavailable. Your itinerary was downloaded instead.');
     }
   };
-
   const handleExportPdf = () => {
-    window.print();
+    if (!trip?.plusAccess) { onUpgrade(); return; }
+    setShowPrint(true);
+    setTimeout(() => { window.print(); setShowPrint(false); }, 100);
   };
-
   const handleCalendarSync = () => {
-    // Generate an .ics calendar file for the 4-day itinerary
-    const icsData = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//TravelAI//FastAPI Autonomous Itinerary//EN',
-      'BEGIN:VEVENT',
-      'SUMMARY:Goa Coastal Splendor & Heritage Trip',
-      'DESCRIPTION:4-Day bespoke luxury trip planned via TravelAI FastAPI engine',
-      'LOCATION:Goa, India',
-      'DTSTART:20260412T080000Z',
-      'DTEND:20260415T180000Z',
-      'END:VEVENT',
-      'END:VCALENDAR',
-    ].join('\n');
-
-    const blob = new Blob([icsData], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'travelai-goa-trip.ics');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('Calendar .ics events dispatched for 4 days!');
+    if (!trip?.plusAccess) { onUpgrade(); return; }
+    if (!trip) return;
+    try {
+      downloadFile(`travelai-${filename}.ics`, buildCalendar(trip, days), 'text/calendar;charset=utf-8');
+      showToast('Calendar downloaded. Import it into your calendar app.');
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to export this schedule.'); }
+  };
+  const handleModify = () => {
+    const input = document.getElementById('chatPromptInput');
+    input?.focus();
+    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    showToast('Tell the assistant which attraction, restaurant, or visit duration to change.');
   };
 
   return (
+    <>
+    {showPrint && trip && createPortal(<article id="travelai-print-document"><h1>{trip.title}</h1><p>{trip.duration} | {trip.travelersCount} travelers</p><p>Planning itinerary. Confirm reservations and prices with providers.</p>{budget?.notes && <p>{budget.notes}</p>}{days.map(day => <section key={day.dayNumber}><h2>Day {day.dayNumber} - {day.isoDate || day.date}</h2>{day.activities.map((activity, index) => <p key={activity.id || index}><strong>{activity.startTime || activity.time} - {activity.endTime} {activity.title}</strong><br />{activity.location}<br />{activity.description}</p>)}</section>)}</article>, document.body)}
     <section
       aria-label="Trip Architecture Dashboard"
-      className="w-full xl:w-[54%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 h-full max-h-[calc(100vh-6rem)] relative"
+      className="w-full xl:w-[54%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 shrink-0 xl:shrink h-[38rem] xl:h-[calc(100vh-7rem)] relative"
     >
       {/* Toast Notification */}
       {toastMessage && (
@@ -140,7 +145,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           <button
             type="button"
             aria-label="Toggle live companion mode"
-            onClick={() => onSwitchTab('companion-tab')}
+            onClick={() => trip?.plusAccess ? onSwitchTab('companion-tab') : onUpgrade()}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm border ${
               activeTab === 'companion-tab'
                 ? 'bg-primary text-on-primary border-primary shadow-md'
@@ -149,12 +154,12 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           >
             <Compass className={`w-3.5 h-3.5 ${activeTab === 'companion-tab' ? 'animate-spin' : ''}`} />
             <span>Companion Mode</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+            {trip?.plusAccess ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> : <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
           <button
             type="button"
             aria-label="Modify itinerary"
-            onClick={() => showToast('Opening AI itinerary re-architecture wizard...')}
+            onClick={handleModify}
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface text-xs font-medium transition-colors shadow-sm border border-surface-container-highest/60"
           >
             <Edit className="w-3.5 h-3.5 text-primary" />
@@ -168,10 +173,11 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           >
             <FileDown className="w-3.5 h-3.5 text-tertiary" />
             <span>Export PDF</span>
+            {!trip?.plusAccess && <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
           <button
             type="button"
-            aria-label="Share itinerary link"
+            aria-label="Copy itinerary text"
             onClick={handleShare}
             title="Share Itinerary"
             className="p-2 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface transition-colors shadow-sm border border-surface-container-highest/60"
@@ -180,21 +186,22 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           </button>
           <button
             type="button"
-            aria-label="Sync itinerary to calendar"
+            aria-label="Download itinerary calendar"
             onClick={handleCalendarSync}
-            title="Sync to Google / Apple Calendar"
+            title="Download calendar events"
             className="p-2 rounded-lg bg-surface-container-high hover:bg-surface-bright text-primary transition-colors shadow-sm border border-surface-container-highest/60"
           >
             <CalendarCheck className="w-3.5 h-3.5" />
+            {!trip?.plusAccess && <LockKeyhole className="w-3 h-3" aria-label="Requires Trip Plus" />}
           </button>
         </div>
       </div>
 
       {/* Navigation Tabs Strip */}
-      <div className="px-space-md pt-2 bg-surface-container/60 border-b border-surface-container-high/40 flex items-center gap-1 overflow-x-auto no-scrollbar">
+      <div className="shrink-0 px-space-md pt-2 bg-surface-container/60 border-b border-surface-container-high/40 flex items-center gap-1 overflow-x-auto no-scrollbar">
         <button
           type="button"
-          onClick={() => onSwitchTab('companion-tab')}
+          onClick={() => trip?.plusAccess ? onSwitchTab('companion-tab') : onUpgrade()}
           className={`tab-button flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-all whitespace-nowrap ${
             activeTab === 'companion-tab'
               ? 'text-primary bg-surface-container-high shadow-sm border-t border-x border-surface-container-highest font-bold'
@@ -204,7 +211,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           <Compass className="w-4 h-4 text-emerald-500" />
           <span>Live Companion</span>
           <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            LIVE
+            {trip?.plusAccess ? 'LIVE' : 'PLUS'}
           </span>
         </button>
 
@@ -275,8 +282,9 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
       </div>
 
       {/* Tab Content Area */}
-      <div className="flex-1 overflow-y-auto p-space-md lg:p-space-lg space-y-space-md">
-        {activeTab === 'companion-tab' && (
+      <div className="flex-1 min-h-0 overflow-y-auto p-space-md lg:p-space-lg space-y-space-md">
+        {trip && <TripPlusCard trip={trip} onUpgrade={onUpgrade} onBookings={onBookings} />}
+        {activeTab === 'companion-tab' && trip?.plusAccess && (
           <CompanionMode
             trip={trip}
             days={days}
@@ -285,16 +293,17 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             onSwitchTab={onSwitchTab}
           />
         )}
-        {activeTab === 'route-tab' && <RouteTab trip={trip} days={days} onSwitchTab={onSwitchTab} />}
+        {(activeTab === 'route-tab' || (activeTab === 'companion-tab' && !trip?.plusAccess)) && <RouteTab trip={trip} days={days} onSwitchTab={onSwitchTab} />}
         {activeTab === 'flights-tab' && (
-          <FlightsTab flights={flights} onSelectFlight={onSelectFlight} destination={trip?.destination} trip={trip} />
+          <FlightsTab onBook={onBook} flights={flights} onSelectFlight={onSelectFlight} destination={trip?.destination} trip={trip} />
         )}
         {activeTab === 'hotels-tab' && (
-          <HotelsTab hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
+          <HotelsTab onBook={onBook} hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
         )}
-        {activeTab === 'weather-tab' && <WeatherTab weather={weather} destination={trip?.destination} />}
+        {activeTab === 'weather-tab' && <WeatherTab key={trip?.id} tripId={trip?.id} weather={weather} destination={trip?.destination} />}
         {activeTab === 'budget-tab' && <BudgetTab budget={budget} />}
       </div>
     </section>
+    </>
   );
 };

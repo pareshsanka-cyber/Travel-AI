@@ -45,6 +45,7 @@ workflow.add_node("attractions", log_node_execution("attractions", attraction_no
 workflow.add_node("restaurants", log_node_execution("restaurants", restaurant_node))
 workflow.add_node("budget", log_node_execution("budget", budget_node))
 workflow.add_node("route", log_node_execution("route", route_node))
+workflow.add_node("opening_hours", log_node_execution("opening_hours", opening_hours_node))
 workflow.add_node("reviewer", log_node_execution("reviewer", reviewer_node))
 workflow.add_node("synthesis", log_node_execution("synthesis", synthesis_node))
 
@@ -70,17 +71,15 @@ workflow.add_edge("attractions", "budget")
 
 # Budget Node connects to Route Node, then to Reviewer Node
 workflow.add_edge("budget", "route")
-workflow.add_edge("route", "reviewer")
+workflow.add_edge("route", "opening_hours")
+workflow.add_edge("opening_hours", "reviewer")
 
 # 3. Define the conditional routing edge from the Reviewer
 def should_continue(state: TravelState):
-    loops = state.get("completed_steps", []).count("planner")
-    if state.get("is_approved") is True or loops >= 1:
-        print(f"--- GRAPH ORCHESTRATION: Itinerary APPROVED! Ending workflow. (Loops: {loops}) ---")
+    if state.get("is_approved") is True:
         return "approved"
     else:
-        print(f"--- GRAPH ORCHESTRATION: Re-routing to Planner. (Loop {loops}) ---")
-        return "rejected"
+        raise ValueError(state.get("reviewer_feedback") or "Itinerary validation failed")
 
 # Setup the routing logic: approved goes to synthesis, rejected goes back to planner
 workflow.add_conditional_edges(
@@ -88,7 +87,6 @@ workflow.add_conditional_edges(
     should_continue,
     {
         "approved": "synthesis",
-        "rejected": "planner"
     }
 )
 

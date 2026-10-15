@@ -1,10 +1,12 @@
+import { BookDemoButton } from '../BookDemoButton';
 import React from 'react';
 import { Plane, CheckCircle2, ExternalLink, Calendar, Search, AlertCircle, ShieldCheck, Clock, Luggage, Sparkles } from 'lucide-react';
 import { FlightOption, FlightMetadata } from '../../types';
 
 interface FlightsTabProps {
+  onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
   flights: FlightOption[];
-  onSelectFlight: (id: string) => void;
+  onSelectFlight: (id: string) => Promise<boolean>;
   destination?: string;
   trip?: any;
 }
@@ -12,10 +14,13 @@ interface FlightsTabProps {
 export const FlightsTab: React.FC<FlightsTabProps> = ({
   flights,
   onSelectFlight,
+  onBook,
   destination,
   trip,
 }) => {
-  const flightMeta: FlightMetadata | undefined = trip?.flight_metadata;
+  const flightMeta: FlightMetadata | undefined = trip?.flightMetadata;
+  const [savingId, setSavingId] = React.useState<string | null>(null);
+  const select = async (id: string) => { setSavingId(id); try { await onSelectFlight(id); } finally { setSavingId(null); } };
   const first = flights && flights.length > 0 ? flights[0] : null;
 
   // Extract dep/arr codes
@@ -213,10 +218,12 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onSelectFlight(flight.id)}
+                    onClick={() => void select(flight.id)}
+                    disabled={savingId !== null}
+                    aria-busy={savingId === flight.id}
                     className="px-3 py-1 rounded-full bg-surface-container-highest hover:bg-primary hover:text-on-primary text-on-surface text-xs font-medium transition-colors"
                   >
-                    Select Alternative
+                    {savingId === flight.id ? 'Saving…' : 'Select Alternative'}
                   </button>
                 )}
               </div>
@@ -235,6 +242,7 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
                       {flight.departureAirportName}
                     </div>
                   )}
+                  <p className="text-[11px] text-on-surface-variant">{flight.departureDateIso || flight.departureDate}</p>
                 </div>
 
                 <div className="flex flex-col items-center text-center px-1">
@@ -272,6 +280,7 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
                       {flight.arrivalAirportName}
                     </div>
                   )}
+                  {flight.arrivalDate && <p className="text-[11px] text-primary">Arrives {flight.arrivalDate}</p>}
                 </div>
               </div>
 
@@ -335,6 +344,7 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
                   </span>
                 </div>
               </div>
+              <BookDemoButton kind="flight" id={flight.id} price={flight.pricePerPerson} onBook={onBook} />
             </div>
           );
         })

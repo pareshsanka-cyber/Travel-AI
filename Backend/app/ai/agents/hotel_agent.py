@@ -8,36 +8,9 @@ from app.ai.agents.attraction_agent import resolve_destination_coordinates
 
 
 def get_fallback_hotel(destination: str, days: int, currency: str) -> dict:
-    nightly_rate = 6500.0 if currency == "INR" else 95.0
-    coords = resolve_destination_coordinates(destination)
-
-    dest_lower = (destination or "").lower()
-    if "hyderabad" in dest_lower:
-        image_url = "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
-    elif "goa" in dest_lower:
-        image_url = "https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=800&q=80"
-    elif "jaipur" in dest_lower or "rajasthan" in dest_lower:
-        image_url = "https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80"
-    elif "delhi" in dest_lower:
-        image_url = "https://images.unsplash.com/photo-1584132967334-10e028bd69f7?auto=format&fit=crop&w=800&q=80"
-    elif "mumbai" in dest_lower:
-        image_url = "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80"
-    else:
-        image_url = "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80"
-
-    return {
-        "name": f"Grand Heritage Hotel ({destination.title()})",
-        "rating": "4.5",
-        "price_per_night": nightly_rate,
-        "total_cost": nightly_rate * days,
-        "address": f"Central District, {destination.title()}",
-        "amenities": ["Wi-Fi", "Breakfast Included", "Air Conditioning", "24/7 Concierge"],
-        "imageUrl": image_url,
-        "image_url": image_url,
-        "lat": coords["lat"],
-        "lon": coords["lon"],
-        "hotel_category": "primary"
-    }
+    return {"name": f"Accommodation to be selected in {destination}", "price_per_night": 0,
+            "total_cost": 0, "address": destination, "amenities": [], "hotel_category": "primary",
+            "source": "planning_placeholder", "data_status": "unavailable"}
 
 
 def hotel_node(state: TravelState) -> dict:
@@ -53,15 +26,20 @@ def hotel_node(state: TravelState) -> dict:
 
     if api_key:
         try:
-            check_in_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-            check_out_date = (datetime.now() + timedelta(days=30 + days)).strftime("%Y-%m-%d")
+            from dateutil.parser import parse
+            from zoneinfo import ZoneInfo
+            check_in = parse(state['start_date']).date() if state.get('start_date') else (datetime.now(ZoneInfo('Asia/Kolkata')) + timedelta(days=7)).date()
+            check_out = parse(state['end_date']).date() if state.get('end_date') else check_in + timedelta(days=max(1, days - 1))
+            if check_out <= check_in: check_out = check_in + timedelta(days=1)
+            nights = (check_out - check_in).days
+            check_in_date, check_out_date = check_in.isoformat(), check_out.isoformat()
 
             params = {
                 "engine": "google_hotels",
                 "q": destination,
                 "check_in_date": check_in_date,
                 "check_out_date": check_out_date,
-                "adults": "2",
+                "adults": str(state.get("travelers") or 1),
                 "currency": currency,
                 "api_key": api_key
             }
@@ -73,7 +51,7 @@ def hotel_node(state: TravelState) -> dict:
                 
                 for idx, prop in enumerate(properties[:8]):
                     price_per_night = prop.get("rate_per_night", {}).get("extracted_lowest") or 0.0
-                    total_cost = price_per_night * days
+                    total_cost = price_per_night * nights
 
                     # Extract verified image
                     image_url = None
@@ -123,11 +101,11 @@ def hotel_node(state: TravelState) -> dict:
                         thumb = prop.get("thumbnail")
                         all_hotels.append({
                             "name": prop.get("title", f"Hotel in {destination}"),
-                            "rating": str(prop.get("rating", "4.5")),
-                            "price_per_night": 6500.0 if currency == "INR" else 95.0,
-                            "total_cost": (6500.0 if currency == "INR" else 95.0) * days,
+                            "rating": str(prop.get("rating") or 0),
+                            "price_per_night": 0.0,
+                            "total_cost": 0.0,
                             "address": prop.get("address") or destination,
-                            "amenities": ["Wi-Fi", "Breakfast Included", "Room Service"],
+                            "amenities": [],
                             "imageUrl": thumb,
                             "image_url": thumb,
                             "lat": float(h_lat),

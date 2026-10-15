@@ -2,7 +2,7 @@
  * FastAPI REST Client & Service Layer
  * 
  * Configured via Vite environment variable VITE_FASTAPI_URL.
- * Supports fallback to graceful mock state if the backend is not yet started or endpoint is in development.
+ * Saved trip data comes from authenticated backend endpoints.
  */
 
 import {
@@ -18,20 +18,13 @@ import {
   ConversationHistoryItem,
   ApiStatusState,
   RerouteProposal,
-  RerouteApplyResult
+  RerouteApplyResult,
+  ExecutionState
 } from '../types';
 
 
-// Environment variable with runtime local-storage override capability
-const ENV_API_URL = (typeof import.meta !== 'undefined' && import.meta?.env ? (import.meta.env.VITE_FASTAPI_URL || import.meta.env.VITE_API_URL) : undefined) || 'http://localhost:8001';
-
-export function getApiBaseUrl(): string {
-  if (typeof window !== 'undefined') {
-    const customUrl = localStorage.getItem('TRAVELAI_FASTAPI_URL');
-    if (customUrl) return customUrl.trim();
-  }
-  return ENV_API_URL;
-}
+import { getApiBaseUrl } from './apiConfig';
+export { getApiBaseUrl } from './apiConfig';
 
 export function setApiBaseUrl(url: string): void {
   if (typeof window !== 'undefined') {
@@ -56,6 +49,11 @@ export function setApiStatusListener(listener: StatusListener | null) {
 export interface ApiFetchOptions extends RequestInit {
   timeoutMs?: number;
 }
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly requestId?: string) { super(requestId ? `${message} Reference: ${requestId}` : message); this.name = 'ApiError'; }
+}
+export class NetworkError extends Error { constructor(message: string) { super(message); this.name = 'NetworkError'; } }
 
 export async function apiFetch<T>(
   endpoint: string,
@@ -89,21 +87,11 @@ export async function apiFetch<T>(
 
   try {
     if (endpoint.includes('/api/chat/message')) {
-      console.log(`[CHAT DEBUG] apiFetch: initiating fetch to ${url}`);
     }
 
     // Attach user auth & identity headers if present in localStorage
-    const storedUserStr = typeof window !== 'undefined' ? localStorage.getItem('travelai_user') : null;
     const storedToken = typeof window !== 'undefined' ? localStorage.getItem('travelai_token') : null;
     const authHeaders: Record<string, string> = {};
-    if (storedUserStr) {
-      try {
-        const u = JSON.parse(storedUserStr);
-        if (u && (u.id || u.email)) {
-          authHeaders['x-user-id'] = u.id || u.email;
-        }
-      } catch {}
-    }
     if (storedToken) {
       authHeaders['Authorization'] = `Bearer ${storedToken}`;
     }
@@ -122,26 +110,29 @@ export async function apiFetch<T>(
     if (timeoutId) clearTimeout(timeoutId);
 
     if (endpoint.includes('/api/chat/message')) {
-      console.log(`[CHAT DEBUG] apiFetch: received HTTP ${response.status} from ${url}`);
     }
 
+    if (response.status === 401) window.dispatchEvent(new Event('travelai-session-expired'));
     if (!response.ok) {
       let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+      let requestId = response.headers.get('X-Request-ID') || undefined;
       try {
         const errorJson = await response.json();
+        requestId = errorJson.request_id || requestId;
         if (errorJson && errorJson.detail) {
           errorDetail = typeof errorJson.detail === 'string' ? errorJson.detail : JSON.stringify(errorJson.detail);
         }
       } catch {
         // keep default error detail
       }
-      throw new Error(errorDetail);
+      throw new ApiError(errorDetail, response.status, requestId);
     }
 
     return (await response.json()) as T;
   } catch (err: unknown) {
     if (timeoutId) clearTimeout(timeoutId);
-    if (statusListener) {
+    if (options.signal?.aborted) throw err;
+    if (statusListener && !(err instanceof ApiError)) {
       statusListener({
         isConnected: false,
         endpointUrl: baseUrl,
@@ -151,8 +142,8 @@ export async function apiFetch<T>(
         lastPingAt: new Date().toLocaleTimeString(),
       });
     }
-    const msg = err instanceof Error ? err.message : 'Network request failed';
-    throw new Error(msg);
+    if (err instanceof ApiError) throw err;
+    throw new NetworkError(controller.signal.aborted ? 'TravelAI request timed out. Retry when the service is available.' : 'Unable to reach TravelAI. Check your connection and API Settings, then retry.');
   }
 }
 
@@ -162,7 +153,7 @@ export async function apiFetch<T>(
 export async function checkFastApiHealth(): Promise<ApiStatusState> {
   const baseUrl = getApiBaseUrl();
   try {
-    const res = await apiFetch<{ status?: string; message?: string }>('/', {
+    const res = await apiFetch<{ status?: string; message?: string }>('/health/ready', {
       timeoutMs: 5000,
     });
     const state: ApiStatusState = {
@@ -417,7 +408,7 @@ export const INITIAL_HOTELS: HotelOption[] = [
     nights: 3,
     roomType: 'Sea-view Villa',
     features: ['Sea-view Villa', 'Complimentary Breakfast', 'Jiva Spa Access', 'Infinity Lap Pool'],
-    isBooked: true,
+    isSelected: true,
   },
   {
     id: 'ht-w-goa',
@@ -432,7 +423,7 @@ export const INITIAL_HOTELS: HotelOption[] = [
     nights: 3,
     roomType: 'Wonderful Room',
     features: ['Wonderful Room', 'Rock Pool Deck', 'Cocktail Lounge'],
-    isBooked: false,
+    isSelected: false,
     cancellationPolicy: 'Flexible cancellation up to 48h',
   },
 ];
@@ -653,7 +644,7 @@ export const PRESET_TRIPS: any[] = [
     weather: INITIAL_WEATHER,
     budget_breakdown: INITIAL_BUDGET,
     route_details: INITIAL_ITINERARY_DAYS,
-    status: 'Confirmed Plan',
+    status: 'Planned',
   },
   {
     id: 'tokyo-explorer',
@@ -715,7 +706,7 @@ export const PRESET_TRIPS: any[] = [
         nights: 6,
         roomType: 'Premier Suite',
         features: ['Skyline Panoramic View', 'Traditional Onsen Spa', 'Michelin Kaiseki Dining', 'High-speed Metro Access'],
-        isBooked: true,
+        isSelected: true,
       },
       {
         id: 'ht-park-hyatt-tokyo',
@@ -730,7 +721,7 @@ export const PRESET_TRIPS: any[] = [
         nights: 6,
         roomType: 'Deluxe King Room',
         features: ['Peak Bar Access', 'Indoor Sky Pool', 'Shinjuku Gyoen Views'],
-        isBooked: false,
+        isSelected: false,
         cancellationPolicy: 'Flexible cancellation up to 48h',
       },
     ],
@@ -845,7 +836,7 @@ export const PRESET_TRIPS: any[] = [
         nights: 2,
         roomType: 'Palace Room (Garden View)',
         features: ['Historical Heritage Suite', 'Royal Peacock Garden Walk', 'Jiva Spa Ayurvedic Therapy', 'Butler Service'],
-        isBooked: true,
+        isSelected: true,
       },
     ],
     weather: {
@@ -1134,6 +1125,7 @@ export function fetchFlightOptions(trip?: any): FlightOption[] {
       departureDate: flightDisplayDate,
       departureDateIso: flightDepDate,
       departureDateDisplay: flightDisplayDate,
+      arrivalDate: f.arrival_date || undefined,
       arrivalTime,
       arrivalAirport: fArrCode,
       arrivalAirportName: fArrName,
@@ -1149,7 +1141,7 @@ export function fetchFlightOptions(trip?: any): FlightOption[] {
       pricePerPerson: rawPrice,
       currency: currencySymbol,
       totalForPax: rawPrice * (f.travelers || travelersCount),
-      isSelected: idx === 0,
+      isSelected: (trip.selections?.flight_id || (rawFlights[0]?.id || 'fl-1')) === (f.id || `fl-${idx + 1}`),
       googleFlightsUrl,
       searchUrl,
       bookingUrl: googleFlightsUrl,
@@ -1178,164 +1170,27 @@ export async function searchLiveFlights(params: {
   });
 }
 
-export function fetchHotelOptions(trip?: any): HotelOption[] {
-  const dest = trip?.destination || 'Goa';
-  const days = Number(trip?.days || trip?.daysCount || 3);
-  const nights = Math.max(1, days - 1);
-  const currency = trip?.currency || trip?.travelContext?.currency || 'INR';
-  const userBudget = typeof trip?.budget === 'number' ? trip.budget : (currency === 'INR' ? 70000 : 1000);
-
-  const targetNightly = Math.round((userBudget * 0.40) / nights);
-  const defaultNightly = currency === 'INR' ? Math.max(4500, Math.min(18000, targetNightly)) : Math.max(70, Math.min(300, targetNightly));
-
-  if (trip && trip.hotels && Array.isArray(trip.hotels) && trip.hotels.length > 0) {
-    return trip.hotels.map((h: any, idx: number) => {
-      let nightly = typeof h.price_per_night === 'number' ? h.price_per_night : (typeof h.price === 'number' ? h.price : defaultNightly);
-      if (currency === 'INR' && nightly < 1500) {
-        nightly = defaultNightly + (idx * 1200);
-      } else if (currency === 'USD' && nightly < 35) {
-        nightly = defaultNightly + (idx * 25);
-      }
-      return {
-        id: h.id || `ht-${idx}`,
-        name: h.name || h.hotel_name || `${dest} Boutique Resort & Spa`,
-        location: h.location || h.address || dest,
-        rating: typeof h.rating === 'number' ? h.rating : (parseFloat(h.rating) || 4.8),
-        reviewCount: h.reviewCount || 1020,
-        imageUrl: h.imageUrl || (idx % 2 === 0 ? INITIAL_HOTELS[0].imageUrl : INITIAL_HOTELS[1].imageUrl),
-        imageAlt: h.name || 'Hotel stay',
-        pricePerNight: nightly,
-        totalPrice: nightly * nights,
-        nights,
-        roomType: h.room_type || h.roomType || (idx === 0 ? 'Deluxe Ocean View Villa' : 'Executive Suite'),
-        features: Array.isArray(h.features) ? h.features : (Array.isArray(h.amenities) ? h.amenities : ['Infinity Pool', 'Breakfast Included', 'Ocean/City View', 'Free High-Speed WiFi']),
-        isBooked: idx === 0,
-        cancellationPolicy: h.cancellationPolicy || 'Flexible cancellation up to 24h prior',
-      };
-    });
-  }
-
-  return [
-    {
-      id: 'ht-1',
-      name: `Taj Holiday Village Resort & Spa, ${dest}`,
-      location: `Beachfront / Candolim, ${dest}`,
-      rating: 4.9,
-      reviewCount: 1450,
-      imageUrl: INITIAL_HOTELS[0].imageUrl,
-      imageAlt: 'Taj Resort',
-      pricePerNight: defaultNightly,
-      totalPrice: defaultNightly * nights,
-      nights,
-      roomType: 'Deluxe Heritage Cottage',
-      features: ['Private Beach Access', 'Infinity Pool', 'Complimentary Breakfast', 'Luxury Jiva Spa'],
-      isBooked: true,
-      cancellationPolicy: 'Flexible cancellation up to 24h prior',
-    },
-    {
-      id: 'ht-2',
-      name: `The Leela Beach Resort, ${dest}`,
-      location: `South Coast / Cavelossim, ${dest}`,
-      rating: 4.8,
-      reviewCount: 1120,
-      imageUrl: INITIAL_HOTELS[1].imageUrl,
-      imageAlt: 'The Leela Resort',
-      pricePerNight: Math.round(defaultNightly * 1.15),
-      totalPrice: Math.round(defaultNightly * 1.15) * nights,
-      nights,
-      roomType: 'Lagoon Terrace Suite',
-      features: ['Golf Course', 'Private Lagoon & Beach', 'Fine Dining Pavilions', 'Free High-Speed WiFi'],
-      isBooked: false,
-      cancellationPolicy: 'Free cancellation until 48 hours before check-in',
-    },
-    {
-      id: 'ht-3',
-      name: `Heritage Village Resort & Spa, ${dest}`,
-      location: `Arossim Beach, ${dest}`,
-      rating: 4.7,
-      reviewCount: 890,
-      imageUrl: INITIAL_HOTELS[0].imageUrl,
-      imageAlt: 'Heritage Resort',
-      pricePerNight: Math.round(defaultNightly * 0.85),
-      totalPrice: Math.round(defaultNightly * 0.85) * nights,
-      nights,
-      roomType: 'Grand Club Room',
-      features: ['Swimming Pool', 'Ayurvedic Spa', 'Bicycle Tours', 'Breakfast Included'],
-      isBooked: false,
-      cancellationPolicy: 'Free cancellation up to 24h prior',
-    },
-  ];
+function mapHotelOptions(trip: any, field: string): HotelOption[] {
+  const nights = Math.max(1, Number(trip?.days || 1) - 1);
+  return (trip?.[field] || []).map((hotel: any, index: number) => ({ hotel, index }))
+    .filter(({ hotel: h }: any) => h.source !== 'planning_placeholder' && !/\bhostels?\b/i.test(`${h.name || ''} ${h.accommodation_type || h.property_type || ''}`))
+    .map(({ hotel: h, index: i }: any) => ({
+    currency: h.currency || trip.currency || 'INR',
+    id: h.id || `${field}-${i}`, name: h.name || 'Accommodation', location: h.address || trip.destination,
+    rating: Number(h.rating) || 0, reviewCount: Number(h.review_count) || 0,
+    imageUrl: h.image_url || h.imageUrl || '', imageAlt: h.name || 'Accommodation',
+    pricePerNight: Number(h.price_per_night) || 0, totalPrice: Number(h.total_cost) || 0, nights,
+    roomType: h.room_type || 'Confirm room type with property', features: h.amenities || [],
+    isSelected: trip.selections?.hotel_id === (h.id || `${field}-${i}`), cancellationPolicy: h.cancellationPolicy || 'Confirm cancellation policy with property',
+  }));
 }
-
-export function fetchNearbyHotelOptions(trip?: any): HotelOption[] {
-  const dest = trip?.destination || 'Goa';
-  const days = Number(trip?.days || trip?.daysCount || 3);
-  const nights = Math.max(1, days - 1);
-  const currency = trip?.currency || trip?.travelContext?.currency || 'INR';
-  const userBudget = typeof trip?.budget === 'number' ? trip.budget : (currency === 'INR' ? 70000 : 1000);
-
-  const targetNightly = Math.round((userBudget * 0.40) / nights);
-  const defaultNightly = currency === 'INR' ? Math.max(4500, Math.min(18000, targetNightly)) : Math.max(70, Math.min(300, targetNightly));
-
-  if (trip && trip.nearby_hotels && Array.isArray(trip.nearby_hotels) && trip.nearby_hotels.length > 0) {
-    return trip.nearby_hotels.map((h: any, idx: number) => {
-      let nightly = typeof h.price_per_night === 'number' ? h.price_per_night : (typeof h.price === 'number' ? h.price : defaultNightly);
-      if (currency === 'INR' && nightly < 1500) {
-        nightly = defaultNightly + (idx * 1200);
-      } else if (currency === 'USD' && nightly < 35) {
-        nightly = defaultNightly + (idx * 25);
-      }
-      return {
-        id: h.id || `nht-${idx}`,
-        name: h.name || h.hotel_name || `${dest} Lodge`,
-        location: h.location || h.address || dest,
-        rating: typeof h.rating === 'number' ? h.rating : (parseFloat(h.rating) || 4.2),
-        reviewCount: h.reviewCount || 200,
-        imageUrl: h.imageUrl || (idx % 2 === 0 ? INITIAL_HOTELS[0].imageUrl : INITIAL_HOTELS[1].imageUrl),
-        imageAlt: h.name || 'Nearby Hotel',
-        pricePerNight: nightly,
-        totalPrice: nightly * nights,
-        nights,
-        roomType: h.room_type || h.roomType || 'Standard Room',
-        features: Array.isArray(h.features) ? h.features : (Array.isArray(h.amenities) ? h.amenities : ['WiFi', 'Air Conditioning']),
-        isBooked: false,
-        cancellationPolicy: h.cancellationPolicy || 'Flexible cancellation up to 48h prior',
-      };
-    });
-  }
-  return [];
-}
+export function fetchHotelOptions(trip?: any): HotelOption[] { return mapHotelOptions(trip, 'hotels'); }
+export function fetchNearbyHotelOptions(trip?: any): HotelOption[] { return mapHotelOptions(trip, 'nearby_hotels'); }
 
 export function fetchWeatherCondition(trip?: any): WeatherCondition | null {
-  const daysCount = Number(trip?.days || trip?.daysCount || 4);
-  const formattedDates = computeTripDates(trip, daysCount);
-  const w = trip?.weather;
-
-  const currentTemp = w?.temperatureCelsius ?? (typeof w?.average_temp === 'string' ? parseInt(w.average_temp, 10) : (w?.temp ?? 31));
-  const currentCondition = w?.conditionDescription ?? (w?.condition || 'Sunny & Pleasant');
-  const humidity = w?.humidityPercent ?? (w?.humidity ?? 68);
-
-  const forecast = formattedDates.map((dateStr, i) => ({
-    dayNumber: i + 1,
-    date: dateStr,
-    dayLabel: `Day ${i + 1}`,
-    icon: (i % 3 === 0) ? 'sunny' : (i % 3 === 1 ? 'partly-cloudy' : 'windy'),
-    tempHigh: currentTemp + (i % 2 === 0 ? 0 : 1),
-    tempLow: currentTemp - 7,
-    rainChancePercent: (currentCondition.toLowerCase().includes('rain') || currentCondition.toLowerCase().includes('drizzle')) ? 40 : (i === 1 ? 5 : 0),
-    conditionText: currentCondition,
-  }));
-
-  return {
-    temperatureCelsius: currentTemp,
-    feelsLikeCelsius: currentTemp + 2,
-    conditionDescription: currentCondition,
-    humidityPercent: humidity,
-    windSpeedKmh: w?.windSpeedKmh ?? (w?.wind_speed ? `${w.wind_speed} km/h` : '14 km/h'),
-    uvIndex: w?.uvIndex ?? 8,
-    uvDescription: w?.uvDescription ?? 'UV Index • Moderate',
-    dailyForecast: forecast,
-  };
+  const weather = trip?.weather;
+  if (!weather || weather.data_status === 'unavailable' || !weather.dailyForecast?.length) return null;
+  return weather as WeatherCondition;
 }
 
 export function fetchBudgetOverview(trip?: any): BudgetOverview | null {
@@ -1351,19 +1206,21 @@ export function fetchBudgetOverview(trip?: any): BudgetOverview | null {
       ? trip.travelContext.budget
       : (currency === 'INR' ? 70000 : 1000));
 
-  const flightAmount = Math.round(totalBudget * 0.26);
-  const accommodationAmount = Math.round(totalBudget * 0.38);
-  const gastronomyAmount = Math.round(totalBudget * 0.18);
-  const activitiesAmount = Math.round(totalBudget * 0.10);
+  const costs = trip?.budget_breakdown;
+  if (!costs) return null;
+  const flightAmount = Number(costs.flight_cost || 0);
+  const accommodationAmount = Number(costs.hotel_cost || 0);
+  const gastronomyAmount = Number(costs.gastronomy_cost || 0);
+  const activitiesAmount = Number(costs.activities_cost || 0);
   const allocatedExpenditure = flightAmount + accommodationAmount + gastronomyAmount + activitiesAmount;
   const unallocatedBuffer = Math.max(0, totalBudget - allocatedExpenditure);
-  const consumptionPercentage = Number(((allocatedExpenditure / totalBudget) * 100).toFixed(1));
+  const consumptionPercentage = Number(((allocatedExpenditure / (totalBudget || 1)) * 100).toFixed(1));
 
-  const flightPercent = Number(((flightAmount / totalBudget) * 100).toFixed(1));
-  const hotelPercent = Number(((accommodationAmount / totalBudget) * 100).toFixed(1));
-  const gastroPercent = Number(((gastronomyAmount / totalBudget) * 100).toFixed(1));
-  const actPercent = Number(((activitiesAmount / totalBudget) * 100).toFixed(1));
-  const bufferPercent = Number(((unallocatedBuffer / totalBudget) * 100).toFixed(1));
+  const flightPercent = Number(((flightAmount / (totalBudget || 1)) * 100).toFixed(1));
+  const hotelPercent = Number(((accommodationAmount / (totalBudget || 1)) * 100).toFixed(1));
+  const gastroPercent = Number(((gastronomyAmount / (totalBudget || 1)) * 100).toFixed(1));
+  const actPercent = Number(((activitiesAmount / (totalBudget || 1)) * 100).toFixed(1));
+  const bufferPercent = Number(((unallocatedBuffer / (totalBudget || 1)) * 100).toFixed(1));
 
   const hotelName = (trip?.hotels && trip.hotels[0]?.name) || 'Curated Resort Stay';
 
@@ -1374,6 +1231,8 @@ export function fetchBudgetOverview(trip?: any): BudgetOverview | null {
     consumptionPercentage,
     currencySymbol,
     travelersCount: travelers,
+    notes: costs.notes,
+    isComplete: costs.is_complete === true,
     breakdown: [
       {
         category: 'Flights',
@@ -1395,7 +1254,7 @@ export function fetchBudgetOverview(trip?: any): BudgetOverview | null {
         category: 'Gastronomy',
         allocatedAmount: gastronomyAmount,
         percentage: gastroPercent,
-        sublabel: `${gastroPercent}% (Curated Dining)`,
+        sublabel: 'Food prices unavailable',
         color: '#FFB800',
         colorName: 'secondary',
       },
@@ -1416,8 +1275,8 @@ export function fetchBudgetOverview(trip?: any): BudgetOverview | null {
         colorName: 'outline',
       },
     ],
-    savingsInsightTitle: 'TravelAI Budget Optimization',
-    savingsInsightBody: 'Allocated parameters aligned with destination tier without exceeding the ceiling.',
+    savingsInsightTitle: 'Estimate limitations',
+    savingsInsightBody: costs.notes || 'Known-cost subtotal excludes unavailable prices.',
   };
 }
 
@@ -1531,7 +1390,7 @@ export function parseExplicitChatbotSlots(message?: string): ExplicitChatbotSlot
   // 4. Duration / Days:
   // "Make the trip 2 days", "Plan it for 2 days", "for 2 days"
   const daysMatch = lower.match(/(?:for|make it|make the trip|duration of?|plan it for)\s*(\d+)\s*(?:days?|d\b)/i) ||
-                    lower.match(/\b(\d+)\s*(?:days?|d\b)(?!\s*pax|\s*people|\s*members)/i);
+                    lower.match(/\b(\d+)[\s-]*(?:days?|d\b)(?!\s*pax|\s*people|\s*members)/i);
   if (daysMatch) {
     res.days = parseInt(daysMatch[1], 10);
   }
@@ -2021,7 +1880,7 @@ export function extractTripSummary(trip?: any): TripSummary {
     nightsCount: nightsNum,
     travelersCount,
     budgetEstimate,
-    status: 'Confirmed Plan',
+    status: 'Planned',
     heroImageUrl: trip.heroImageUrl || INITIAL_TRIP.heroImageUrl,
     bespokeCircuitLabel: trip.preferences || (travelStyle ? `${travelStyle} Tier` : 'Bespoke Circuit'),
     activeWaypointsCount: Array.isArray(trip.attractions) && trip.attractions.length > 0 ? trip.attractions.length : 4,
@@ -2029,6 +1888,18 @@ export function extractTripSummary(trip?: any): TripSummary {
     travelStyle: travelStyle || undefined,
     budgetMode: budgetMode || undefined,
     executionState: trip.execution_state || trip.executionState || undefined,
+    revision: Number(trip.revision || 1),
+    plusAccess: trip.plus_access === true,
+    plusAccessSource: trip.plus_access_source || null,
+    startDate: trip.start_date,
+    endDate: trip.end_date,
+    destinationTimezone: trip.destination_timezone || 'Asia/Kolkata',
+    flightMetadata: trip.flight_metadata ? {
+      source: trip.flight_metadata.source, dataStatus: trip.flight_metadata.data_status,
+      fetchedAt: trip.flight_metadata.fetched_at, departureDate: trip.flight_metadata.departure_date,
+      departureDateDisplay: trip.flight_metadata.departure_date_display, isPastDate: trip.flight_metadata.is_past_date,
+      isEstimatedDate: trip.flight_metadata.is_estimated_date, message: trip.flight_metadata.message,
+    } : undefined,
   };
 }
 
@@ -2315,6 +2186,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
               time: scheduledTime,
               startTime: isObj ? stop.start_time : undefined,
               endTime: isObj ? stop.end_time : undefined,
+              timezone: isObj ? stop.timezone : undefined,
               duration: isObj ? stop.duration : undefined,
               travelTimeFromPrev: isObj ? stop.travel_time_from_prev : undefined,
               travelMode: isObj ? stop.travel_mode : undefined,
@@ -2361,6 +2233,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
         ...d,
         dayNumber: idx + 1,
         date: d.formatted_date || d.date || formattedDates[idx] || `Day ${idx + 1}`,
+        isoDate: d.date,
         title: d.title || `Day ${idx + 1}: ${destName} Exploration & Sightseeing`,
         transitBadge: d.is_flight_day ? '✈️ Flight Day' : 'Curated Private Chauffeur',
         activities,
@@ -2507,9 +2380,9 @@ export async function fetchSavedTripsList(): Promise<SavedTripSnippet[]> {
         }))
         .filter((t) => !deletedTripIds.includes(t.id));
     }
-    return INITIAL_SAVED_TRIPS.filter((t) => !deletedTripIds.includes(t.id));
+    return [];
   } catch {
-    return INITIAL_SAVED_TRIPS.filter((t) => !deletedTripIds.includes(t.id));
+    return [];
   }
 }
 
@@ -2558,7 +2431,6 @@ export async function sendChatMessage(
     requestBody.conversation_id = conversationId;
   }
 
-  console.log('[CHAT DEBUG] sendChatMessage: sending POST /api/chat/message with body:', requestBody);
 
   try {
     const res = await apiFetch<ChatMessageResponsePayload>('/api/chat/message', {
@@ -2566,7 +2438,6 @@ export async function sendChatMessage(
       body: JSON.stringify(requestBody),
     });
 
-    console.log('[CHAT DEBUG] sendChatMessage: received response from /api/chat/message:', res);
 
     const replyMessage: ChatMessage = {
       id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -2600,9 +2471,9 @@ export async function fetchConversationsList(): Promise<ConversationHistoryItem[
         }))
         .filter((c) => !deletedIds.includes(c.id));
     }
-    return INITIAL_CONVERSATIONS.filter((c) => !deletedIds.includes(c.id));
+    return [];
   } catch {
-    return INITIAL_CONVERSATIONS.filter((c) => !deletedIds.includes(c.id));
+    return [];
   }
 }
 
@@ -2636,13 +2507,13 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   }
 }
 
-export async function updateExecutionState(tripId: string, executionState: any): Promise<any> {
+export async function updateExecutionState(tripId: string, executionState: any, expectedRevision: number): Promise<any> {
   if (!tripId || tripId.startsWith('trip-') || ['goa-coastal-v24', 'tokyo-explorer', 'paris-weekend', 'new-york-culture', 'swiss-alps-adventure'].includes(tripId)) {
     return;
   }
   return await apiFetch<any>(`/api/trips/${tripId}/execution_state`, {
     method: 'POST',
-    body: JSON.stringify({ execution_state: executionState }),
+    body: JSON.stringify({ execution_state: executionState, expected_revision: expectedRevision }),
   });
 }
 
@@ -2668,6 +2539,7 @@ export async function previewReroute(
 export async function applyReroute(
   tripId: string,
   payload: {
+    proposal_id: string;
     day_number: number;
     skipped_activity_id: string;
     proposed_stops: any[];
@@ -2682,5 +2554,14 @@ export async function applyReroute(
   return await apiFetch<RerouteApplyResult>(`/api/trips/${tripId}/reroute/apply`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchTrip(tripId: string): Promise<any> {
+  return apiFetch(`/api/trips/${encodeURIComponent(tripId)}`);
+}
+export async function saveTripSelections(tripId: string, expectedRevision: number, selections: { flight_id?: string; hotel_id?: string }): Promise<{ status: string; trip: any }> {
+  return apiFetch(`/api/trips/${encodeURIComponent(tripId)}/selections`, {
+    method: 'POST', body: JSON.stringify({ ...selections, expected_revision: expectedRevision }),
   });
 }

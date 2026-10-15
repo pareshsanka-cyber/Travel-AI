@@ -199,7 +199,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
     setLoadingKey(null);
     if (!success) {
-      setErrorMessage('Unable to record completion to cloud. Cached locally.');
+      setErrorMessage('Unable to save completion. Refresh and try again.');
     }
   };
 
@@ -231,7 +231,9 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
     });
 
     if (!success) {
-      setErrorMessage('Unable to skip activity on cloud. Cached locally.');
+      setErrorMessage('Unable to save skipped activity. Refresh and try again.');
+      setLoadingKey(null);
+      return;
     }
 
     // 2. Trigger Dynamic Rerouting Engine preview for the remaining day
@@ -242,7 +244,6 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
           day_number: selectedDayNumber,
           skipped_activity_id: actId,
           current_location: currentLocation || undefined,
-          expected_revision: trip?.revision,
         });
 
         if (proposal && proposal.status === 'success') {
@@ -280,6 +281,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
     try {
       const result = await applyReroute(tripId, {
+        proposal_id: activeProposal.proposal_id,
         day_number: activeProposal.day_number,
         skipped_activity_id: activeProposal.skipped_activity.id,
         proposed_stops: activeProposal.proposed_stops,
@@ -300,7 +302,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
             : 'Itinerary updated! Remaining stops were smoothly rescheduled.',
         });
       } else {
-        setProposalError(result?.message || 'Conflict: This trip was modified concurrently. Please refresh the page.');
+        setProposalError('Conflict: This trip was modified concurrently. Please refresh the page.');
       }
     } catch (err: any) {
       console.error('[CompanionMode] Apply reroute failed:', err);

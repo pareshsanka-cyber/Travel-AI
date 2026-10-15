@@ -107,7 +107,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       e.preventDefault();
       const trimmed = promptInput.trim();
       if (!isSending && trimmed) {
-        console.log('[CHAT DEBUG] submit fired (Enter):', trimmed);
         onSendMessage(trimmed);
       }
     }
@@ -116,7 +115,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   return (
     <section
       aria-label="Chat & Assistant Desk"
-      className="w-full xl:w-[46%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 h-full max-h-[calc(100vh-6rem)]"
+      className="w-full xl:w-[46%] flex flex-col rounded-2xl bg-surface-container-low/80 backdrop-blur-2xl border border-surface-container-high/60 shadow-xl overflow-hidden min-w-0 shrink-0 xl:shrink h-[38rem] xl:h-[calc(100vh-7rem)]"
     >
       {/* Live Context Status Bar */}
       <div className="p-3 sm:p-4 bg-surface-container/95 border-b border-surface-container-high/60 flex flex-col gap-2.5 relative z-30 overflow-visible">
@@ -152,7 +151,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       </div>
 
       {/* Message Feed */}
-      <div className="flex-1 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed">
+      <div className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed">
         {messages.map((msg) => {
           if (msg.sender === 'user') {
             return (
@@ -398,7 +397,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               onClick={() => {
                 const trimmed = promptInput.trim();
                 if (trimmed && !isSending) {
-                  console.log('[CHAT DEBUG] submit fired (Send button):', trimmed);
                   onSendMessage(trimmed);
                 }
               }}
@@ -420,16 +418,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           </div>
         </div>
 
-        {/* Footer Metadata */}
-        <div className="flex items-center justify-between px-1 text-[10px] sm:text-[11px] text-outline">
-          <span>
-            FastAPI Endpoint:{' '}
-            <code className="text-primary font-mono font-medium">
-              POST {apiStatus.endpointUrl}/api/chat/message
-            </code>
-          </span>
-          <span className="hidden sm:inline">LLM: TravelGraph-Pro (128k context)</span>
-        </div>
+        <p className="text-[11px] text-outline">Saved plans stay in sync. Confirm availability and reservations with providers.</p>
       </div>
     </section>
   );

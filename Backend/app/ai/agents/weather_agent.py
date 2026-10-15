@@ -1,9 +1,6 @@
-import json
+import logging
 import httpx
-from app.ai.llm import llm
 from app.ai.orchestrator.state import TravelState
-from langchain_core.prompts import ChatPromptTemplate
-from app.ai.rag.retriever import retrieve_travel_knowledge
 
 # City coordinates mapping for accurate Open-Meteo queries
 CITY_COORDINATES = {
@@ -49,98 +46,69 @@ WMO_WEATHER_CODES = {
     95: "Thunderstorm"
 }
 
-def fetch_realtime_weather_openmeteo(destination: str, days: int = 3):
-    """
-    Fetch real-time weather from the official Open-Meteo API.
-    Returns structured weather dictionary or None on error.
-    """
-    dest_key = destination.lower().strip()
-    coords = CITY_COORDINATES.get(dest_key)
-    if not coords:
-        # Default to Central India coordinates if city not in predefined list
-        coords = {"lat": 20.5937, "lon": 78.9629}
+def fetch_realtime_weather_openmeteo(destination: str, days: int = 3, start_date=None, end_date=None):
+    """Return dated provider values, or an explicit reason; never invent weather."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from dateutil.parser import parse
+    from app.ai.agents.route_agent import resolve_destination_timezone
 
-    print(f"--- WEATHER AGENT: Querying Live Open-Meteo API ({destination}: Lat {coords['lat']}, Lon {coords['lon']}) ---")
-    
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": coords["lat"],
-        "longitude": coords["lon"],
-        "current": "temperature_2m,relative_humidity_2m,weather_code,apparent_temperature,is_day",
-        "daily": "temperature_2m_max,temperature_2m_min,rain_sum,showers_sum",
-        "forecast_days": max(1, min(days, 7)),
-        "timezone": "auto"
-    }
-    
+    def unavailable(reason, summary):
+        return {"data_status": "unavailable", "reason": reason, "summary": summary, "dailyForecast": []}
+
     try:
-        response = httpx.get(url, params=params, timeout=10.0)
+        today = datetime.now(ZoneInfo(resolve_destination_timezone(destination))).date()
+        start = parse(str(start_date)).date() if start_date else today
+        end = parse(str(end_date)).date() if end_date else start + timedelta(days=max(1, days) - 1)
+    except (ValueError, TypeError, OverflowError):
+        return unavailable('invalid_dates', 'Set valid trip dates to view the forecast.')
+    if end < start:
+        return unavailable('invalid_dates', 'The trip end date must be on or after the start date.')
+    if start < today:
+        return unavailable('past_dates', f'This trip runs from {start} to {end}. Its dates include past days, so a trip forecast is unavailable. You can view the next 7 days separately.')
+    if end > today + timedelta(days=15):
+        return unavailable('outside_window', f'This trip runs from {start} to {end}. Open-Meteo forecasts cover today through {today + timedelta(days=15)}. Check again closer to departure, or view the next 7 days.')
+
+    coords = CITY_COORDINATES.get(destination.lower().strip())
+    try:
+        if not coords:
+            response = httpx.get('https://geocoding-api.open-meteo.com/v1/search', params={'name': destination, 'count': 1}, timeout=10.0)
+            response.raise_for_status()
+            results = response.json().get('results') or []
+            if not results:
+                return unavailable('location_unavailable', 'The weather provider could not find this destination. Check its city and country.')
+            coords = {'lat': results[0]['latitude'], 'lon': results[0]['longitude']}
+        response = httpx.get('https://api.open-meteo.com/v1/forecast', params={
+            'latitude': coords['lat'], 'longitude': coords['lon'], 'timezone': 'auto',
+            'daily': 'temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max',
+            'start_date': start.isoformat(), 'end_date': end.isoformat()}, timeout=10.0)
         response.raise_for_status()
         data = response.json()
-        
-        current = data.get("current", {})
-        daily = data.get("daily", {})
-        
-        curr_temp = current.get("temperature_2m", 25.0)
-        curr_apparent = current.get("apparent_temperature", curr_temp)
-        weather_code = current.get("weather_code", 0)
-        humidity = current.get("relative_humidity_2m", 50)
-        
-        condition_desc = WMO_WEATHER_CODES.get(weather_code, "Pleasant")
-        
-        max_temps = daily.get("temperature_2m_max", [curr_temp])
-        min_temps = daily.get("temperature_2m_min", [curr_temp])
-        avg_max = sum(max_temps) / len(max_temps) if max_temps else curr_temp
-        avg_min = sum(min_temps) / len(min_temps) if min_temps else curr_temp
-        total_rain = sum(daily.get("rain_sum", [0]))
-        
-        # Build clothing recommendation based on live temperature & rain
-        if avg_max >= 32:
-            clothing = "Light, breathable cotton clothing, sunglasses, and sunscreen. Stay hydrated."
-        elif avg_max >= 22:
-            clothing = "Comfortable light wear for daytime and a light cardigan for evenings."
-        elif avg_max >= 12:
-            clothing = "Warm layers, jackets, and thermal wear."
-        else:
-            clothing = "Heavy woolens, thermal innerwear, gloves, and warm headgear."
-            
-        if total_rain > 2.0:
-            clothing += " Carry an umbrella or waterproof raincoat due to expected rain."
-            
-        summary = (
-            f"Live Open-Meteo Forecast: Currently {curr_temp}°C (feels like {curr_apparent}°C), {condition_desc}. "
-            f"Expected highs of {avg_max:.1f}°C and lows of {avg_min:.1f}°C over the next {days} days with {humidity}% humidity."
-        )
-        
-        weather_result = {
-            "average_temp": f"{curr_temp}°C",
-            "condition": condition_desc,
-            "clothing_recommendation": clothing,
-            "summary": summary
-        }
-        
-        print(f"--- WEATHER AGENT: Successfully retrieved live weather from Open-Meteo! ({curr_temp}°C, {condition_desc}) ---")
-        return weather_result
-        
-    except Exception as e:
-        print(f"--- WEATHER AGENT: Open-Meteo API error: {e}. Falling back to RAG/LLM. ---")
-        return None
+        daily = data.get('daily') or {}
+        forecast = []
+        dates = daily.get('time') or []
+        expected = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
+        if dates != expected:
+            return unavailable('incomplete_data', 'The weather provider did not return the requested dates. Please refresh the weather.')
+        def value(field, i):
+            values = daily.get(field) or []
+            return values[i] if i < len(values) else None
+        for i, day in enumerate(dates):
+            code = value('weather_code', i)
+            forecast.append({'dayNumber': i + 1, 'date': day, 'dayLabel': f'Day {i + 1}',
+                'icon': 'sunny' if code in (0, 1) else 'partly-cloudy',
+                'tempHigh': value('temperature_2m_max', i), 'tempLow': value('temperature_2m_min', i),
+                'rainChancePercent': value('precipitation_probability_max', i),
+                'conditionText': WMO_WEATHER_CODES.get(code, 'Condition unavailable')})
+        if not any(day['tempHigh'] is not None or day['tempLow'] is not None for day in forecast):
+            return unavailable('incomplete_data', 'The weather provider returned no temperatures. Please refresh the weather.')
+        return {'data_status': 'forecast', 'dailyForecast': forecast,
+            'summary': f'Open-Meteo forecast for {start} to {end}. Conditions may change.',
+            'fetched_at': datetime.now().astimezone().isoformat(), 'timezone': data.get('timezone')}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError) as error:
+        logging.getLogger('travelai.weather').warning('Weather provider failed operation=forecast error_type=%s', type(error).__name__)
+        return unavailable('provider_unavailable', 'The weather provider is temporarily unavailable. Please retry.')
 
 
 def weather_node(state: TravelState) -> dict:
-    print(f"--- WEATHER AGENT: Fetching weather for {state['destination']} ---")
-    
-    # 1. Try Live Open-Meteo API first
-    live_weather = fetch_realtime_weather_openmeteo(state["destination"], int(state.get("days", 3)))
-    if live_weather:
-        return {"weather": live_weather}
-    
-    # 2. Fallback to deterministic dictionary (no LLM)
-    print(f"--- WEATHER AGENT: Using default deterministic weather for {state['destination']} ---")
-    return {
-        "weather": {
-            "average_temp": "25.0°C",
-            "condition": "Pleasant",
-            "clothing_recommendation": "Comfortable casual wear",
-            "summary": f"Historical pleasant weather expected for {state['destination']}."
-        }
-    }
+    return {'weather': fetch_realtime_weather_openmeteo(state['destination'], int(state.get('days') or 3), state.get('start_date'), state.get('end_date'))}

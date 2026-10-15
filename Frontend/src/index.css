@@ -204,3 +204,13 @@
     background: var(--sys-outline-variant);
   }
 }
+
+#travelai-print-document { display: none; }
+@media print {
+  body:has(#travelai-print-document) > *:not(#travelai-print-document) { display: none !important; }
+  #travelai-print-document { display: block; color: #111; background: white; font: 12pt/1.5 system-ui, sans-serif; }
+  #travelai-print-document section { break-inside: avoid; margin-top: 1.5rem; }
+  #travelai-print-document h1 { font-size: 22pt; }
+  #travelai-print-document h2 { font-size: 16pt; }
+  @page { margin: 18mm; }
+}

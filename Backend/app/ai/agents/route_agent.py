@@ -260,7 +260,7 @@ def resolve_airport_details(location: str) -> dict:
             return dict(airport_info)
             
     try:
-        query = f"{location} International Airport"
+        query = location if "airport" in loc_clean else f"{location} International Airport"
         resp = httpx.get(
             f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1",
             headers={"User-Agent": "TravelAI_Agent/1.0 (contact: info@travelai.local)"},
@@ -454,9 +454,9 @@ def route_node(state: TravelState) -> dict:
     bed_mins = parse_hhmm_to_minutes(state.get("bedtime"), parse_hhmm_to_minutes(def_bed, 1320))
 
     # 3. Airport & Hotel Resolution
-    has_flight_transit = bool(origin and days > 1)
+    has_flight_transit = bool(origin and (days > 1 or state.get("flights")))
     orig_airport = resolve_airport_details(origin) if origin else None
-    dest_airport = resolve_airport_details(destination)
+    dest_airport = resolve_airport_details(((state.get("flights") or [{}])[0].get("arrival_airport_name")) or destination)
 
     hotels = state.get("hotels", [])
     hotel = hotels[0] if hotels else {}
@@ -495,8 +495,28 @@ def route_node(state: TravelState) -> dict:
     used_attraction_names = set()
     used_restaurant_names = set()
     seen_activity_slugs: Dict[str, int] = {}
+    used_activity_ids = set()
+    schedule_notes = []
 
     daily_routes = []
+
+    flight_dep_m, flight_arr_m, arrival_day_index, flight_duration = 480, 630, 0, 150
+    normalized_flights = list(state.get('flights') or [])
+    if has_flight_transit and normalized_flights:
+        from app.services.flight_timing import flight_timing
+        timing = flight_timing(normalized_flights[0], start_date_obj, resolve_destination_timezone(origin), dest_tz_name)
+        if timing['departure_date'] != start_date_obj or not 0 <= timing['arrival_offset'] < days:
+            raise ValueError('The flight arrival falls outside your selected trip dates. Extend the date range or choose another flight.')
+        flight_dep_m, flight_arr_m = timing['departure'], timing['arrival']
+        arrival_day_index, flight_duration = timing['arrival_offset'], timing['duration']
+        normalized_flights[0] = dict(normalized_flights[0], departure_date=timing['departure_date'].isoformat(), arrival_date=timing['arrival_date'].isoformat())
+        if arrival_day_index:
+            schedule_notes.append(f"The outbound flight departs on {start_date_obj.isoformat()} and arrives on {timing['arrival_date'].isoformat()}. Destination activities start after arrival.")
+    hotel_transfer = estimate_transit(dest_airport['lat'], dest_airport['lon'], hotel_lat, hotel_lon, default_mins=35)[0]
+    hotel_checkin_absolute = arrival_day_index * 1440 + flight_arr_m + 50 + hotel_transfer
+    if hotel_checkin_absolute % 1440 + 60 > 1439:
+        hotel_checkin_absolute = (hotel_checkin_absolute // 1440 + 1) * 1440
+    hotel_checkin_day = hotel_checkin_absolute // 1440
 
     # 5. Day-by-Day Route Construction with Exact Non-Overlapping Timetable
     for day_idx in range(days):
@@ -508,7 +528,8 @@ def route_node(state: TravelState) -> dict:
 
         is_first_day = (day_idx == 0)
         is_last_day = (day_idx == days - 1)
-        is_flight_day = (is_first_day or is_last_day) and has_flight_transit
+        is_arrival_day = day_idx == arrival_day_index
+        is_flight_day = (is_first_day or is_last_day or is_arrival_day) and has_flight_transit
 
         day_stops = []
         act_counter = 0
@@ -542,27 +563,61 @@ def route_node(state: TravelState) -> dict:
             custom_transit: Optional[Tuple[int, float, str]] = None
         ):
             nonlocal act_counter
-            act_counter += 1
-
-            # Persistent deterministic activity ID (survives reordering, insertion, and trip regeneration)
-            base_key = f"{stop_type}_{name}_{place_id or ''}"
-            seen_activity_slugs[base_key] = seen_activity_slugs.get(base_key, 0) + 1
-            count = seen_activity_slugs[base_key]
-            act_id = generate_persistent_activity_id(stop_type, name, place_id, disambiguator=count)
-            
             # Transit from previous stop
             if custom_transit:
                 t_mins, t_dist, t_mode = custom_transit
-            elif act_counter == 1:
+            elif not day_stops:
                 t_mins, t_dist, t_mode = 0, 0.0, "driving"
             else:
-                t_mins, t_dist, t_mode = estimate_transit(prev_lat, prev_lon, curr_lat, curr_lon)
+                previous_stop = day_stops[-1]
+                t_mins, t_dist, t_mode = estimate_transit(previous_stop.get("lat"), previous_stop.get("lon"), curr_lat, curr_lon)
 
-            dur_mins = max(1, end_m - start_m)
+            stop_timezone = resolve_destination_timezone(origin) if stop_type == 'airport' and origin and name == orig_airport['name'] else dest_tz_name
+            dur_mins = end_m - start_m
+            if day_stops:
+                previous = day_stops[-1]
+                previous_stamp = datetime.fromisoformat(date_iso + 'T' + previous['end_time']).replace(tzinfo=ZoneInfo(previous.get('timezone') or dest_tz_name))
+                local_previous = previous_stamp.astimezone(ZoneInfo(stop_timezone))
+                previous_end = (local_previous.date() - day_date).days * 1440 + local_previous.hour * 60 + local_previous.minute
+                earliest = previous_end + max(0, t_mins)
+                if start_m < earliest:
+                    start_m = earliest
+                    end_m = start_m + dur_mins
+            deadline = min(bed_mins, 1439) if stop_type in {'attraction', 'restaurant', 'breakfast'} else 1439
+            if start_m < 0 or dur_mins <= 0 or end_m > deadline:
+                schedule_notes.append(f'Day {day_num}: {name} could not fit the available time including transfer; it was not scheduled.')
+                return
+
+            # Count canonical identities, including names that share a truncated slug.
+            base_key = generate_persistent_activity_id(stop_type, name, place_id)
+            count = seen_activity_slugs.get(base_key, 0) + 1
+            act_id = generate_persistent_activity_id(stop_type, name, place_id, disambiguator=count)
+            while act_id in used_activity_ids:
+                count += 1
+                act_id = generate_persistent_activity_id(stop_type, name, place_id, disambiguator=count)
+            seen_activity_slugs[base_key] = count
 
             # Operating hours status normalization
             op_stat = "OPEN" if opening_hours_status == "VERIFIED_OPEN" else ("CLOSED" if opening_hours_status == "VERIFIED_CLOSED" else "UNKNOWN")
 
+            if stop_type in {'attraction', 'restaurant'}:
+                from app.ai.agents.opening_hours_agent import determine_status_from_hours
+                hours_status, status_reason = determine_status_from_hours(opening_hours, datetime.fromisoformat(date_iso), minutes_to_hhmm(start_m), minutes_to_hhmm(end_m))
+                if hours_status == 'CLOSED':
+                    # A morning visit may simply need to wait for the venue to open.
+                    # Keep its full duration, and never move it past bedtime/midnight.
+                    for candidate_start in range(start_m + 1, deadline - dur_mins + 1):
+                        candidate_end = candidate_start + dur_mins
+                        candidate_status, candidate_reason = determine_status_from_hours(opening_hours, datetime.fromisoformat(date_iso), minutes_to_hhmm(candidate_start), minutes_to_hhmm(candidate_end))
+                        if candidate_status == 'OPEN':
+                            start_m, end_m = candidate_start, candidate_end
+                            hours_status, status_reason = candidate_status, candidate_reason
+                            break
+                    else:
+                        schedule_notes.append(f'Day {day_num}: {name} could not fit its listed opening hours; it was not scheduled.')
+                        return
+                opening_hours_status = 'VERIFIED_OPEN' if hours_status == 'OPEN' else 'UNVERIFIED'
+                op_stat = hours_status
             day_stops.append({
                 "id": act_id,
                 "activity_index": act_counter - 1,
@@ -599,42 +654,45 @@ def route_node(state: TravelState) -> dict:
                 "source": source,
                 "fame_level": fame_level,
                 "scheduled_date": date_iso,
+                "timezone": stop_timezone,
                 "day_of_week": day_of_week,
             })
+            used_activity_ids.add(act_id)
+            act_counter += 1
+            if stop_type == "attraction": used_attraction_names.add(name)
+            if stop_type == "restaurant": used_restaurant_names.add(name)
 
         # -------------------------------------------------------------------------
         # CASE A: ARRIVAL DAY (Origin Airport -> Destination Airport -> Hotel -> Evening)
         # -------------------------------------------------------------------------
-        if is_first_day and is_flight_day:
+        if (is_first_day or is_arrival_day) and has_flight_transit:
             day_title = f"Day {day_num}: Journey to {destination} & Check-in"
             
-            # Flight Departure Buffer (2 hours prior to departure)
-            flight_dep_m = 480  # 08:00 AM
-            flight_arr_m = 630  # 10:30 AM
-            if state.get("flights"):
-                fl = state["flights"][0]
-                dep_raw = fl.get("departureTime") or fl.get("departure_time")
-                arr_raw = fl.get("arrivalTime") or fl.get("arrival_time")
-                if dep_raw: flight_dep_m = parse_hhmm_to_minutes(dep_raw, flight_dep_m)
-                if arr_raw: flight_arr_m = parse_hhmm_to_minutes(arr_raw, flight_arr_m)
+            airport_checkin_m = max(0, flight_dep_m - 120)
 
-            airport_checkin_m = max(240, flight_dep_m - 120)  # 2 hours before flight
+            if is_first_day:
+                # Stop 1: Departure Flight at Origin Airport
+                add_stop(
+                    stop_type="airport",
+                    name=orig_airport["name"],
+                    category="airport",
+                    start_m=airport_checkin_m,
+                    end_m=flight_dep_m,
+                    prev_lat=None, prev_lon=None,
+                    curr_lat=orig_airport["lat"], curr_lon=orig_airport["lon"],
+                    location_str=orig_airport.get("address", origin),
+                    description=f"Airport arrival, baggage check, security clearance, and flight boarding at {orig_airport['name']}.",
+                    why_visit=f"Departure air gateway for your journey to {destination}.",
+                    image_url=orig_airport.get("image_url"),
+                    custom_transit=(0, 0.0, "driving")
+                )
 
-            # Stop 1: Departure Flight at Origin Airport
-            add_stop(
-                stop_type="airport",
-                name=orig_airport["name"],
-                category="airport",
-                start_m=airport_checkin_m,
-                end_m=flight_dep_m,
-                prev_lat=None, prev_lon=None,
-                curr_lat=orig_airport["lat"], curr_lon=orig_airport["lon"],
-                location_str=orig_airport.get("address", origin),
-                description=f"Airport arrival, baggage check, security clearance, and flight boarding at {orig_airport['name']}.",
-                why_visit=f"Departure air gateway for your journey to {destination}.",
-                image_url=orig_airport.get("image_url"),
-                custom_transit=(0, 0.0, "driving")
-            )
+                if not is_arrival_day:
+                    daily_routes.append({'day': day_num, 'day_number': day_num, 'date': date_iso,
+                        'formatted_date': date_display, 'day_of_week': day_of_week, 'title': f'Day {day_num}: Overnight journey to {destination}',
+                        'is_flight_day': True, 'pace': pace, 'stops': day_stops, 'activities': day_stops,
+                        'travel_tips': f'Your flight arrives on {calendar_dates[arrival_day_index].isoformat()}. Destination activities begin after arrival.'})
+                    continue
 
             # Stop 2: Destination Airport Touchdown & Baggage Clearance (45-60 min)
             add_stop(
@@ -642,37 +700,41 @@ def route_node(state: TravelState) -> dict:
                 name=dest_airport["name"],
                 category="airport",
                 start_m=flight_arr_m,
-                end_m=flight_arr_m + 50,
+                end_m=min(1439, flight_arr_m + 50),
                 prev_lat=orig_airport["lat"], prev_lon=orig_airport["lon"],
                 curr_lat=dest_airport["lat"], curr_lon=dest_airport["lon"],
                 location_str=dest_airport.get("address", destination),
                 description=f"Touchdown at {dest_airport['name']}. Proceed through customs, collect baggage, and meet private ground transport.",
                 why_visit=f"Arrival terminal serving Greater {destination}.",
                 image_url=dest_airport.get("image_url"),
-                custom_transit=(flight_arr_m - flight_dep_m, 0.0, "flight")
+                custom_transit=(flight_duration, 0.0, "flight")
             )
 
             # Transfer to Hotel
             t_mins, t_dist, t_mode = estimate_transit(dest_airport["lat"], dest_airport["lon"], hotel_lat, hotel_lon, default_mins=35)
-            hotel_checkin_start = flight_arr_m + 50 + t_mins
+            hotel_checkin_start = hotel_checkin_absolute % 1440
 
-            # Stop 3: Hotel Check-in & Relaxation
-            add_stop(
-                stop_type="hotel",
-                name=hotel_name,
-                category="hotel",
-                start_m=hotel_checkin_start,
-                end_m=hotel_checkin_start + 60,
-                prev_lat=dest_airport["lat"], prev_lon=dest_airport["lon"],
-                curr_lat=hotel_lat, curr_lon=hotel_lon,
-                location_str=hotel_address,
-                description=f"Check into your accommodation at {hotel_name}. Unpack, freshen up, and settle in after your transit.",
-                why_visit=f"Base hospitality accommodation for your stay in {destination}.",
-                image_url=hotel_img,
-                rating=hotel.get("rating")
-            )
+            if day_idx == hotel_checkin_day:
+                # Stop 3: Hotel Check-in & Relaxation
+                add_stop(
+                    stop_type="hotel",
+                    name=hotel_name,
+                    category="hotel",
+                    start_m=hotel_checkin_start,
+                    end_m=hotel_checkin_start + 60,
+                    prev_lat=dest_airport["lat"], prev_lon=dest_airport["lon"],
+                    curr_lat=hotel_lat, curr_lon=hotel_lon,
+                    location_str=hotel_address,
+                    description=f"Check into your accommodation at {hotel_name}. Unpack, freshen up, and settle in after your transit.",
+                    why_visit=f"Base hospitality accommodation for your stay in {destination}.",
+                    image_url=hotel_img,
+                    rating=hotel.get("rating")
+                )
 
-            current_cursor = hotel_checkin_start + 60
+                current_cursor = hotel_checkin_start + 60
+
+            else:
+                current_cursor = 1440
 
             # Lunch or Refreshment if checkin concludes between 12:30 and 15:00
             if current_cursor <= 870: # before 14:30
@@ -684,7 +746,6 @@ def route_node(state: TravelState) -> dict:
                         best_r = r
                         break
                 if best_r:
-                    used_restaurant_names.add(best_r.get("name"))
                     r_lat = best_r.get("lat") or hotel_lat
                     r_lon = best_r.get("lon") or hotel_lon
                     add_stop(
@@ -709,7 +770,6 @@ def route_node(state: TravelState) -> dict:
                 for a in valid_attractions:
                     if a.get("name") not in used_attraction_names:
                         cand_attr = a
-                        used_attraction_names.add(a.get("name"))
                         break
                 if cand_attr:
                     raw_lat = cand_attr.get("lat")
@@ -752,7 +812,6 @@ def route_node(state: TravelState) -> dict:
                     best_d = r
                     break
             if best_d:
-                used_restaurant_names.add(best_d.get("name"))
                 raw_lat = best_d.get("lat")
                 raw_lon = best_d.get("lon")
                 transit_lat = raw_lat if _valid_coords(raw_lat, raw_lon) else hotel_lat
@@ -783,9 +842,23 @@ def route_node(state: TravelState) -> dict:
                 "pace": pace,
                 "stops": day_stops,
                 "activities": day_stops,
-                "travel_tips": f"Arrive at {orig_airport['name']} 2 hours prior to flight departure. Keep digital boarding passes accessible.",
+                "travel_tips": f"Confirm the airport check-in window with your airline, especially for early departures. Keep digital boarding passes accessible.",
             })
             continue
+
+        if has_flight_transit and 0 < day_idx < arrival_day_index:
+            add_stop('flight', 'Outbound flight and connection', 'flight', 0, 1439,
+                None, None, None, None, 'In transit', 'Continue your outbound flight and layovers.', 'Travel to your destination.', custom_transit=(0, 0.0, 'flight'))
+            daily_routes.append({'day': day_num, 'day_number': day_num, 'date': date_iso,
+                'formatted_date': date_display, 'day_of_week': day_of_week, 'title': f'Day {day_num}: Outbound journey',
+                'is_flight_day': True, 'pace': pace, 'stops': day_stops, 'activities': day_stops})
+            continue
+        if has_flight_transit and day_idx == hotel_checkin_day and day_idx != arrival_day_index:
+            checkin_start = hotel_checkin_absolute % 1440
+            add_stop('hotel', hotel_name, 'hotel', checkin_start, checkin_start + 60,
+                None, None, hotel_lat, hotel_lon, hotel_address,
+                'Hotel check-in after your late arrival and transfer. Confirm early check-in with the property.',
+                'Accommodation after arrival.', image_url=hotel_img, custom_transit=(hotel_transfer, 0.0, 'driving'))
 
         # -------------------------------------------------------------------------
         # CASE B: DEPARTURE DAY (Hotel Checkout -> Souvenir / Scenic -> Airport Buffer -> Return)
@@ -818,7 +891,6 @@ def route_node(state: TravelState) -> dict:
                     best_r = r
                     break
             if best_r:
-                used_restaurant_names.add(best_r.get("name"))
                 raw_lat = best_r.get("lat")
                 raw_lon = best_r.get("lon")
                 transit_lat = raw_lat if _valid_coords(raw_lat, raw_lon) else hotel_lat
@@ -916,7 +988,7 @@ def route_node(state: TravelState) -> dict:
                 
                 min_geo_score = float('inf')
                 for a in valid_attractions:
-                    if a.get("name") in used_attraction_names:
+                    if a.get("name") in used_attraction_names or any(chosen.get("name") == a.get("name") for chosen in day_attractions):
                         continue
                     a_lat = a.get("lat")
                     a_lon = a.get("lon")
@@ -929,7 +1001,6 @@ def route_node(state: TravelState) -> dict:
                         best_cand = a
 
             if best_cand:
-                used_attraction_names.add(best_cand.get("name"))
                 day_attractions.append(best_cand)
 
         # Build day title reflecting primary matched interest
@@ -1010,7 +1081,6 @@ def route_node(state: TravelState) -> dict:
             best_lunch = raw_restaurants[day_idx % len(raw_restaurants)]
 
         if best_lunch:
-            used_restaurant_names.add(best_lunch.get("name"))
             raw_lat = best_lunch.get("lat")
             raw_lon = best_lunch.get("lon")
             transit_lat = raw_lat if _valid_coords(raw_lat, raw_lon) else prev_lat
@@ -1126,7 +1196,6 @@ def route_node(state: TravelState) -> dict:
             best_dinner = raw_restaurants[(day_idx + 1) % len(raw_restaurants)]
 
         if best_dinner:
-            used_restaurant_names.add(best_dinner.get("name"))
             raw_lat = best_dinner.get("lat")
             raw_lon = best_dinner.get("lon")
             transit_lat = raw_lat if _valid_coords(raw_lat, raw_lon) else prev_lat
@@ -1168,8 +1237,13 @@ def route_node(state: TravelState) -> dict:
     print(f"--- ROUTE AGENT: Successfully built {len(daily_routes)} priority-based calendar days for {destination} ---")
 
     return {
+        "days": days,
+        "start_date": start_date_obj.isoformat(),
+        "end_date": end_date_obj.isoformat(),
+        "flights": normalized_flights,
         "route_details": {
-            "day_by_day_route": daily_routes
+            "day_by_day_route": daily_routes,
+            "schedule_notes": schedule_notes,
         },
         "completed_steps": state.get("completed_steps", []) + ["route"]
     }

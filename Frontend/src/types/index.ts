@@ -27,6 +27,7 @@ export interface LocationChip {
 }
 
 export interface ActivitySegment {
+  timezone?: string;
   timeOfDay: 'Morning' | 'Afternoon' | 'Evening';
   time: string;
   title: string;
@@ -96,6 +97,7 @@ export interface RouteLeg {
 
 
 export interface ItineraryDay {
+  isoDate?: string;
   dayNumber: number;
   date: string;
   title: string;
@@ -135,6 +137,7 @@ export interface FlightOption {
   departureDateIso?: string;
   departureDateDisplay?: string;
   arrivalTime: string;
+  arrivalDate?: string;
   arrivalAirport: string;
   arrivalAirportName?: string;
   duration: string;
@@ -167,6 +170,7 @@ export interface FlightOption {
 }
 
 export interface HotelOption {
+  currency?: string;
   id: string;
   name: string;
   location: string;
@@ -179,11 +183,13 @@ export interface HotelOption {
   nights: number;
   roomType: string;
   features: string[];
-  isBooked?: boolean;
+  isSelected?: boolean;
   cancellationPolicy?: string;
 }
 
 export interface WeatherCondition {
+  summary?: string;
+  data_status?: string;
   temperatureCelsius: number;
   feelsLikeCelsius: number;
   conditionDescription: string;
@@ -196,9 +202,9 @@ export interface WeatherCondition {
     date: string;
     dayLabel: string;
     icon: string;
-    tempHigh: number;
-    tempLow: number;
-    rainChancePercent: number;
+    tempHigh: number | null;
+    tempLow: number | null;
+    rainChancePercent: number | null;
     conditionText: string;
   }>;
 }
@@ -213,6 +219,8 @@ export interface BudgetItem {
 }
 
 export interface BudgetOverview {
+  notes?: string;
+  isComplete?: boolean;
   totalBudget: number;
   allocatedExpenditure: number;
   unallocatedBuffer: number;
@@ -239,6 +247,12 @@ export interface ExecutionState {
 }
 
 export interface TripSummary {
+  plusAccess?: boolean;
+  plusAccessSource?: "booking" | "upgrade" | null;
+  startDate?: string;
+  endDate?: string;
+  destinationTimezone?: string;
+  flightMetadata?: FlightMetadata;
   id: string;
   title: string;
   destination: string;
@@ -247,7 +261,7 @@ export interface TripSummary {
   nightsCount: number;
   travelersCount: number;
   budgetEstimate: string;
-  status: 'Confirmed Plan' | 'Drafting' | 'Archived';
+  status: 'Planned' | 'Confirmed Plan' | 'Drafting' | 'Archived';
   heroImageUrl: string;
   bespokeCircuitLabel: string;
   activeWaypointsCount: number;

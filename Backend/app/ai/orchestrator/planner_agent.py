@@ -6,6 +6,16 @@ def planner_node(state: TravelState) -> dict:
     budget = state.get("budget", 50000.0)
     currency = state.get("currency", "INR")
     preferences = state.get("preferences") or "General sightseeing and cultural exploration"
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from dateutil.parser import parse
+    from app.ai.agents.route_agent import resolve_destination_timezone
+    timezone = resolve_destination_timezone(destination)
+    start = parse(state["start_date"]).date() if state.get("start_date") else (datetime.now(ZoneInfo(timezone)) + timedelta(days=7)).date()
+    end = parse(state["end_date"]).date() if state.get("end_date") else start + timedelta(days=int(days or 3) - 1)
+    days = (end - start).days + 1
+    if not destination or destination.lower() in {"unknown", "none"} or not 1 <= days <= 30:
+        raise ValueError("A valid destination and a duration between 1 and 30 days are required.")
     
     print(f"--- PLANNER AGENT: Assembling itinerary outline for {destination} ({days} days) ---")
     
@@ -19,6 +29,10 @@ def planner_node(state: TravelState) -> dict:
     )
     
     return {
+        "days": days,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "destination_timezone": timezone,
         "planner_draft": outline,
         "completed_steps": state.get("completed_steps", []) + ["planner"]
     }

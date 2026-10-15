@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from fastapi import HTTPException
 from typing import Optional, List, Dict, Any
 from app.database.mongodb import db
 from app.models.conversation import ConversationModel, TravelContext
@@ -18,8 +19,7 @@ def setup_indexes():
     except Exception as e:
         print(f"Warning: Index creation error: {e}")
 
-# Run index setup
-setup_indexes()
+# Index creation is performed during application startup.
 
 def create_conversation(title: str = "New Travel Chat", user_id: Optional[str] = None) -> ConversationModel:
     conv_id = f"conv_{uuid.uuid4().hex[:10]}"
@@ -37,8 +37,11 @@ def create_conversation(title: str = "New Travel Chat", user_id: Optional[str] =
     conversations_col.insert_one(doc)
     return conv
 
-def get_conversation(conversation_id: str) -> Optional[ConversationModel]:
-    doc = conversations_col.find_one({"conversation_id": conversation_id})
+def get_conversation(conversation_id: str, user_id: Optional[str] = None) -> Optional[ConversationModel]:
+    query = {"conversation_id": conversation_id}
+    if user_id is not None:
+        query["user_id"] = user_id
+    doc = conversations_col.find_one(query)
     if not doc:
         return None
     doc.pop("_id", None)
@@ -52,14 +55,10 @@ def get_conversation(conversation_id: str) -> Optional[ConversationModel]:
 
 def get_or_create_conversation(conversation_id: Optional[str] = None, user_id: Optional[str] = None) -> ConversationModel:
     if conversation_id:
-        conv = get_conversation(conversation_id)
-        if conv:
-            if user_id:
-                conversations_col.update_one(
-                    {"conversation_id": conversation_id, "user_id": {"$exists": False}},
-                    {"$set": {"user_id": user_id}}
-                )
-            return conv
+        conv = get_conversation(conversation_id, user_id=user_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conv
     return create_conversation(user_id=user_id)
 
 def update_travel_context(conversation_id: str, new_context: Dict[str, Any], current_trip_id: Optional[str] = None) -> ConversationModel:
@@ -115,12 +114,12 @@ def add_message(
     return msg
 
 def get_conversation_messages(conversation_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    cursor = messages_col.find({"conversation_id": conversation_id}).sort("created_at", 1).limit(limit)
+    cursor = messages_col.find({"conversation_id": conversation_id}).sort("created_at", -1).limit(limit)
     messages = []
     for doc in cursor:
         doc.pop("_id", None)
         messages.append(doc)
-    return messages
+    return list(reversed(messages))
 
 def list_conversations(user_id: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"status": "active"}
@@ -133,7 +132,11 @@ def list_conversations(user_id: Optional[str] = None, limit: int = 20) -> List[D
         convs.append(doc)
     return convs
 
-def delete_conversation(conversation_id: str) -> bool:
-    res = conversations_col.delete_one({"conversation_id": conversation_id})
-    messages_col.delete_many({"conversation_id": conversation_id})
+def delete_conversation(conversation_id: str, user_id: Optional[str] = None) -> bool:
+    query = {"conversation_id": conversation_id}
+    if user_id is not None:
+        query["user_id"] = user_id
+    res = conversations_col.delete_one(query)
+    if res.deleted_count:
+        messages_col.delete_many({"conversation_id": conversation_id})
     return res.deleted_count > 0

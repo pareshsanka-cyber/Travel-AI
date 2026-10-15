@@ -11,25 +11,15 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 
-DEPRECATED_MODELS = [
-    "llama-3.1-8b-instant",
-    "llama3-8b-8192",
-    "llama-3.3-70b-versatile",
-    "qwen-2.5-32b",
-    "qwen-2.5-coder-32b",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it"
-]
-
-if GROQ_MODEL in DEPRECATED_MODELS:
-    raise ValueError(f"CRITICAL CONFIG ERROR: The model '{GROQ_MODEL}' is decommissioned on Groq.")
+# Model availability belongs to the provider; avoid a stale local blacklist.
 
 print("==================================================")
 print("[LLM CONFIG]")
 print("Provider: Groq")
 print(f"Model: {GROQ_MODEL}")
 print(f"API key configured: {'YES' if GROQ_API_KEY else 'NO'}")
-print("Rate Coordinator: Active (OTPM Budget: 1000 tokens/min)")
+OUTPUT_TOKEN_BUDGET = int(os.getenv("GROQ_OUTPUT_TOKENS_PER_MINUTE", "1000"))
+print(f"Rate Coordinator: Active (local output budget: {OUTPUT_TOKEN_BUDGET} tokens/min)")
 print("==================================================")
 
 
@@ -202,7 +192,7 @@ class GroqTokenCoordinator:
         return 5.0
 
 
-coordinator = GroqTokenCoordinator(GROQ_MODEL, otpm_limit=1000)
+coordinator = GroqTokenCoordinator(GROQ_MODEL, otpm_limit=OUTPUT_TOKEN_BUDGET)
 
 
 class RateAwareLLM:

@@ -4,7 +4,6 @@ import {
   MapPin,
   Star,
   Heart,
-  Plus,
   Compass,
   Search,
   X,
@@ -15,14 +14,10 @@ import { PlaceMemoryItem } from '../types';
 
 interface AiPlacesMemoryPageProps {
   onGoToStudio?: () => void;
-  onAppendPlaceToRoute?: (place: PlaceMemoryItem) => boolean | void;
-  hasActiveTrip?: boolean;
 }
 
 export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
   onGoToStudio,
-  onAppendPlaceToRoute,
-  hasActiveTrip = true,
 }) => {
   const [selectedTag, setSelectedTag] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -104,22 +99,6 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
     });
   };
 
-  const handleAppend = (place: PlaceMemoryItem) => {
-    if (hasActiveTrip === false) {
-      showToast('No active trip available. Please select or create a trip first.', 'error');
-      return;
-    }
-
-    if (onAppendPlaceToRoute) {
-      const result = onAppendPlaceToRoute(place);
-      if (result === false) {
-        showToast('Failed to add place: No active trip found.', 'error');
-        return;
-      }
-    }
-    showToast(`${place.name} added to your route.`, 'success');
-  };
-
   const filteredPlaces = useMemo(() => {
     return places.filter((p) => {
       if (selectedTag === 'saved' && !savedPlaceIds.has(p.id)) return false;
@@ -152,25 +131,6 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
         </div>
       )}
 
-      {/* Inactive Trip Warning Banner */}
-      {!hasActiveTrip && (
-        <div className="p-3.5 rounded-2xl bg-error/10 border border-error/30 text-error flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>No active trip selected. You need an active trip in Planner Studio to append places to a route.</span>
-          </div>
-          {onGoToStudio && (
-            <button
-              type="button"
-              onClick={onGoToStudio}
-              className="px-3 py-1.5 rounded-xl bg-error text-on-error font-medium hover:bg-error/90 transition-colors self-start sm:self-auto shadow-sm"
-            >
-              Go to Studio
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -179,11 +139,11 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
               <Sparkles className="w-5 h-5" />
             </span>
             <h1 className="text-xl sm:text-2xl font-bold text-on-surface">
-              AI Places Memory
+              Example Places Library (Demo)
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-on-surface-variant mt-1">
-            Handpicked sensory spots, local dining, and architectural gems remembered by TravelAI
+            Sample places for exploring the interface. Availability, prices, and opening hours are unverified.
           </p>
         </div>
 
@@ -194,7 +154,7 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-on-primary text-xs sm:text-sm font-semibold hover:bg-primary-fixed transition-colors shadow-md self-start sm:self-auto"
           >
             <Compass className="w-4 h-4" />
-            <span>Open in Dispatch Studio</span>
+            <span>Open in Planner Studio</span>
           </button>
         )}
       </div>
@@ -325,16 +285,7 @@ export const AiPlacesMemoryPage: React.FC<AiPlacesMemoryPageProps> = ({
               </div>
 
               <div className="pt-2 border-t border-surface-container-high/40 flex items-center justify-between text-xs">
-                <span className="text-outline text-[11px]">Indexed via TravelGraph-Pro</span>
-                <button
-                  type="button"
-                  onClick={() => handleAppend(place)}
-                  className="text-primary hover:underline flex items-center gap-1 font-medium hover:text-primary-fixed transition-colors"
-                  title={`Append ${place.name} to route`}
-                >
-                  <span>Append to Route</span>
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+                <span className="text-outline text-[11px]">Demo reference; request itinerary changes in Planner Studio.</span>
               </div>
             </div>
           );

@@ -22,8 +22,7 @@ def seed_database_if_empty():
     except Exception as e:
         print(f"--- RAG SYSTEM: Warning: Could not seed database: {e} ---")
 
-# Automatically check and seed database on import
-seed_database_if_empty()
+# Ingest regional guides explicitly; retrieval does not write demo knowledge on import.
 
 def retrieve_travel_knowledge(query: str, k: int = 2) -> str:
     """

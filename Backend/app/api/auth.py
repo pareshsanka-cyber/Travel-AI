@@ -1,21 +1,31 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
 from app.database.mongodb import db
-from app.utils.auth_utils import hash_password, verify_password, generate_token
+from app.utils.auth_utils import hash_password, verify_password, generate_token, require_user_id
 
 router = APIRouter()
 
 class RegisterRequest(BaseModel):
-    name: str
-    email: str
-    password: str
+    name: str = Field(min_length=1, max_length=100)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator('email')
+    @classmethod
+    def valid_email(cls, value):
+        import re
+        value = value.strip().lower()
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', value):
+            raise ValueError('A valid email address is required')
+        return value
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
 
 @router.post("/register")
 def register(req: RegisterRequest):
@@ -42,7 +52,10 @@ def register(req: RegisterRequest):
         "created_at": datetime.utcnow()
     }
     
-    res = db.users.insert_one(user_doc)
+    try:
+        res = db.users.insert_one(user_doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=400, detail="Email is already registered. Please login instead.")
     user_id = str(res.inserted_id)
     token = generate_token(email_clean, user_id)
 
@@ -86,11 +99,13 @@ def login(req: LoginRequest):
     }
 
 @router.get("/me")
-def get_current_user(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
-    
-    return {
-        "status": "authenticated",
-        "message": "Session valid"
-    }
+def get_current_user(user_id: str = Depends(require_user_id)):
+    user = db.users.find_one({"_id": ObjectId(user_id)})
+    return {"user": {"id": user_id, "name": user["name"], "email": user["email"]}}
+
+
+@router.post("/logout")
+def logout(user_id: str = Depends(require_user_id), authorization: str = Header(...)):
+    import hashlib
+    db.sessions.delete_one({"token_hash": hashlib.sha256(authorization[7:].strip().encode()).hexdigest()})
+    return {"success": True}

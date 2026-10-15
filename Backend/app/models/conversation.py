@@ -20,6 +20,12 @@ class TravelContext(BaseModel):
     accommodation_preferences: List[str] = Field(default_factory=list)
     transport_preferences: List[str] = Field(default_factory=list)
     
+    interests: List[str] = Field(default_factory=list)
+    must_visit_places: List[str] = Field(default_factory=list)
+    pace: str = "balanced"
+    wake_up_time: Optional[str] = None
+    bedtime: Optional[str] = None
+
     current_trip_id: Optional[str] = None
 
 class ConversationModel(BaseModel):

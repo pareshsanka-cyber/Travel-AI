@@ -143,7 +143,7 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) =
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-on-surface">Traveler Companion Mode</span>
                 <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                  Ready
+                  {trip?.plusAccess ? 'Ready' : 'Trip Plus'}
                 </span>
               </div>
               <p className="text-[11px] text-on-surface-variant truncate">
@@ -156,7 +156,7 @@ export const RouteTab: React.FC<RouteTabProps> = ({ trip, days, onSwitchTab }) =
             onClick={() => onSwitchTab('companion-tab')}
             className="self-start sm:self-auto flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
           >
-            <span>Open Companion</span>
+            <span>{trip?.plusAccess ? 'Open Companion' : 'Unlock Companion'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
