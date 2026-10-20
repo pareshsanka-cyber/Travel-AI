@@ -1,8 +1,10 @@
-import { motionTokens } from '../motion/tokens';
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Compass, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+
+// A lightweight, independently authored staggered spring entrance using free Motion APIs.
+const loginSpring = { type: 'spring' as const, stiffness: 205, damping: 24, mass: 0.85 };
 
 export interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -16,6 +18,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   backgroundImage = 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2400&q=85',
 }) => {
   const { login } = useAuth();
+  const reducedMotion = useReducedMotion();
+  const staggerIn = (delay: number, y = 16) => ({
+    initial: reducedMotion ? false as const : { opacity: 0, y },
+    animate: { opacity: 1, y: 0 },
+    transition: reducedMotion ? { duration: 0 } : { ...loginSpring, delay },
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -71,15 +79,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <div className="relative z-10 w-full h-full min-h-screen max-w-7xl mx-auto px-6 sm:px-12 py-10 flex flex-col lg:flex-row justify-between lg:items-center">
         
         {/* LEFT SIDE (Bottom-left aligned area) */}
-        <motion.div
+        <div
           id="login-left-brand-section"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: motionTokens.overlay, ease: motionTokens.ease }}
           className="lg:self-end mb-12 lg:mb-16 max-w-xl pt-10 lg:pt-0"
         >
           {/* Small badge pill */}
-          <div
+          <motion.div
+            {...staggerIn(0.08, 14)}
             id="waypoint-badge"
             className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[#182234]/85 backdrop-blur-md border border-white/10 shadow-lg shadow-black/40 mb-6"
           >
@@ -90,37 +96,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               TRAVELAI WAYPOINT
             </span>
             <span className="w-1.5 h-1.5 rounded-full bg-[#89ceff]" />
-          </div>
+          </motion.div>
 
           {/* Large bold heading */}
-          <h1
+          <motion.h1
+            {...staggerIn(0.20, 23)}
             id="brand-hero-heading"
             className="text-6xl sm:text-7xl lg:text-[76px] font-extrabold text-white tracking-tight leading-[1.05]"
           >
             TravelAI
-          </h1>
+          </motion.h1>
 
           {/* Short horizontal white divider line */}
-          <div
+          <motion.div
+            {...staggerIn(0.34, 8)}
             id="brand-hero-divider"
             className="w-16 h-[2px] bg-white/80 my-5 rounded-full"
           />
 
           {/* Subtext */}
-          <p
+          <motion.p
+            {...staggerIn(0.44, 16)}
             id="brand-hero-subtext"
             className="text-slate-300 text-lg sm:text-xl font-normal tracking-wide max-w-md drop-shadow-sm"
           >
             Personalized trips, Real experiences
-          </p>
-        </motion.div>
+          </motion.p>
+        </div>
 
         {/* RIGHT SIDE — Glassmorphism Login Card (floating, right-center) */}
         <motion.div
+          {...staggerIn(0.27, 28)}
           id="login-glass-card-wrapper"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: motionTokens.overlay, ease: motionTokens.ease }}
           className="w-full flex justify-center lg:justify-end my-auto"
         >
           <div
@@ -135,26 +142,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           >
             {/* Top Brand Header */}
             <div id="login-card-header" className="mb-6">
-              <span className="text-xs text-slate-400 font-normal block mb-1">
+              <motion.span {...staggerIn(0.54, 10)} className="text-xs text-slate-400 font-normal block mb-1">
                 Welcome to
-              </span>
-              <div className="flex items-baseline gap-0.5">
+              </motion.span>
+              <motion.div {...staggerIn(0.63, 12)} className="flex items-baseline gap-0.5">
                 <span className="text-[28px] font-bold text-white tracking-tight">
                   Travel
                 </span>
                 <span className="text-[28px] font-bold text-[#89ceff] tracking-tight">
                   AI
                 </span>
-              </div>
-              <p className="text-[10px] uppercase tracking-[0.2em] font-medium text-slate-400 mt-1">
+              </motion.div>
+              <motion.p {...staggerIn(0.71, 10)} className="text-[10px] uppercase tracking-[0.2em] font-medium text-slate-400 mt-1">
                 YOUR AI TRAVEL COMPANION
-              </p>
+              </motion.p>
             </div>
 
             {/* Login Form */}
             <form id="login-form" onSubmit={handleSubmit} className="space-y-4">
               {/* Email Input */}
-              <div id="login-email-group" className="space-y-1.5">
+              <motion.div {...staggerIn(0.80, 12)} id="login-email-group" className="space-y-1.5">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <Mail className="w-4 h-4" />
@@ -172,10 +179,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-400 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-[#89ceff]/50 focus:border-[#89ceff]/50 transition-all"
                   />
                 </div>
-              </div>
+              </motion.div>
 
               {/* Password Input */}
-              <div id="login-password-group" className="space-y-1.5">
+              <motion.div {...staggerIn(0.92, 12)} id="login-password-group" className="space-y-1.5">
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <Lock className="w-4 h-4" />
@@ -213,10 +220,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     Forgot password?
                   </button>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Sign In Button */}
-              <button
+              <motion.button
+                {...staggerIn(1.05, 12)}
+                whileHover={reducedMotion || isLoading ? undefined : { y: -2 }}
+                whileTap={reducedMotion || isLoading ? undefined : { scale: 0.985 }}
                 type="submit"
                 id="login-submit-btn"
                 disabled={isLoading}
@@ -237,7 +247,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                   </>
                 )}
-              </button>
+              </motion.button>
 
               {/* Error Message */}
               {errorMessage && (
@@ -254,7 +264,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </form>
 
             {/* Don't have an account? Create one */}
-            <div id="login-register-redirect" className="text-center text-xs text-slate-400">
+            <motion.div {...staggerIn(1.18, 10)} id="login-register-redirect" className="text-center text-xs text-slate-400">
               <span>Don't have an account? </span>
               <button
                 type="button"
@@ -264,7 +274,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               >
                 Create one
               </button>
-            </div>
+            </motion.div>
           </div>
         </motion.div>
       </div>
