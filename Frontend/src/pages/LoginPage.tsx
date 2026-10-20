@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
+import { motion, useAnimationControls, useReducedMotion } from 'motion/react';
 import { Compass, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 // A lightweight, independently authored staggered spring entrance using free Motion APIs.
 const loginSpring = { type: 'spring' as const, stiffness: 205, damping: 24, mass: 0.85 };
+const loginEntrance = {
+  hidden: ({ y }: { y: number }) => ({ opacity: 0, y }),
+  visible: ({ delay }: { delay: number }) => ({ opacity: 1, y: 0, transition: { ...loginSpring, delay } }),
+};
 
 export interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -19,20 +24,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 }) => {
   const { login } = useAuth();
   const reducedMotion = useReducedMotion();
+  const entrance = useAnimationControls();
+  useEffect(() => {
+    if (reducedMotion) entrance.set('visible');
+    else void entrance.start('visible');
+    return () => entrance.stop();
+  }, [entrance, reducedMotion]);
   const staggerIn = (delay: number, y = 16) => ({
-    initial: reducedMotion ? false as const : { opacity: 0, y },
-    animate: { opacity: 1, y: 0 },
-    transition: reducedMotion ? { duration: 0 } : { ...loginSpring, delay },
+    initial: reducedMotion ? false as const : 'hidden',
+    animate: entrance,
+    custom: { delay, y },
+    variants: loginEntrance,
   });
+  // Keyboard users and fast typists should never wait for decorative entrances.
+  const settleEntrance = () => { entrance.stop(); entrance.set('visible'); };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [forgotModalOpen, setForgotModalOpen] = useState(false);
+  const submitting = useRef(false);
+  const recoveryDialog = useRef<HTMLDivElement>(null);
+  useModalFocus(recoveryDialog, forgotModalOpen, () => setForgotModalOpen(false));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting.current) return;
     setErrorMessage(null);
 
     if (!email.trim() || !password) {
@@ -40,6 +58,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
+    submitting.current = true;
     setIsLoading(true);
 
     try {
@@ -52,6 +71,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } catch {
       setErrorMessage('Network error occurred. Please try again.');
     } finally {
+      submitting.current = false;
       setIsLoading(false);
     }
   };
@@ -128,6 +148,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         <motion.div
           {...staggerIn(0.27, 28)}
           id="login-glass-card-wrapper"
+          onFocusCapture={settleEntrance}
+          onPointerDownCapture={settleEntrance}
           className="w-full flex justify-center lg:justify-end my-auto"
         >
           <div
@@ -202,6 +224,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <button
                     type="button"
                     id="login-password-toggle-btn"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 focus:outline-none transition-colors"
                   >
@@ -230,17 +254,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="submit"
                 id="login-submit-btn"
                 disabled={isLoading}
+                aria-busy={isLoading}
                 className="w-full mt-2 py-3 px-4 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 text-sm shadow-md transition-all duration-200 disabled:opacity-75 cursor-pointer"
               >
                 {isLoading ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                    className="flex items-center gap-2"
-                  >
-                    <Loader2 className="w-4 h-4 text-slate-950" />
+                  <span className="flex items-center gap-2" role="status">
+                    <motion.span
+                      aria-hidden="true"
+                      animate={{ rotate: reducedMotion ? 0 : 360 }}
+                      transition={reducedMotion ? { duration: 0 } : { repeat: Infinity, duration: 1, ease: 'linear' }}
+                      className="flex"
+                    >
+                      <Loader2 className="w-4 h-4 text-slate-950" />
+                    </motion.span>
                     <span>Signing in...</span>
-                  </motion.div>
+                  </span>
                 ) : (
                   <>
                     <span>Sign In</span>
@@ -252,7 +280,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* Error Message */}
               {errorMessage && (
                 <motion.div
-                  initial={{ opacity: 0, y: -4 }}
+                  initial={reducedMotion ? false : { opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
                   id="login-error-message"
                   role="alert"
@@ -279,11 +307,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </motion.div>
       </div>
 
-      {forgotModalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onKeyDown={event => { if (event.key === 'Escape') setForgotModalOpen(false); }}>
-        <div role="dialog" aria-modal="true" aria-labelledby="recovery-title" className="w-full max-w-sm p-6 rounded-2xl border border-white/10 bg-slate-900">
+      {forgotModalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div ref={recoveryDialog} role="dialog" aria-modal="true" aria-labelledby="recovery-title" className="w-full max-w-sm p-6 rounded-2xl border border-white/10 bg-slate-900">
           <h3 id="recovery-title" className="font-bold text-white mb-2">Password recovery</h3>
           <p className="text-sm text-slate-300 mb-4">Email password recovery is not configured for this installation. Contact the project administrator to recover access.</p>
-          <button autoFocus type="button" onClick={() => setForgotModalOpen(false)} className="px-4 py-2 rounded-lg bg-sky-200 text-slate-900">Close</button>
+          <button type="button" onClick={() => setForgotModalOpen(false)} className="px-4 py-2 rounded-lg bg-sky-200 text-slate-900">Close</button>
         </div>
       </div>}
     </div>
