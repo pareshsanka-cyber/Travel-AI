@@ -192,7 +192,7 @@ def calculate_fame_level(rating, review_count):
     return None
 
 
-def discover_via_serpapi(destination: str, candidate_count: int, ranked_interests: list = None) -> list:
+def discover_via_serpapi(destination: str, candidate_count: int, ranked_interests: list = None, timeout_seconds: float = 7.0) -> list:
     """Layer 2: SerpApi Google Maps discovery fallback with interest awareness."""
     if not SERPAPI_API_KEY:
         return []
@@ -210,7 +210,7 @@ def discover_via_serpapi(destination: str, candidate_count: int, ranked_interest
             break
         try:
             url = f"https://serpapi.com/search.json?engine=google_maps&q={urllib.parse.quote(query)}&api_key={SERPAPI_API_KEY}"
-            resp = httpx.get(url, timeout=7.0)
+            resp = httpx.get(url, timeout=timeout_seconds)
             if resp.status_code == 200:
                 data = resp.json()
                 results = data.get("local_results", [])

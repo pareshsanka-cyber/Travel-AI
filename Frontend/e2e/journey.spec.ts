@@ -87,11 +87,11 @@ test('day switching never replays completion and updates the countdown target', 
 for (const mode of ['reschedule', 'skip_only', 'conflict'] as const) {
   test(`reroute ${mode} reflects the server outcome without invented movement`, async ({ page }) => {
     await journeyFixture(page, { skipOnly: mode === 'skip_only', conflict: mode === 'conflict' }); await page.goto(start);
-    await page.getByRole('button', { name: 'Skip Stop', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: /Dynamic AI Rerouting/ }); await expect(dialog).toBeVisible();
-    if (mode !== 'skip_only') await expect(dialog.locator('[data-proposal-changed="true"]').filter({ hasText: 'Royal Botanic Garden' })).toContainText('11:30 – 12:30');
+    await page.getByRole('button', { name: 'Skip / replace', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: /Adjust your day/ }); await expect(dialog).toBeVisible();
+    if (mode !== 'skip_only') await expect(dialog.locator('[data-proposal-changed="true"]').filter({ hasText: 'Royal Botanic Garden' })).toContainText('11:30');
     const before = await page.locator('[data-activity-id]').allTextContents();
-    await page.getByRole('button', { name: 'Accept & Update Schedule', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm changes', exact: true }).click();
     if (mode === 'conflict') {
       await expect(dialog).toContainText('Generate a fresh preview');
       expect(await page.locator('[data-activity-id]').allTextContents()).toEqual(before);
@@ -125,11 +125,11 @@ test('Phase 2 screenshots and interaction recording', async ({ page }, info) => 
   await page.getByRole('button', { name: 'Mark Complete', exact: true }).click();
   await expect(page.locator('[data-activity-id="a"]')).toHaveAttribute('data-status', 'completed');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.getByRole('button', { name: 'Skip Stop', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: /Dynamic AI Rerouting/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Skip / replace', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: /Adjust your day/ })).toBeVisible();
   await page.locator('.motion-dialog').evaluate(async node => { await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => {}))); });
   await page.screenshot({ path: `${prefix}-reroute.png` });
-  await page.getByRole('button', { name: 'Accept & Update Schedule', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm changes', exact: true }).click();
   await page.getByRole('button', { name: 'Days & map', exact: true }).click();
   await expect(page.locator('.leaflet-marker-icon')).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Leg 1', exact: true })).toBeVisible();

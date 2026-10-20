@@ -354,7 +354,7 @@ export interface ApiStatusState {
   endpointUrl: string;
   statusCode: number | null;
   statusMessage: string;
-  mode: 'live' | 'mock-fallback';
+  mode: 'live' | 'offline';
   lastPingAt?: string;
 }
 

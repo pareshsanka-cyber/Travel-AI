@@ -357,18 +357,25 @@ def update_execution_state(id: str, payload: ExecutionStateRequest, x_user_id: s
 
 
 class ReroutePreviewRequest(BaseModel):
+    version: Literal[1, 2] = 1
     day_number: int = Field(ge=1, le=30)
-    skipped_activity_id: str
-    current_location: Optional[Dict[str, float]] = None
+    skipped_activity_id: Optional[str] = None
+    target_activity_id: Optional[str] = None
+    trigger: Literal['skip', 'closed', 'delay'] = 'skip'
+    travel_mode: Literal['driving', 'walking'] = 'driving'
+    delay_minutes: Literal[15, 30, 60] = 30
+    current_location: Optional[Dict[str, Any]] = None
     current_time: Optional[str] = None
     expected_revision: Optional[int] = None
 
 
 class RerouteApplyRequest(BaseModel):
+    version: Literal[1, 2] = 1
     proposal_id: str
-    day_number: int = Field(ge=1, le=30)
-    skipped_activity_id: str
-    proposed_stops: List[Dict[str, Any]] = Field(max_length=100)
+    option_id: Optional[str] = None
+    day_number: Optional[int] = Field(default=None, ge=1, le=30)
+    skipped_activity_id: Optional[str] = None
+    proposed_stops: List[Dict[str, Any]] = Field(default_factory=list, max_length=100)
     replacement_activity_id: Optional[str] = None
     reason: Optional[str] = None
     expected_revision: Optional[int] = None
@@ -399,6 +406,24 @@ def preview_reroute(id: str, request: ReroutePreviewRequest, x_user_id: str = De
 
         require_plus(db, str(trip.get("_id") or trip.get("id")), x_user_id)
 
+        if request.version == 2:
+            if request.expected_revision is None or not request.target_activity_id:
+                raise HTTPException(422, 'Version 2 requires a target activity and expected revision.')
+            if request.expected_revision != int(trip.get('revision', 1)):
+                raise HTTPException(409, 'Trip changed. Refresh before reviewing adjustments.')
+            from app.services.reroute_v2 import preview
+            import secrets
+            from datetime import timedelta
+            proposal = preview(trip, request.day_number, request.target_activity_id, request.trigger,
+                request.travel_mode, request.delay_minutes, request.current_location)
+            proposal['proposal_id'] = secrets.token_urlsafe(24)
+            db.reroute_proposals.insert_one(dict(proposal_id=proposal['proposal_id'], trip_id=id,
+                user_id=x_user_id, version=2, revision=int(trip.get('revision', 1)),
+                proposal=proposal, expires_at=datetime.utcnow()+timedelta(minutes=15)))
+            return proposal
+        if not request.skipped_activity_id:
+            raise HTTPException(422, 'A skipped activity is required.')
+
         # Concurrency Revision check
         if request.expected_revision is not None:
             curr_rev = int(trip.get("revision", 1))
@@ -417,7 +442,8 @@ def preview_reroute(id: str, request: ReroutePreviewRequest, x_user_id: str = De
             current_time_str=request.current_time
         )
         from app.services.trip_consistency import validate_reroute
-        validate_reroute(trip, request.day_number, request.skipped_activity_id, proposal['proposed_stops'])
+        validate_reroute(trip, request.day_number, request.skipped_activity_id, proposal['proposed_stops'],
+            preserve_schedule=proposal.get('mode') == 'skip_only')
         import secrets
         from datetime import timedelta
         proposal["proposal_id"] = secrets.token_urlsafe(24)
@@ -441,6 +467,17 @@ def apply_reroute(id: str, request: RerouteApplyRequest, x_user_id: str = Depend
         from app.services.trip_service import owned_trip
         trip, _ = owned_trip(db, id, x_user_id)
         require_plus(db, str(trip.get("_id") or trip.get("id")), x_user_id)
+        if request.version == 2:
+            if request.expected_revision is None or not request.option_id:
+                raise HTTPException(422, 'Version 2 requires an option and expected revision.')
+            saved = db.reroute_proposals.find_one(dict(proposal_id=request.proposal_id, trip_id=id,
+                user_id=x_user_id, version=2, expires_at={'$gt': datetime.utcnow()}))
+            if not saved:
+                raise HTTPException(409, 'This review expired. Request fresh options.')
+            from app.services.reroute_v2 import apply
+            return apply(db, id, x_user_id, saved, request.option_id, request.expected_revision)
+        if request.day_number is None or not request.skipped_activity_id:
+            raise HTTPException(422, 'Version 1 requires a day and skipped activity.')
         saved = db.reroute_proposals.find_one({"proposal_id": request.proposal_id, "trip_id": id,
             "user_id": x_user_id, "day_number": request.day_number,
             "skipped_activity_id": request.skipped_activity_id, "expires_at": {"$gt": datetime.utcnow()}})
@@ -458,7 +495,8 @@ def apply_reroute(id: str, request: RerouteApplyRequest, x_user_id: str = Depend
             replacement_activity_id=(saved["proposal"].get("replacement_activity") or {}).get("id"),
             reason=saved["proposal"].get("reason"),
             expected_revision=saved["revision"],
-            x_user_id=x_user_id
+            x_user_id=x_user_id,
+            preserve_schedule=saved['proposal'].get('mode') == 'skip_only'
         )
         return result
     except HTTPException:
@@ -467,3 +505,17 @@ def apply_reroute(id: str, request: RerouteApplyRequest, x_user_id: str = Depend
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Reroute application failed: {str(e)}")
+
+
+@router.get('/{id}/directions')
+def get_day_directions(id: str, day_number: int, travel_mode: Literal['driving', 'walking'] = 'driving',
+                       x_user_id: str = Depends(require_user_id)):
+    from app.services.trip_service import owned_trip
+    from app.services.road_routing import day_directions
+    trip, _ = owned_trip(db, id, x_user_id)
+    if not 1 <= day_number <= 30:
+        raise HTTPException(422, 'Invalid day.')
+    try:
+        return day_directions(trip, day_number, travel_mode)
+    except ValueError as error:
+        raise HTTPException(400, str(error))

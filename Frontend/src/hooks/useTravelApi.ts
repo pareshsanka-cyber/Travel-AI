@@ -70,7 +70,7 @@ export function useTravelApi() {
     endpointUrl: getApiBaseUrl(),
     statusCode: null,
     statusMessage: 'Connecting to FastAPI...',
-    mode: 'mock-fallback',
+    mode: 'offline',
   });
   const [isCheckingApi, setIsCheckingApi] = useState(false);
 
@@ -746,19 +746,21 @@ export function useTravelApi() {
       const response = await updateExecutionState(activeTripId, requestedState, trip.revision || 1);
       if (!response) throw new Error('This trip cannot save progress.');
       const newState = response.execution_state;
-      setTrip(prev => prev ? { ...prev, executionState: newState, revision: response.revision } : prev);
-      setActiveTrip((prev: any) => prev ? { ...prev, execution_state: newState, executionState: newState, revision: response.revision } : prev);
       setRawTripsHistory(prev => prev.map(t => (t.id || t._id) === activeTripId ? { ...t, execution_state: newState, revision: response.revision } : t));
-      localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(newState));
+      try { localStorage.setItem(`TRAVELAI_EXEC_STATE_${activeTripId}`, JSON.stringify(newState)); } catch { /* A full local cache must not invalidate the saved progress. */ }
+      if (activeTripIdRef.current !== activeTripId) return false;
+      setTrip(prev => prev?.id === activeTripId ? { ...prev, executionState: newState, revision: response.revision } : prev);
+      setActiveTrip((prev: any) => (prev?.id || prev?._id) === activeTripId ? { ...prev, execution_state: newState, executionState: newState, revision: response.revision } : prev);
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save progress. Refresh and try again.');
+      if (activeTripIdRef.current === activeTripId) setErrorMessage(error instanceof Error ? error.message : 'Unable to save progress. Refresh and try again.');
       return false;
     }
   }, [trip, activeTripId]);
 
   const handleApplyRerouteResult = useCallback((rerouteResult: any) => {
-    if (!activeTripId || !rerouteResult) return;
+    if (!activeTripId || !rerouteResult || activeTripIdRef.current !== activeTripId ||
+        (rerouteResult.trip_id && rerouteResult.trip_id !== activeTripId)) return;
     const { route_details, execution_state, revision, planner_draft, budget_breakdown, final_itinerary } = rerouteResult;
     setBudget(fetchBudgetOverview({ ...activeTrip, budget_breakdown }));
     

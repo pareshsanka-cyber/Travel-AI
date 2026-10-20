@@ -2,6 +2,22 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# Fail fast if required environment variables are missing
+def _require_env(name: str, default: str | None = None) -> str:
+    value = os.getenv(name) or default
+    if value is None or value == '':
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+# Required config
+GROQ_API_KEY = _require_env("GROQ_API_KEY")
+MONGODB_URI = _require_env("MONGODB_URI")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "travel_ai")
+SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")  # Optional; live features may fail without it
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.trips import router as trips_router

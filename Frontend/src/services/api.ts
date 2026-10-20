@@ -86,9 +86,6 @@ export async function apiFetch<T>(
   }
 
   try {
-    if (endpoint.includes('/api/chat/message')) {
-    }
-
     // Attach user auth & identity headers if present in localStorage
     const storedToken = typeof window !== 'undefined' ? localStorage.getItem('travelai_token') : null;
     const authHeaders: Record<string, string> = {};
@@ -108,9 +105,6 @@ export async function apiFetch<T>(
     });
 
     if (timeoutId) clearTimeout(timeoutId);
-
-    if (endpoint.includes('/api/chat/message')) {
-    }
 
     if (response.status === 401) window.dispatchEvent(new Event('travelai-session-expired'));
     if (!response.ok) {
@@ -132,16 +126,6 @@ export async function apiFetch<T>(
   } catch (err: unknown) {
     if (timeoutId) clearTimeout(timeoutId);
     if (options.signal?.aborted) throw err;
-    if (statusListener && !(err instanceof ApiError)) {
-      statusListener({
-        isConnected: false,
-        endpointUrl: baseUrl,
-        statusCode: null,
-        statusMessage: 'Disconnected',
-        mode: 'mock-fallback',
-        lastPingAt: new Date().toLocaleTimeString(),
-      });
-    }
     if (err instanceof ApiError) throw err;
     throw new NetworkError(controller.signal.aborted ? 'TravelAI request timed out. Retry when the service is available.' : 'Unable to reach TravelAI. Check your connection and API Settings, then retry.');
   }
@@ -172,14 +156,13 @@ export async function checkFastApiHealth(): Promise<ApiStatusState> {
       endpointUrl: baseUrl,
       statusCode: null,
       statusMessage: 'Disconnected',
-      mode: 'mock-fallback',
+      mode: 'offline',
       lastPingAt: new Date().toLocaleTimeString(),
     };
     if (statusListener) statusListener(state);
     return state;
   }
 }
-
 
 // -------------------------------------------------------------
 // Fallback Mock Data (matches Stitch design exactly)

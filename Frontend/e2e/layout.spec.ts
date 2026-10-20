@@ -22,7 +22,7 @@ test('Plan and My Trip stay separate, bind editing to Sydney and preserve drafts
   await page.getByRole('button', { name: 'Trip details', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Trip details', exact: true });
   await expect(details.getByLabel('Destination', { exact: true })).toHaveValue('Sydney, Australia');
-  await expect(details.getByLabel('Travelers', { exact: true })).toHaveValue('7');
+  await expect(details.getByLabel('Adults count', { exact: true })).toHaveText('7');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Return to trip/ }).click();
   await expect(page.locator('.leaflet-container')).toBeVisible();

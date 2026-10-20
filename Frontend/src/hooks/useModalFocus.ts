@@ -4,13 +4,13 @@ let locks = 0;
 let originalOverflow = '';
 
 /** Shared focus containment, scroll locking and restoration for modal surfaces. */
-export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
+export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void, returnFocus?: HTMLElement | null) {
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
     if (!open || !ref.current) return;
     const panel = ref.current;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = returnFocus || document.activeElement as HTMLElement | null;
     if (locks++ === 0) { originalOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; }
     const focusable = () => Array.from(panel.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]')).filter(el => el.getClientRects().length > 0);
     (focusable()[0] || panel).focus({ preventScroll: true });

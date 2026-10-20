@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta, date
 from typing import Dict, Any, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+from app.services.trip_consistency import clock_minutes
 
 from app.utils.activity_identity import generate_persistent_activity_id, resolve_activity_status, routes_with_activity_ids
 from app.ai.agents.attraction_agent import (
@@ -108,6 +109,37 @@ def classify_activity(stop: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _reschedule_tail(stops, cursor, origin_lat, origin_lon, deadline, protected_ids):
+    """Fit the entire remaining day, preserving actual visit lengths and fixed stops."""
+    result = []
+    for stop in stops:
+        start = clock_minutes(stop['start_time'])
+        end = clock_minutes(stop['end_time'])
+        duration = end - start
+        transit, distance, mode = estimate_transit(origin_lat, origin_lon, stop.get('lat'), stop.get('lon'))
+        arrival = cursor + transit
+        frozen = stop['id'] in protected_ids
+        fixed = frozen or (stop.get('type') or '').lower() in {'airport', 'transit', 'flight'}
+        if fixed and arrival > start:
+            raise ValueError('A fixed or completed stop cannot be moved to fit this replacement.')
+        new_start = start if fixed else max(start, arrival)
+        new_end = new_start + duration
+        if new_end > deadline or new_end >= 1440:
+            raise ValueError('The complete remaining schedule does not fit before the daily cutoff.')
+        changed = new_start != start
+        updated = dict(stop, rescheduled=changed, status_label='Rescheduled' if changed else 'Unchanged')
+        if not frozen:
+            updated.update(start_time=minutes_to_hhmm(new_start), end_time=minutes_to_hhmm(new_end),
+                time=format_time_range(new_start, new_end), duration_minutes=duration,
+                duration=format_duration(duration), travel_time_from_prev_minutes=transit,
+                travel_time_from_prev=f'{transit} mins', distance_from_prev_km=distance, travel_mode=mode)
+        result.append(updated)
+        cursor = new_end
+        if _valid_coords(stop.get('lat'), stop.get('lon')):
+            origin_lat, origin_lon = float(stop['lat']), float(stop['lon'])
+    return result
+
+
 def generate_reroute_proposal(
     trip: Dict[str, Any],
     day_number: int,
@@ -162,15 +194,23 @@ def generate_reroute_proposal(
         raise ValueError(f"Skipped activity '{skipped_activity_id}' not found on day {day_number}")
 
     from app.services.trip_consistency import has_complete_timings, validate_reroute
-    if not has_complete_timings(raw_stops):
+    activity_log = (trip.get('execution_state') or {}).get('activity_log') or {}
+    protected_ids = {s['id'] for index, s in enumerate(raw_stops)
+        if resolve_activity_status(s, int(day_number), index, activity_log)[0] in {'completed', 'in_progress'}}
+    if skipped_activity_id in protected_ids:
+        raise ValueError('Completed or in-progress activities cannot be skipped.')
+
+    def skip_only(reason):
         remaining = [dict(s) for s in raw_stops if s['id'] != skipped_activity_id]
-        validate_reroute(trip, day_number, skipped_activity_id, remaining)
+        validate_reroute(trip, day_number, skipped_activity_id, remaining, preserve_schedule=True)
         return {'status': 'success', 'proposal_id': f'prop_{int(time.time())}_{day_number}',
             'day_number': int(day_number), 'revision': int(trip.get('revision', 1)),
             'mode': 'skip_only', 'replacement_found': False, 'replacement_activity': None,
             'skipped_activity': dict(skipped_stop, title=skipped_stop.get('name') or skipped_stop.get('title')),
-            'original_stops': raw_stops, 'proposed_stops': remaining, 'rescheduled_stops': [],
-            'reason': 'This older itinerary has incomplete activity timings. Accepting will mark this stop as skipped and keep the saved schedule unchanged.'}
+            'original_stops': raw_stops, 'proposed_stops': remaining, 'rescheduled_stops': [], 'reason': reason}
+
+    if not has_complete_timings(raw_stops):
+        return skip_only('This older itinerary has incomplete activity timings. Accepting will mark this stop as skipped and keep the saved schedule unchanged.')
 
     # Partition stops:
     # 1. Historical stops strictly before skipped_idx are frozen untouched
@@ -240,6 +280,18 @@ def generate_reroute_proposal(
     else:
         target_visit_duration = 90
         bed_mins = 1320  # 22:00
+    bedtime = trip.get('bedtime') or (trip.get('travel_context') or {}).get('bedtime')
+    if bedtime:
+        bed_mins = clock_minutes(bedtime)
+
+    def tail_fits(end, lat, lon):
+        if end > bed_mins or end >= 1440:
+            return False
+        try:
+            _reschedule_tail(subsequent_stops, end, lat, lon, bed_mins, protected_ids)
+            return True
+        except ValueError:
+            return False
 
     # Collect already used place slugs to prevent duplication
     used_place_slugs = set()
@@ -319,8 +371,14 @@ def generate_reroute_proposal(
             t_to_cand, dist_to_cand, mode_to_cand = estimate_transit(origin_lat, origin_lon, c_lat, c_lon)
             
             # Feasible start time: must not start before earliest cutoff and transit from preceding stop
-            cand_start = max(earliest_feasible_start_m, prev_end_m + t_to_cand)
+            cand_start = max(earliest_feasible_start_m, prev_end_m + t_to_cand,
+                (effective_now_m + t_to_cand) if effective_now_m is not None else 0)
             cand_end = cand_start + meal_duration
+            hours_status, _ = determine_status_from_hours(cand.get('opening_hours'), target_date_dt,
+                minutes_to_hhmm(cand_start), minutes_to_hhmm(cand_end))
+            if hours_status == 'CLOSED' or not tail_fits(cand_end, c_lat, c_lon):
+                continue
+            cand['_hours_status'] = hours_status
 
             # Feasibility windows:
             if meal_type == "lunch":
@@ -386,7 +444,7 @@ def generate_reroute_proposal(
                 "image_url": best_cand.get("image_url"),
                 "rating": best_cand.get("rating"),
                 "review_count": best_cand.get("review_count"),
-                "status": "OPEN",
+                "status": best_cand.get("_hours_status", "UNKNOWN"),
                 "place_id": rep_place_id,
                 "source": best_cand.get("source", "dynamic_reroute"),
                 "scheduled_date": target_day.get("date"),
@@ -437,8 +495,8 @@ def generate_reroute_proposal(
                 "description": f"Dedicated {meal_type} time window along your route. Explore nearby authentic local cuisine and dining establishments at your leisure.",
                 "why_visit": f"Essential mid-day culinary window near your route.",
                 "image_url": m_img,
-                "rating": "4.5",
-                "status": "OPEN",
+                "rating": None,
+                "status": "UNKNOWN",
                 "scheduled_date": target_day.get("date"),
                 "day_of_week": target_day.get("day_of_week"),
                 "is_replacement": True,
@@ -494,8 +552,14 @@ def generate_reroute_proposal(
                 continue
 
             t_to_cand, dist_to_cand, mode_to_cand = estimate_transit(origin_lat, origin_lon, c_lat, c_lon)
-            cand_start = max(earliest_feasible_start_m, prev_end_m + t_to_cand)
+            cand_start = max(earliest_feasible_start_m, prev_end_m + t_to_cand,
+                (effective_now_m + t_to_cand) if effective_now_m is not None else 0)
             cand_end = cand_start + target_visit_duration
+            hours_status, _ = determine_status_from_hours(cand.get('opening_hours'), target_date_dt,
+                minutes_to_hhmm(cand_start), minutes_to_hhmm(cand_end))
+            if hours_status == 'CLOSED' or not tail_fits(cand_end, c_lat, c_lon):
+                continue
+            cand['_hours_status'] = hours_status
 
             t_to_next = 0
             if next_anchor_stop and _valid_coords(next_anchor_lat, next_anchor_lon):
@@ -566,8 +630,8 @@ def generate_reroute_proposal(
                 "rating": best_cand.get("rating"),
                 "review_count": best_cand.get("review_count"),
                 "opening_hours": best_cand.get("opening_hours"),
-                "opening_hours_status": "VERIFIED_OPEN" if best_cand.get("status") == "OPEN" else "UNVERIFIED",
-                "status": "OPEN",
+                "opening_hours_status": "VERIFIED_OPEN" if best_cand.get("_hours_status") == "OPEN" else "UNVERIFIED",
+                "status": best_cand.get("_hours_status", "UNKNOWN"),
                 "place_id": rep_place_id,
                 "source": best_cand.get("source", "dynamic_reroute"),
                 "fame_level": best_cand.get("fame_level"),
@@ -611,63 +675,24 @@ def generate_reroute_proposal(
         prev_coords_lat = origin_lat
         prev_coords_lon = origin_lon
 
-    # 3. Subsequent stops with recalculated non-overlapping times
-    for ps in subsequent_stops:
-        ps_copy = dict(ps)
-        orig_s = parse_hhmm_to_minutes(ps_copy.get("start_time"), 0)
-        orig_dur = ps_copy.get("duration_minutes") or 60
-
-        curr_lat = ps_copy.get("lat")
-        curr_lon = ps_copy.get("lon")
-        t_mins, t_dist, t_mode = estimate_transit(prev_coords_lat, prev_coords_lon, curr_lat, curr_lon)
-
-        earliest_ps_start = time_cursor_m + t_mins
-
-        # Smart timing:
-        # If ps is an evening meal (starts at or after 18:30)
-        if ps_copy.get("type") == "restaurant" and orig_s >= 1110:
-            new_s = max(1140, earliest_ps_start)  # Natural dinner time around 19:00+
-        elif earliest_ps_start <= orig_s:
-            # Fits within original window with comfortable buffer: preserve original start!
-            new_s = orig_s
-        else:
-            # Shifted forward smoothly
-            new_s = earliest_ps_start
-
-        new_e = new_s + orig_dur
-        is_changed = (new_s != orig_s)
-
-        ps_copy["start_time"] = minutes_to_hhmm(new_s)
-        ps_copy["end_time"] = minutes_to_hhmm(new_e)
-        ps_copy["time"] = format_time_range(new_s, new_e)
-        ps_copy["travel_time_from_prev_minutes"] = t_mins
-        ps_copy["travel_time_from_prev"] = f"{t_mins} mins" if t_mins > 0 else "0 mins"
-        ps_copy["distance_from_prev_km"] = t_dist
-        ps_copy["travel_mode"] = t_mode
-        ps_copy["rescheduled"] = is_changed
-        ps_copy["status_label"] = "Rescheduled" if is_changed else "Unchanged"
-
-        final_proposed_stops.append(ps_copy)
-        time_cursor_m = new_e
-        if _valid_coords(curr_lat, curr_lon):
-            prev_coords_lat = float(curr_lat)
-            prev_coords_lon = float(curr_lon)
-
-    # 4. Strict Chronological Overlap Guard
-    for i in range(len(final_proposed_stops) - 1):
-        end_curr = parse_hhmm_to_minutes(final_proposed_stops[i].get("end_time"), 0)
-        start_next = parse_hhmm_to_minutes(final_proposed_stops[i + 1].get("start_time"), 0)
-        if start_next < end_curr:
-            shift_gap = 10
-            dur = final_proposed_stops[i + 1].get("duration_minutes") or 60
-            new_s = end_curr + shift_gap
-            new_e = new_s + dur
-            final_proposed_stops[i + 1]["start_time"] = minutes_to_hhmm(new_s)
-            final_proposed_stops[i + 1]["end_time"] = minutes_to_hhmm(new_e)
-            final_proposed_stops[i + 1]["time"] = format_time_range(new_s, new_e)
-            final_proposed_stops[i + 1]["rescheduled"] = True
-            if final_proposed_stops[i + 1].get("status_label") != "Replacement":
-                final_proposed_stops[i + 1]["status_label"] = "Rescheduled"
+    # Check the complete proposal, not just the replacement's immediate next leg.
+    try:
+        tail = _reschedule_tail(subsequent_stops, max(time_cursor_m, prev_end_m),
+            prev_coords_lat, prev_coords_lon, bed_mins, protected_ids)
+        final_proposed_stops.extend(tail)
+        validate_reroute(trip, day_number, skipped_activity_id, final_proposed_stops)
+    except ValueError:
+        # A replacement can make a later fixed/completed stop impossible. Try the
+        # original remaining visits before falling back to progress-only skipping.
+        try:
+            final_proposed_stops = [dict(s, rescheduled=False, status_label='Unchanged') for s in historical_stops]
+            final_proposed_stops.extend(_reschedule_tail(subsequent_stops,
+                max(earliest_feasible_start_m, prev_end_m), origin_lat, origin_lon, bed_mins, protected_ids))
+            validate_reroute(trip, day_number, skipped_activity_id, final_proposed_stops)
+            replacement_stop_obj = None
+            reason_msg = 'No replacement fits the complete remaining day. Your existing visits are preserved.'
+        except ValueError:
+            return skip_only('No safe rearrangement fits the remaining day and fixed stops. Accepting marks this stop as skipped and keeps your saved schedule unchanged.')
 
     proposal_id = f"prop_{int(time.time())}_{day_number}"
     rescheduled_stops = [s for s in final_proposed_stops if s.get("rescheduled")]
@@ -705,7 +730,8 @@ def apply_reroute_proposal(
     replacement_activity_id: Optional[str] = None,
     reason: Optional[str] = None,
     expected_revision: Optional[int] = None,
-    x_user_id: Optional[str] = None
+    x_user_id: Optional[str] = None,
+    preserve_schedule: bool = False
 ) -> Dict[str, Any]:
     """
     Applies the accepted reroute proposal to the trip.
@@ -747,7 +773,7 @@ def apply_reroute_proposal(
         raise HTTPException(status_code=400, detail="Trip has no daily routes to update")
 
     from app.services.trip_consistency import validate_reroute, revision_filter
-    mode = validate_reroute(trip, day_number, skipped_activity_id, proposed_stops)
+    mode = validate_reroute(trip, day_number, skipped_activity_id, proposed_stops, preserve_schedule=preserve_schedule)
 
     # Locate and update ONLY the target day
     day_found = False

@@ -10,6 +10,7 @@ jobs:
         working-directory: Backend
     env:
       GROQ_API_KEY: test-key
+      MONGODB_URI: mongodb://localhost:27017
       SERPAPI_API_KEY: ''
     steps:
       - uses: actions/checkout@v4

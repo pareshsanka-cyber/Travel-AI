@@ -1,7 +1,9 @@
 import { CompanionCountdown } from '../CompanionCountdown';
 import { useCompanionMotion } from '../../motion/useCompanionMotion';
 import { changedRerouteIds } from '../../motion/rerouteDiff';
-import { useModalFocus } from '../../hooks/useModalFocus';
+import { RerouteReviewDialog } from '../RerouteReviewDialog';
+import { previewAdjustment, confirmAdjustment, type ReviewProposal, type DisruptionTrigger, type PreviewLocation } from '../../services/rerouteV2';
+import { countdownTarget, countdownDisplay } from '../../motion/countdown';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Compass,
@@ -29,15 +31,12 @@ import {
   ItineraryDay,
   ActivitySegment,
   ExecutionState,
-  RerouteProposal
 } from '../../types';
 import { resolvePlaceImage, getActivityCategoryMeta, CategoryPlaceholder, getCategoryFallbackImage } from './DayDetailView';
 import {
   generatePersistentActivityId,
   resolveActivityExecutionRecord,
   migrateLegacyExecutionState,
-  previewReroute,
-  applyReroute,
 } from '../../services/api';
 
 interface CompanionModeProps {
@@ -55,8 +54,10 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
   onApplyRerouteResult,
   onSwitchTab,
 }) => {
-  const proposalPanel = useRef<HTMLDivElement>(null);
+  const requestScope = useRef('');
+  const previewController = useRef<AbortController | null>(null);
   const pendingAction = useRef(false);
+  const reviewOpener = useRef<HTMLElement | null>(null);
   // 1. Resolve Execution State with safe defaults and automated legacy migration
   const executionState: ExecutionState = useMemo(() => {
     const rawState = trip?.executionState || {
@@ -81,7 +82,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Dynamic AI Rerouting States
-  const [activeProposal, setActiveProposal] = useState<RerouteProposal | null>(null);
+  const [activeProposal, setActiveProposal] = useState<ReviewProposal | null>(null);
   const [isApplyingReroute, setIsApplyingReroute] = useState<boolean>(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const [rerouteFeedback, setRerouteFeedback] = useState<{
@@ -89,25 +90,32 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
     message: string;
   } | null>(null);
 
-  // Traveler live GPS location for directions from current location
-  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lon: number } | null>(null);
-
+  // Location is requested only by an explicit traveler action, never on mount.
+  const [currentLocation, setCurrentLocation] = useState<PreviewLocation | null>(null);
+  const [locationNotice, setLocationNotice] = useState('Using the planned starting point.');
+  const [delayMinutes, setDelayMinutes] = useState<15 | 30 | 60>(30);
+  const [travelMode, setTravelMode] = useState<'driving' | 'walking'>('driving');
+  const scope = `${trip?.id}/${selectedDayNumber}`;
+  requestScope.current = scope;
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setCurrentLocation({
-            lat: pos.coords.latitude,
-            lon: pos.coords.longitude,
-          });
-        },
-        (err) => {
-          console.debug('[CompanionMode] GPS prompt / status:', err.message);
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
-      );
-    }
-  }, []);
+    requestScope.current = scope;
+    previewController.current?.abort();
+    setActiveProposal(null); setProposalError(null); setLoadingKey(null);
+    pendingAction.current = false; setIsApplyingReroute(false); setCurrentLocation(null);
+    setLocationNotice('Using the planned starting point.');
+    return () => { previewController.current?.abort(); requestScope.current = ''; };
+  }, [scope]);
+  const useLocation = () => {
+    if (!navigator.geolocation) { setLocationNotice('Location unavailable. Using the planned starting point.'); return; }
+    const originScope = scope;
+    setLocationNotice('Requesting your location for this preview only...');
+    navigator.geolocation.getCurrentPosition(pos => {
+      if (requestScope.current !== originScope) return;
+      setCurrentLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: new Date(pos.timestamp).toISOString() });
+      setLocationNotice('Recent location ready. The server checks its age and accuracy before use.');
+    }, () => { if (requestScope.current === originScope) setLocationNotice('Location not available. Using the planned starting point.'); },
+    { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 });
+  };
 
   // 4. Resolve Current Day Data
   const currentDay = useMemo(() => {
@@ -174,13 +182,35 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
   }, [activities, executionState.activity_log, selectedDayNumber]);
 
   const journey = useCompanionMotion(`${trip?.id}/${selectedDayNumber}`, progressPercent);
-  const proposalChanges = useMemo(() => activeProposal && activeProposal.mode !== 'skip_only' ? changedRerouteIds(activeProposal.original_stops || [], activeProposal.proposed_stops || []) : new Set<string>(), [activeProposal]);
+  const [timingNow, setTimingNow] = useState(Date.now);
+  const [dismissedTiming, setDismissedTiming] = useState('');
+  useEffect(() => {
+    const tick = () => { if (!document.hidden) setTimingNow(Date.now()); };
+    const timer = setInterval(tick, 60000); document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); };
+  }, []);
+  const timingActivityObj = unfinishedList.find(item => resolveActivityExecutionRecord(item.act, selectedDayNumber, item.index, executionState.activity_log).status === 'pending');
+  const currentPending = currentActivityObj && resolveActivityExecutionRecord(currentActivityObj.act, selectedDayNumber, currentActivityObj.index, executionState.activity_log).status === 'pending';
+  const nextTarget = timingActivityObj ? countdownTarget(timingActivityObj.act, currentDay, trip?.scheduleTimezone) : null;
+  const timingState = nextTarget ? countdownDisplay(nextTarget, timingNow).state : 'unavailable';
+  const historical = timingState === 'past';
+  const timingKey = `${scope}/${timingActivityObj?.act.id}/${nextTarget?.timestamp}`;
+  const late = timingState === 'passed' && nextTarget?.timestamp != null && timingNow - nextTarget.timestamp >= 15*60000;
+  const locationAllowed = useMemo(() => {
+    if (!nextTarget?.zone || !nextTarget.date) return false;
+    try {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: nextTarget.zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(timingNow).map(p => [p.type, p.value]));
+      return nextTarget.date === `${parts.year}-${parts.month}-${parts.day}`;
+    } catch { return false; }
+  }, [nextTarget?.zone, nextTarget?.date, timingNow]);
+
 
   // 6. Action Handlers
 
   // ✅ Mark Activity Complete
   const handleMarkComplete = async (act: ActivitySegment, actIndex: number) => {
     if (pendingAction.current) return;
+    const actionScope = scope;
     pendingAction.current = true;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
     const legacyKey = `${selectedDayNumber}_${actIndex}`;
@@ -208,6 +238,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       activity_log: updatedLog,
     });
 
+    if (requestScope.current !== actionScope) return;
     pendingAction.current = false;
     if (success) journey.confirm({ kind: 'complete', id: actId });
     setLoadingKey(null);
@@ -217,138 +248,57 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
   };
 
   // ⏭️ Skip Activity & Trigger Dynamic AI Rerouting
-  const handleSkip = async (act: ActivitySegment, actIndex: number) => {
-    if (pendingAction.current) return;
+  const handleSkip = async (act: ActivitySegment, actIndex: number, trigger: DisruptionTrigger = 'skip') => {
+    if (pendingAction.current || !trip?.id) return;
+    if (resolveActivityExecutionRecord(act, selectedDayNumber, actIndex, executionState.activity_log).status !== 'pending') return;
+    reviewOpener.current = document.activeElement as HTMLElement | null;
     pendingAction.current = true;
+    const actionScope = scope;
+    const controller = new AbortController(); previewController.current?.abort(); previewController.current = controller;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
-    const legacyKey = `${selectedDayNumber}_${actIndex}`;
-    setLoadingKey(`${actId}_skip`);
-    setErrorMessage(null);
-
-    const entry = {
-      status: 'skipped' as const,
-      activity_id: actId,
-      activity_title: act.title,
-      actual_end_time: new Date().toISOString(),
-    };
-
-    const updatedLog = {
-      ...(executionState.activity_log || {}),
-      [actId]: entry,
-      [legacyKey]: entry,
-    };
-
-    // 1. Mark the selected activity as skipped using its persistent ID & dual-write
-    const success = await onUpdateExecutionState({
-      is_active: true,
-      current_day_number: selectedDayNumber,
-      activity_log: updatedLog,
-    });
-
-    if (!success) {
-      pendingAction.current = false;
-      setErrorMessage('Unable to save skipped activity. Refresh and try again.');
-      setLoadingKey(null);
-      return;
-    }
-
-    // 2. Trigger Dynamic Rerouting Engine preview for the remaining day
-    const tripId = trip?.id || (trip as any)?._id;
-    if (tripId) {
-      try {
-        const proposal = await previewReroute(tripId, {
-          day_number: selectedDayNumber,
-          skipped_activity_id: actId,
-          current_location: currentLocation || undefined,
-        });
-
-        if (proposal && proposal.status === 'success') {
-          setActiveProposal(proposal);
-          setProposalError(null);
-        } else {
-          setRerouteFeedback({
-            type: 'info',
-            message: 'Stop marked as skipped. Dynamic reroute adjustment not available for this stop.',
-          });
-        }
-      } catch (err: any) {
-        console.debug('[CompanionMode] Dynamic reroute preview notice:', err?.message || err);
-        setRerouteFeedback({
-          type: 'info',
-          message: 'Stop skipped. Remaining schedule kept unchanged.',
-        });
-      }
-    }
-
-    pendingAction.current = false;
-    setLoadingKey(null);
-  };
-
-  // ✅ Accept & Apply Dynamic Rerouting Proposal
-  const handleAcceptProposal = async () => {
-    if (!activeProposal || pendingAction.current) return;
-    const tripId = trip?.id || (trip as any)?._id;
-    if (!tripId) {
-      setActiveProposal(null);
-      return;
-    }
-
-    pendingAction.current = true;
-    const beforePositions = journey.capture();
-    setIsApplyingReroute(true);
-    setProposalError(null);
-
+    setLoadingKey(`${actId}_skip`); setErrorMessage(null);
     try {
-      const result = await applyReroute(tripId, {
-        proposal_id: activeProposal.proposal_id,
-        day_number: activeProposal.day_number,
-        skipped_activity_id: activeProposal.skipped_activity.id,
-        proposed_stops: activeProposal.proposed_stops,
-        replacement_activity_id: activeProposal.replacement_activity?.id,
-        reason: activeProposal.reason,
-        expected_revision: activeProposal.revision,
-      });
-
-      if (result && result.status === 'success') {
-        if (onApplyRerouteResult) {
-          onApplyRerouteResult(result);
-        }
-        if (activeProposal.mode !== 'skip_only') journey.confirm({ kind: 'reroute', before: beforePositions, changed: proposalChanges });
-        setActiveProposal(null);
-        setRerouteFeedback({
-          type: 'success',
-          message: activeProposal.replacement_found
-            ? `Itinerary updated! Added "${activeProposal.replacement_activity?.title || 'replacement stop'}" to your day.`
-            : activeProposal.mode === 'skip_only'
-              ? 'Stop marked as skipped. Your saved schedule is unchanged.'
-              : 'Itinerary updated! Remaining stops were smoothly rescheduled.',
-        });
-      } else {
-        setProposalError('Conflict: This trip was modified concurrently. Please refresh the page.');
-      }
-    } catch (err: any) {
-      console.error('[CompanionMode] Apply reroute failed:', err);
-      setProposalError(err?.message || 'Failed to apply reroute changes.');
+      const proposal = await previewAdjustment(trip.id, { day_number: selectedDayNumber, target_activity_id: actId,
+        trigger, expected_revision: trip.revision || 1, travel_mode: travelMode, delay_minutes: delayMinutes,
+        current_location: currentLocation || undefined }, controller.signal);
+      if (requestScope.current !== actionScope || controller.signal.aborted) return;
+      setActiveProposal(proposal); setProposalError(null);
+    } catch (error) {
+      if (requestScope.current === actionScope && !controller.signal.aborted)
+        setErrorMessage(error instanceof Error ? error.message : 'Could not review options. Your schedule is unchanged.');
     } finally {
-      pendingAction.current = false;
-      setIsApplyingReroute(false);
+      if (requestScope.current === actionScope) { pendingAction.current = false; setLoadingKey(null); }
     }
   };
 
-  // ❌ Cancel / Reject Dynamic Rerouting Proposal
-  const handleCancelProposal = () => {
-    setActiveProposal(null);
-    setProposalError(null);
-    setRerouteFeedback({
-      type: 'info',
-      message: 'Stop marked as skipped. Original schedule preserved.',
-    });
+  const handleAcceptProposal = async (optionId: string) => {
+    if (!activeProposal || pendingAction.current || !trip?.id) return;
+    const option = activeProposal.options.find(o => o.id === optionId);
+    if (!option) return;
+    const actionScope = scope;
+    pendingAction.current = true; setIsApplyingReroute(true); setProposalError(null);
+    const before = journey.capture();
+    try {
+      const result = await confirmAdjustment(trip.id, activeProposal, optionId);
+      if (requestScope.current !== actionScope) return;
+      onApplyRerouteResult?.(result);
+      if (option.kind !== 'skip_only') journey.confirm({ kind: 'reroute', before, changed: changedRerouteIds(activeProposal.original_stops, option.proposed_stops) });
+      setActiveProposal(null);
+      setRerouteFeedback({ type: 'success', message: option.kind === 'skip_only' ? 'Stop marked as skipped. Your saved timings are unchanged.' : 'Your confirmed schedule has been updated.' });
+    } catch (error) {
+      if (requestScope.current === actionScope) setProposalError(error instanceof Error ? error.message : 'Changes were not saved. Review again.');
+    } finally {
+      if (requestScope.current === actionScope) { pendingAction.current = false; setIsApplyingReroute(false); }
+    }
   };
-  useModalFocus(proposalPanel, Boolean(activeProposal), () => { if (!isApplyingReroute) handleCancelProposal(); });
+  const handleCancelProposal = () => {
+    setActiveProposal(null); setProposalError(null);
+    setRerouteFeedback({ type: 'info', message: 'Current schedule kept. No progress or timing changes were made.' });
+  };
 
-  // 🔄 Revert/Undo Activity Status (Reset to pending)
   const handleUndoStatus = async (act: ActivitySegment, actIndex: number) => {
     if (pendingAction.current) return;
+    const actionScope = scope;
     pendingAction.current = true;
     const actId = act.id || generatePersistentActivityId(act.type || act.category, act.title, act.placeId);
     const legacyKey = `${selectedDayNumber}_${actIndex}`;
@@ -365,6 +315,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       activity_log: updatedLog,
     });
 
+    if (requestScope.current !== actionScope) return;
     pendingAction.current = false;
     if (success) journey.confirm({ kind: 'undo', id: actId });
     setLoadingKey(null);
@@ -663,6 +614,21 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
           </div>
 
           {/* ACTION BUTTONS (MOBILE-FIRST PROMINENT CONTROLS) */}
+          {!historical && <div className="mt-4 space-y-3 text-xs">
+            {late && dismissedTiming !== timingKey && <div className="p-3 rounded-xl border border-amber-500/30 flex gap-3 items-center flex-wrap">
+              <span>The next stop is at least 15 minutes late. Review timing before making changes.</span>
+              <button type="button" disabled={loadingKey !== null} onClick={() => timingActivityObj && handleSkip(timingActivityObj.act, timingActivityObj.index, 'delay')} className="text-primary underline">Review timing</button>
+              <button type="button" onClick={() => setDismissedTiming(timingKey)} className="underline">Dismiss</button>
+            </div>}
+            <div className="flex flex-wrap gap-3 items-center">
+              <label>Delay from saved start <select aria-label="Delay from saved start" value={delayMinutes} onChange={e => setDelayMinutes(Number(e.target.value) as 15 | 30 | 60)} className="p-2 rounded-lg bg-surface-container-highest"><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={60}>60 minutes</option></select></label>
+              <label>Travel mode <select aria-label="Adjustment travel mode" value={travelMode} onChange={e => setTravelMode(e.target.value as 'driving' | 'walking')} className="p-2 rounded-lg bg-surface-container-highest"><option value="driving">Driving</option><option value="walking">Walking</option></select></label>
+              <button type="button" disabled={loadingKey !== null || !currentPending} onClick={() => handleSkip(currentActivityObj.act, currentActivityObj.index, 'delay')} className="p-2 rounded-lg border border-surface-container-highest">Running late</button>
+              <button type="button" disabled={loadingKey !== null || !currentPending} onClick={() => handleSkip(currentActivityObj.act, currentActivityObj.index, 'closed')} className="p-2 rounded-lg border border-surface-container-highest">Place closed</button>
+              {locationAllowed && <button type="button" onClick={useLocation} className="p-2 text-primary underline">Use my location</button>}
+            </div><p className="text-on-surface-variant">{locationNotice} Closure reports are supplied by you, not verified live.</p>
+          </div>}
+          {loadingKey?.endsWith('_skip') && <p role="status" className="mt-3 text-xs text-primary">Reviewing safe options… Your trip is unchanged.</p>}
           <div className="mt-5 pt-4 border-t border-surface-container-high/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
             {/* ✅ Mark Complete */}
             <button
@@ -682,7 +648,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
             {/* ⏭️ Skip */}
             <button
               type="button"
-              disabled={loadingKey !== null}
+              disabled={loadingKey !== null || !currentPending}
               onClick={() => handleSkip(currentActivityObj.act, currentActivityObj.index)}
               className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-surface-container-highest hover:bg-surface-bright text-on-surface font-semibold text-xs sm:text-sm border border-surface-container-highest transition-all active:scale-[0.98] disabled:opacity-50"
             >
@@ -691,7 +657,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
               ) : (
                 <SkipForward className="w-4 h-4 text-amber-500" />
               )}
-              <span>Skip Stop</span>
+              <span>{historical ? 'Skip only' : 'Skip / replace'}</span>
             </button>
 
             {/* 🗺️ Navigate */}
@@ -917,7 +883,7 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
 
                     {/* Quick Complete / Skip if pending */}
                     {status !== 'completed' && status !== 'skipped' && (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
                         <button
                           type="button"
                           disabled={loadingKey !== null}
@@ -932,8 +898,9 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                         </button>
                         <button
                           type="button"
-                          disabled={loadingKey !== null}
+                          disabled={loadingKey !== null || status !== 'pending'}
                           onClick={() => handleSkip(act, idx)}
+                          aria-label={`${historical ? 'Skip only' : 'Skip / replace'} ${act.title}`}
                           title="Skip stop & suggest reroute"
                           className="px-2 py-1 rounded-lg bg-surface-container-highest hover:bg-surface-bright text-on-surface-variant hover:text-amber-500 text-[11px] font-medium transition-colors inline-flex items-center gap-1"
                         >
@@ -942,10 +909,14 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
                           ) : (
                             <>
                               <SkipForward className="w-3 h-3 text-amber-500" />
-                              <span>Skip</span>
+                              <span>{historical ? 'Skip only' : 'Skip / replace'}</span>
                             </>
                           )}
                         </button>
+                        {!historical && status === 'pending' && <>
+                          <button type="button" aria-label={`Running late: ${act.title}`} disabled={loadingKey !== null} onClick={() => handleSkip(act, idx, 'delay')} className="px-2 py-1 rounded-lg border border-surface-container-highest text-[11px]">Running late</button>
+                          <button type="button" aria-label={`Place closed: ${act.title}`} disabled={loadingKey !== null} onClick={() => handleSkip(act, idx, 'closed')} className="px-2 py-1 rounded-lg border border-surface-container-highest text-[11px]">Place closed</button>
+                        </>}
                       </div>
                     )}
 
@@ -977,277 +948,8 @@ export const CompanionMode: React.FC<CompanionModeProps> = ({
       </div>
 
       {/* 4. DYNAMIC AI REROUTING PROPOSAL MODAL */}
-      {activeProposal && (
-        <div className="motion-backdrop fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-          <div ref={proposalPanel} role="dialog" aria-modal="true" aria-labelledby="reroute-dialog-title" tabIndex={-1} className="motion-dialog bg-surface-container border border-surface-container-high rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-surface-container-high/80 flex items-center justify-between bg-surface-container-low">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shadow-sm">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h3 id="reroute-dialog-title" className="text-sm sm:text-base font-bold text-on-surface flex items-center gap-2">
-                    Dynamic AI Rerouting
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 text-primary border border-primary/20 uppercase tracking-wider">
-                      Day {activeProposal.day_number}
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-on-surface-variant">
-                    {activeProposal.mode === 'skip_only' ? 'Skip stop without changing timings' : activeProposal.replacement_found ? 'Verified replacement found' : 'Schedule rebalanced'}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCancelProposal}
-                className="w-8 h-8 rounded-lg hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface flex items-center justify-center transition-colors"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-5 overflow-y-auto space-y-4">
-              {/* Proposal Reason */}
-              {activeProposal.reason && (
-                <div className="p-3 rounded-xl bg-surface-container-high/60 border border-surface-container-highest text-xs text-on-surface-variant flex items-start gap-2.5">
-                  <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="leading-relaxed">{activeProposal.reason}</p>
-                </div>
-              )}
-
-              {/* Skipped Activity Indicator */}
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
-                    <SkipForward className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                      Skipped Stop
-                    </span>
-                    <h4 className="text-xs sm:text-sm font-semibold text-on-surface line-through opacity-80 truncate">
-                      {activeProposal.skipped_activity.title}
-                    </h4>
-                  </div>
-                </div>
-                {activeProposal.skipped_activity.time && (
-                  <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap">
-                    {activeProposal.skipped_activity.time}
-                  </span>
-                )}
-              </div>
-
-              {/* Replacement Card OR Meal Break OR Graceful Notice */}
-              {activeProposal.replacement_found && activeProposal.replacement_activity ? (() => {
-                const repl = activeProposal.replacement_activity;
-                const isMealBreak = Boolean((repl as any).is_meal_break || repl.isMealBreak || (repl as any).status_label === 'Meal Break' || repl.statusLabel === 'Meal Break');
-                return (
-                  <div className={`p-4 rounded-xl border space-y-2.5 shadow-sm ${
-                    isMealBreak
-                      ? 'bg-amber-500/10 border-amber-500/30'
-                      : 'bg-emerald-500/10 border-emerald-500/30'
-                  }`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
-                        isMealBreak
-                          ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30'
-                          : 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
-                      }`}>
-                        {isMealBreak ? (
-                          <>
-                            <Utensils className="w-3 h-3 text-amber-500" />
-                            Dedicated Meal Break Preserved
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3 h-3 text-emerald-500" />
-                            Verified Replacement Added
-                          </>
-                        )}
-                      </span>
-                      {repl.time && (
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
-                          isMealBreak
-                            ? 'text-amber-700 dark:text-amber-300'
-                            : 'text-emerald-700 dark:text-emerald-300'
-                        }`}>
-                          <Clock className="w-3 h-3" />
-                          {repl.time}
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <h4 className="text-sm sm:text-base font-bold text-on-surface">
-                        {repl.title || (repl as any).name}
-                      </h4>
-                      <div className="flex items-center gap-2 text-xs text-on-surface-variant mt-0.5 flex-wrap">
-                        {repl.category && (
-                          <span className="capitalize">{repl.category}</span>
-                        )}
-                        {repl.rating && (
-                          <span>• ⭐ {repl.rating}</span>
-                        )}
-                        {repl.location && (
-                          <span>• {repl.location}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {repl.description && (
-                      <p className="text-xs text-on-surface-variant leading-relaxed line-clamp-2">
-                        {repl.description}
-                      </p>
-                    )}
-
-                    {repl.whyVisit && (
-                      <p className={`text-[11px] italic p-2 rounded-lg border ${
-                        isMealBreak
-                          ? 'text-amber-800 dark:text-amber-300/90 bg-amber-500/5 border-amber-500/20'
-                          : 'text-emerald-800 dark:text-emerald-300/90 bg-emerald-500/5 border-emerald-500/20'
-                      }`}>
-                        💡 {repl.whyVisit}
-                      </p>
-                    )}
-                  </div>
-                );
-              })() : (
-                <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-start gap-2.5">
-                  <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-on-surface-variant leading-relaxed">
-                    {activeProposal.mode === 'skip_only'
-                      ? 'Activity timings are unavailable for this older itinerary. No replacement or new timings will be added; your other stops stay as planned.'
-                      : <><strong className="text-on-surface font-semibold">No replacement needed:</strong> No verified alternative fits the remaining schedule before evening without rushing. Your remaining stops have been smoothly advanced.</>}
-                  </div>
-                </div>
-              )}
-
-              {/* Proposed Schedule Preview */}
-              <div>
-                <h5 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">
-                  Proposed Schedule for Day {activeProposal.day_number}
-                </h5>
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                  {activeProposal.proposed_stops.map((stop: any, sIdx: number) => {
-                    const stopTitle = stop.title || stop.name || 'Scheduled Activity';
-                    const isMealBreak = stop.id === activeProposal.replacement_activity?.id && Boolean(stop.is_meal_break);
-                    const isReplacement = stop.id === activeProposal.replacement_activity?.id && !isMealBreak;
-                    const isRescheduled = activeProposal.mode !== 'skip_only' && proposalChanges.has(String(stop.id)) && !isReplacement && !isMealBreak;
-                    const isUnchanged = !isReplacement && !isMealBreak && !isRescheduled;
-
-                    const transitMins = stop.travel_time_from_prev_minutes || (stop.travel_time_from_prev ? parseInt(stop.travel_time_from_prev, 10) : undefined);
-                    const transitText = stop.travel_time_from_prev || (transitMins ? `${transitMins} mins` : undefined);
-
-                    return (
-                      <div
-                        key={stop.id || sIdx}
-                        data-proposal-changed={isRescheduled || isReplacement || isMealBreak}
-                        className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2.5 ${
-                          isReplacement
-                            ? 'bg-emerald-500/10 border-emerald-500/30'
-                            : isMealBreak
-                            ? 'bg-amber-500/10 border-amber-500/30'
-                            : isRescheduled
-                            ? 'bg-blue-500/10 border-blue-500/25'
-                            : 'bg-surface-container-high/60 border-surface-container-highest'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="flex flex-col flex-shrink-0 w-24">
-                            <span className="font-mono text-[11px] font-medium text-on-surface-variant">
-                              {stop.time || (stop.start_time && stop.end_time ? `${stop.start_time} – ${stop.end_time}` : 'Time unavailable')}
-                            </span>
-                            {sIdx > 0 && transitText && (
-                              <span className="text-[10px] text-on-surface-variant/60 flex items-center gap-0.5">
-                                <Navigation className="w-2.5 h-2.5" />
-                                {transitText}
-                              </span>
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <span className="font-semibold text-on-surface truncate block">
-                              {stopTitle}
-                            </span>
-                            {(stop.category || stop.type) && (
-                              <span className="text-[10px] text-on-surface-variant/70 capitalize block">
-                                {stop.category || stop.type}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {isReplacement && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex-shrink-0">
-                            Replacement
-                          </span>
-                        )}
-                        {isMealBreak && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex-shrink-0">
-                            Meal Break
-                          </span>
-                        )}
-                        {isRescheduled && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30 flex-shrink-0">
-                            Rescheduled
-                          </span>
-                        )}
-                        {isUnchanged && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-surface-container-highest text-on-surface-variant flex-shrink-0">
-                            Unchanged
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Conflict / Proposal Error */}
-              {proposalError && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{proposalError}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-5 py-3.5 border-t border-surface-container-high/80 bg-surface-container-low flex flex-col sm:flex-row items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={handleCancelProposal}
-                disabled={isApplyingReroute}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-surface-container-highest hover:bg-surface-bright text-on-surface text-xs font-semibold border border-surface-container-highest transition-all disabled:opacity-50"
-              >
-                Keep Schedule as is (Cancel)
-              </button>
-
-              <button
-                type="button"
-                onClick={handleAcceptProposal}
-                disabled={isApplyingReroute}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-on-primary text-xs font-semibold shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isApplyingReroute ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Applying Changes...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Accept & Update Schedule</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeProposal && <RerouteReviewDialog key={activeProposal.proposal_id} proposal={activeProposal}
+        busy={isApplyingReroute} error={proposalError} onConfirm={handleAcceptProposal} onClose={handleCancelProposal} returnFocus={reviewOpener.current} />}
     </div>
   );
 };

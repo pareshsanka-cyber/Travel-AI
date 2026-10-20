@@ -131,7 +131,7 @@ def resolve_destination_coordinates(destination: str) -> dict | None:
     return None
 
 
-def discover_restaurants_serpapi(destination: str, limit: int = 5) -> list:
+def discover_restaurants_serpapi(destination: str, limit: int = 5, timeout_seconds: float = 8.0) -> list:
     """
     Layer 1: Real-time verified restaurant discovery via SerpApi Google Maps.
     Returns restaurants with genuine place coordinates from Google Maps, ratings, reviews, cuisine, and photos.
@@ -142,7 +142,7 @@ def discover_restaurants_serpapi(destination: str, limit: int = 5) -> list:
         clean_dest = destination.split(',')[0].strip()
         query = f"restaurants in {clean_dest}"
         url = f"https://serpapi.com/search.json?engine=google_maps&q={urllib.parse.quote(query)}&api_key={SERPAPI_API_KEY}"
-        resp = httpx.get(url, timeout=8.0)
+        resp = httpx.get(url, timeout=timeout_seconds)
         if resp.status_code == 200:
             data = resp.json()
             results = data.get("local_results", [])

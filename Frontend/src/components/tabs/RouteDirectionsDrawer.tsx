@@ -121,6 +121,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
 
   const isEntireDay = activeLegIndex === -1;
   const activeLeg = isEntireDay ? null : (legs[activeLegIndex] || legs[0]);
+  const incomplete = legs.some(leg => leg.status === 'no_route' || leg.status === 'error');
 
   return (
     <div className="rounded-2xl bg-surface-container border border-surface-container-highest/60 shadow-lg p-space-md space-y-4 flex flex-col min-w-0">
@@ -138,10 +139,10 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
           </div>
           <div className="flex flex-col">
             <span className="text-2xl font-black text-on-surface leading-none mb-1">
-              {Math.round(totalDistance * 10) / 10} km
+              {incomplete && totalDistance === 0 ? 'Route unavailable' : `${Math.round(totalDistance * 10) / 10} km${incomplete ? ' known' : ''}`}
             </span>
             <span className="text-sm font-semibold text-primary">
-              {totalDuration} min {selectedMode === 'walking' ? 'walking' : 'driving'}
+              {incomplete ? 'Directions incomplete' : `${totalDuration} min ${selectedMode === 'walking' ? 'walking' : 'driving'}`}
             </span>
             <span className="text-xs text-on-surface-variant font-medium mt-0.5">
               {legs.length} legs • {legs.length + 1} stops
@@ -246,6 +247,8 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
 
       {/* Main Content Area */}
       <div className="min-w-0 flex flex-col">
+        {incomplete &&
+          <p role="status" className="text-xs text-on-surface-variant py-2">Location coordinates unavailable for part of this day. Directions and totals are incomplete.</p>}
         {isEntireDay ? (
           <div className="min-w-0 pr-1 scrollbar-thin space-y-3">
             <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider px-1">
@@ -272,7 +275,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
                     <span>{leg.toTitle}</span>
                   </div>
                   <div className="text-xs text-on-surface-variant flex items-center gap-3 pt-1">
-                    <span className="font-bold">{leg.durationMins} min</span>
+                    <span className="font-bold">{leg.status === 'no_route' || leg.status === 'error' ? 'Route unavailable' : `${leg.durationMins} min`}</span>
                     <span>•</span>
                     <span>{leg.distanceKm} km</span>
                   </div>
@@ -320,7 +323,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
             </div>
 
             {/* Launch Google Maps Button */}
-            <a
+            {activeLeg.googleMapsUrl && <a
               href={activeLeg.googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -329,7 +332,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
             >
               <span>Navigate with Google Maps</span>
               <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            </a>}
           </div>
 
           {/* Turn-by-Turn Instruction Steps List */}
@@ -375,7 +378,7 @@ export const RouteDirectionsDrawer: React.FC<RouteDirectionsDrawerProps> = ({
               ))
             ) : (
               <p className="text-xs text-on-surface-variant p-2.5 italic rounded-xl bg-surface-container-lowest border border-surface-container-highest/40">
-                Direct transit connection between {activeLeg.fromTitle} and {activeLeg.toTitle}.
+                {activeLeg.errorMessage || `Direct transit connection between ${activeLeg.fromTitle} and ${activeLeg.toTitle}.`}
               </p>
             )}
           </div>

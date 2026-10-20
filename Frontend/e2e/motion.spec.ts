@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { layoutFixture } from './fixtures/layout';
+import { reviewSnapshot } from './fixtures/routingV2';
 
 test.use({ video: 'on' });
 
@@ -76,17 +77,15 @@ test('reroute dialog shell preserves cancel, focus and server proposal handling'
     applied++; await route.fulfill({ status: 409, json: { detail: 'Generate a fresh preview.' } });
   });
   await page.route('http://127.0.0.1:8000/api/trips/layout-trip/reroute/preview', route => route.fulfill({
-    json: { status: 'success', proposal_id: 'server-preview', revision: 2, day_number: 1, mode: 'skip_only',
-      skipped_activity: { id: 'a', title: 'Sydney Harbour' }, replacement_found: false, replacement_activity: null,
-      original_stops: [], proposed_stops: [], rescheduled_stops: [], reason: 'Saved timings remain unchanged.' },
+    json: reviewSnapshot(1, [], [], true),
   }));
   await page.goto('/'); await page.getByRole('button', { name: 'Open Companion', exact: true }).click();
-  const skip = page.getByRole('button', { name: 'Skip Stop', exact: true }); await skip.click();
-  const dialog = page.getByRole('dialog', { name: /Dynamic AI Rerouting/ });
+  const skip = page.getByRole('button', { name: 'Skip / replace', exact: true }); await skip.click();
+  const dialog = page.getByRole('dialog', { name: /Adjust your day/ });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Close review', exact: true })).toBeFocused();
   await page.keyboard.press('Shift+Tab');
-  await expect(dialog.getByRole('button', { name: 'Accept & Update Schedule', exact: true })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Confirm changes', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   expect(applied).toBe(0);

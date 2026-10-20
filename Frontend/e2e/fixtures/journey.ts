@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { reviewSnapshot, directionsSnapshot } from './routingV2';
 
 export async function journeyFixture(page: Page, options: { legacy?: boolean; failure?: boolean; skipOnly?: boolean; conflict?: boolean; fallbackRoute?: boolean; flight?: boolean } = {}) {
   const stops = [
@@ -29,7 +30,7 @@ export async function journeyFixture(page: Page, options: { legacy?: boolean; fa
       return animate.call(this, frames, settings);
     };
   });
-  const writes: any[] = [];
+  const writes: any[] = [], previews: any[] = [], confirmations: any[] = [];
   let gate: Promise<void> = Promise.resolve(), release = () => {};
   const replacement = { ...stops[0], id: 'replacement', name: 'Sydney Observatory', start_time: '09:30', end_time: '10:30' };
   const proposed = options.skipOnly ? stops.slice(1) : [replacement, { ...stops[1], start_time: '11:30', end_time: '12:30' }, stops[2]];
@@ -45,13 +46,19 @@ export async function journeyFixture(page: Page, options: { legacy?: boolean; fa
       const body = route.request().postDataJSON(); writes.push(body); await gate;
       if (options.failure) { status = 500; data = { detail: 'Progress could not be saved.', request_id: 'progress-ref' }; }
       else { trip.execution_state = body.execution_state; trip.revision++; data = { status: 'success', execution_state: trip.execution_state, revision: trip.revision }; }
-    } else if (path.endsWith('/reroute/preview')) data = { status: 'success', proposal_id: 'owned-proposal', revision: trip.revision, day_number: 1,
-      mode: options.skipOnly ? 'skip_only' : 'reschedule', skipped_activity: { id: 'a', title: stops[0].name }, replacement_found: !options.skipOnly,
-      replacement_activity: options.skipOnly ? null : { ...replacement, title: replacement.name }, original_stops: stops, proposed_stops: proposed,
-      rescheduled_stops: options.skipOnly ? [] : proposed.slice(0, 2), reason: options.skipOnly ? 'Saved schedule stays unchanged.' : 'A nearby alternative fits your remaining schedule.' };
+    } else if (path.endsWith('/directions')) {
+      const url = new URL(route.request().url());
+      const day = trip.route_details.day_by_day_route.find((d: any) => d.day === Number(url.searchParams.get('day_number')));
+      data = directionsSnapshot(trip.revision, day?.stops || [], options.fallbackRoute, options.flight);
+    } else if (path.endsWith('/reroute/preview')) {
+      const body = route.request().postDataJSON(); previews.push(body);
+      data = reviewSnapshot(trip.revision, stops, options.skipOnly ? stops : proposed, !!options.skipOnly, body.trigger);
+    }
     else if (path.endsWith('/reroute/apply')) {
+      confirmations.push(route.request().postDataJSON());
       if (options.conflict) { status = 409; data = { detail: 'Trip changed. Generate a fresh preview.', request_id: 'reroute-ref' }; }
       else { if (!options.skipOnly) trip.route_details.day_by_day_route[0].stops = proposed;
+        trip.execution_state.activity_log.a = { status: 'skipped', activity_id: 'a' };
         trip.revision++; data = { status: 'success', trip_id: trip.id, revision: trip.revision, route_details: trip.route_details, execution_state: trip.execution_state }; }
     } else if (path === '/' || path === '/health/ready') data = { status: 'ok' };
     await route.fulfill({ status, json: data });
@@ -63,5 +70,5 @@ export async function journeyFixture(page: Page, options: { legacy?: boolean; fa
       await route.fulfill({ json: { code: 'Ok', routes: [{ distance: 1100, duration: 240, geometry: { coordinates }, legs: [{ steps: [] }] }] } });
     } else await route.abort();
   });
-  return { trip, writes, hold: () => { gate = new Promise<void>(resolve => { release = resolve; }); }, release: () => release() };
+  return { trip, writes, previews, confirmations, hold: () => { gate = new Promise<void>(resolve => { release = resolve; }); }, release: () => release() };
 }

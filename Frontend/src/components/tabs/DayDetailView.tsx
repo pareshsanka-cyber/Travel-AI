@@ -21,7 +21,8 @@ import {
 import { TripSummary, ItineraryDay, ActivitySegment, RouteLeg, TravelMode } from '../../types';
 import { DayMapView } from './DayMapView';
 import { RouteDirectionsDrawer } from './RouteDirectionsDrawer';
-import { fetchLegDirections, calculateHaversineKm } from '../../services/routingService';
+import { calculateHaversineKm, validRouteCoordinates, isFlightConnection, buildGoogleMapsUrl } from '../../services/routingService';
+import { fetchDayDirections } from '../../services/rerouteV2';
 
 
 interface DayDetailViewProps {
@@ -413,191 +414,48 @@ export const DayDetailView: React.FC<DayDetailViewProps> = ({
   const [legs, setLegs] = useState<RouteLeg[]>([]);
   const [activeLegIndex, setActiveLegIndex] = useState<number>(-1);
   const [selectedMode, setSelectedMode] = useState<TravelMode>('driving');
+  const routingMode = selectedMode === 'walking' ? 'walking' : 'driving';
   const [isLoadingRoutes, setIsLoadingRoutes] = useState<boolean>(false);
 
-  // Compute turn-by-turn road directions per itinerary leg using OSRM
+  const [directionsError, setDirectionsError] = useState<string | null>(null);
   useEffect(() => {
-    let isCancelled = false;
-
-    async function computeLegs() {
-      if (!day.activities || day.activities.length < 2) {
-        setLegs([]);
-        return;
-      }
-
-      setIsLoadingRoutes(true);
-
-      // Extended fallback coordinate map — only used when backend provides no coordinates.
-      // Priority: backend lat/lon > this map > no marker (never fake Delhi).
-      const fallbackCoords: Record<string, [number, number]> = {
-        // India
-        delhi: [28.6139, 77.2090],
-        'new delhi': [28.6139, 77.2090],
-        goa: [15.2993, 74.1240],
-        jaipur: [26.9124, 75.7873],
-        mumbai: [19.0760, 72.8777],
-        bengaluru: [12.9716, 77.5946],
-        bangalore: [12.9716, 77.5946],
-        agra: [27.1767, 78.0081],
-        varanasi: [25.3176, 82.9739],
-        udaipur: [24.5854, 73.7125],
-        kerala: [9.9312, 76.2673],
-        kochi: [9.9312, 76.2673],
-        manali: [32.2432, 77.1892],
-        shimla: [31.1048, 77.1734],
-        hyderabad: [17.3850, 78.4867],
-        chennai: [13.0827, 80.2707],
-        kolkata: [22.5726, 88.3639],
-        // Australia & Oceania
-        sydney: [-33.8688, 151.2093],
-        melbourne: [-37.8136, 144.9631],
-        brisbane: [-27.4698, 153.0251],
-        perth: [-31.9505, 115.8605],
-        adelaide: [-34.9285, 138.6007],
-        auckland: [-36.8509, 174.7645],
-        // International
-        london: [51.5074, -0.1278],
-        paris: [48.8566, 2.3522],
-        dubai: [25.2048, 55.2708],
-        singapore: [1.3521, 103.8198],
-        tokyo: [35.6762, 139.6503],
-        bangkok: [13.7563, 100.5018],
-        'kuala lumpur': [3.1390, 101.6869],
-        bali: [-8.3405, 115.0920],
-        'new york': [40.7128, -74.0060],
-        'new york city': [40.7128, -74.0060],
-        'los angeles': [34.0522, -118.2437],
-        toronto: [43.6532, -79.3832],
-        seoul: [37.5665, 126.9780],
-        beijing: [39.9042, 116.4074],
-        shanghai: [31.2304, 121.4737],
-        rome: [41.9028, 12.4964],
-        barcelona: [41.3851, 2.1734],
-        amsterdam: [52.3676, 4.9041],
-        berlin: [52.5200, 13.4050],
-      };
-
-      // Resolve the destination-level fallback (only used if activity has no backend coords)
-      const destKey = (trip?.destination || '').toLowerCase().split(',')[0].trim();
-      // Try multi-word match first (e.g. "new york"), then single word
-      const defaultCenter: [number, number] =
-        fallbackCoords[destKey] ||
-        fallbackCoords[destKey.split(' ')[0]] ||
-        null as any;
-
-      // Helper: validate a coordinate pair
-      function isValidCoord(lat: number, lon: number): boolean {
-        return (
-          typeof lat === 'number' &&
-          typeof lon === 'number' &&
-          !isNaN(lat) && !isNaN(lon) &&
-          lat >= -90 && lat <= 90 &&
-          lon >= -180 && lon <= 180 &&
-          !(lat === 0 && lon === 0)
-        );
-      }
-
-      // Helper: resolve coords for a single activity
-      function resolveCoords(act: ActivitySegment, idx: number): [number, number] | null {
-        // Priority 1: backend-provided real coordinates
-        if (act.lat && act.lon && isValidCoord(act.lat, act.lon)) {
-          return [act.lat, act.lon];
-        }
-        // Priority 2: destination fallback (correct city)
-        if (defaultCenter) {
-          // Small offset so markers don't stack exactly on top of each other
-          const offsetLat = (idx === 0 ? 0.008 : idx === 1 ? -0.006 : 0.004);
-          const offsetLon = (idx === 0 ? -0.006 : idx === 1 ? 0.008 : 0.006);
-          return [defaultCenter[0] + offsetLat, defaultCenter[1] + offsetLon];
-        }
-        // Priority 3: no valid coords — return null, don't fake Delhi
-        return null;
-      }
-
-      const legPromises: Promise<RouteLeg>[] = [];
-
-      for (let i = 0; i < day.activities.length - 1; i++) {
-        const fromAct = day.activities[i];
-        const toAct = day.activities[i + 1];
-
-        const fromCoords = resolveCoords(fromAct, i);
-        const toCoords = resolveCoords(toAct, i + 1);
-
-        // If either end has no valid coords at all, skip OSRM
-        if (!fromCoords || !toCoords) {
-          legPromises.push(Promise.resolve({
-            fromTitle: fromAct.title,
-            toTitle: toAct.title,
-            fromCoords: fromCoords || [0, 0],
-            toCoords: toCoords || [0, 0],
-            mode: selectedMode,
-            distanceKm: 0,
-            durationMins: 0,
-            geometry: [],
-            steps: [{ instruction: 'Location coordinates unavailable', distanceMeters: 0, durationSeconds: 0, name: '' }],
-            googleMapsUrl: '',
-            status: 'no_route',
-            isFlightLeg: false,
-            errorMessage: 'Missing GPS coordinates for this stop',
-          }));
-          continue;
-        }
-
-        // Detect international / transcontinental segments using straight-line distance.
-        // A segment > 500 km straight-line cannot be a road route — treat as flight.
-        const straightLineDist = calculateHaversineKm(
-          fromCoords[0], fromCoords[1],
-          toCoords[0], toCoords[1]
-        );
-
-        if (straightLineDist > 500) {
-          // International flight segment — do NOT call OSRM
-          legPromises.push(Promise.resolve({
-            fromTitle: fromAct.title,
-            toTitle: toAct.title,
-            fromCoords,
-            toCoords,
-            mode: 'driving', // Kept as driving to satisfy type; isFlightLeg=true overrides UI
-            distanceKm: Math.round(straightLineDist * 10) / 10,
-            durationMins: 0,   // No driving duration for a flight
-            geometry: [],      // No road geometry — frontend draws arc instead
-            steps: [],
-            googleMapsUrl: `https://www.google.com/maps/dir/?api=1&origin=${fromCoords[0]},${fromCoords[1]}&destination=${toCoords[0]},${toCoords[1]}`,
-            status: 'flight',
-            isFlightLeg: true,
-          }));
-        } else {
-          // Local road/walking route — use OSRM normally
-          legPromises.push(
-            fetchLegDirections(fromCoords, toCoords, fromAct.title, toAct.title, selectedMode)
-          );
-        }
-      }
-
+    const controller = new AbortController();
+    setLegs([]); setActiveLegIndex(-1); setIsLoadingRoutes(true); setDirectionsError(null);
+    async function load() {
       try {
-        const resolvedLegs = await Promise.all(legPromises);
-        if (!isCancelled) {
-          setLegs(resolvedLegs);
-        }
-      } catch {
-        // Handled internally in fetchLegDirections with fallbacks
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingRoutes(false);
-        }
-      }
+        if (!trip?.id) throw new Error('Save a trip to load road directions.');
+        const result = await fetchDayDirections(trip.id, day.dayNumber, routingMode, controller.signal);
+        if (controller.signal.aborted) return;
+        if (result.revision !== (trip.revision || 1)) throw new Error('Trip changed. Refresh to load matching directions.');
+        setLegs(result.legs);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setDirectionsError(error instanceof Error ? error.message : 'Directions unavailable. Showing labelled distance estimates.');
+        // A disconnected backend must not trigger direct public-provider requests.
+        setLegs(day.activities.slice(1).map((to, i) => {
+          const from = day.activities[i];
+          const start: unknown = [from.lat, from.lon], end: unknown = [to.lat, to.lon];
+          const available = validRouteCoordinates(start) && validRouteCoordinates(end);
+          const a: [number, number] = validRouteCoordinates(start) ? start : [0, 0];
+          const b: [number, number] = validRouteCoordinates(end) ? end : [0, 0];
+          const km = available ? calculateHaversineKm(...a, ...b) : 0;
+          const flight = available && isFlightConnection(from, to);
+          return { fromTitle: from.title, toTitle: to.title, fromCoords: a, toCoords: b, mode: selectedMode,
+            distanceKm: km, durationMins: flight ? 0 : Math.ceil(km / (selectedMode === 'walking' ? 4.5 : 25) * 60),
+            geometry: available ? [a, b] : [], steps: [], googleMapsUrl: available ? buildGoogleMapsUrl(a, b, selectedMode) : '',
+            status: !available ? 'no_route' : flight ? 'flight' : 'fallback', isFlightLeg: flight,
+            errorMessage: available ? 'Straight-line estimate; road directions unavailable' : 'Missing GPS coordinates for this stop' };
+        }));
+      } finally { if (!controller.signal.aborted) setIsLoadingRoutes(false); }
     }
-
-    computeLegs();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [day.activities, selectedMode, trip?.destination, day.dayNumber]);
+    void load();
+    return () => controller.abort();
+  }, [trip?.id, trip?.revision, day.dayNumber, day.activities, routingMode]);
 
 
   return (
     <div className="space-y-space-md animate-in fade-in slide-in-from-right-2 duration-300">
+      {directionsError && <p role="status" className="text-xs p-3 rounded-xl border border-amber-500/30 text-on-surface-variant">{directionsError} Saved venue locations remain visible; connections are estimates.</p>}
       {/* Top Navigation Header */}
       <div className="flex items-center justify-between gap-3 bg-surface-container p-4 rounded-2xl border border-surface-container-highest/60 shadow-md">
         <button
