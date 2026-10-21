@@ -68,6 +68,7 @@ export function createDraft(context: PlanningContext): TripDetailsDraft {
     children: validBreakdown ? children : 0, infants: validBreakdown ? infants : 0, interests: uniqueInterests(interests) };
 }
 export function validateDraft(fields: TripDetailsDraft, context: PlanningContext, today = localDate()): string {
+  if ((fields.start_date && isoDate(fields.start_date) !== fields.start_date) || (fields.end_date && isoDate(fields.end_date) !== fields.end_date)) return 'Enter valid dates using YYYY-MM-DD, or choose them on the calendar.';
   if ((fields.start_date && fields.start_date < today && fields.start_date !== isoDate(context?.start_date)) ||
     (fields.end_date && fields.end_date < today && fields.end_date !== isoDate(context?.end_date))) return 'Choose today or future dates for new travel dates.';
   if (fields.start_date && fields.end_date && fields.end_date < fields.start_date) return 'The end date must be on or after the start date.';

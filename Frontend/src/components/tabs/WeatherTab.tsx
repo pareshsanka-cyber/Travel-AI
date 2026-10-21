@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../../services/api';
 import { WeatherCondition } from '../../types';
 
-type WeatherData = Pick<WeatherCondition, 'summary' | 'data_status' | 'dailyForecast'> & { reason?: string; fetched_at?: string };
-interface WeatherTabProps { weather: WeatherCondition | null; destination?: string; tripId?: string; }
-export const WeatherTab = ({ weather, destination, tripId }: WeatherTabProps) => {
+export type WeatherData = Pick<WeatherCondition, 'summary' | 'data_status' | 'dailyForecast'> & { reason?: string; fetched_at?: string };
+interface WeatherTabProps { weather: WeatherCondition | null; destination?: string; tripId?: string; onTripForecast?: (forecast: WeatherData) => void; }
+export const WeatherTab = ({ weather, destination, tripId, onTripForecast }: WeatherTabProps) => {
   const [period, setPeriod] = useState<'trip' | 'upcoming'>('trip');
   const [data, setData] = useState<WeatherData | null>(weather);
   const [loading, setLoading] = useState(Boolean(tripId));
@@ -19,12 +19,15 @@ export const WeatherTab = ({ weather, destination, tripId }: WeatherTabProps) =>
     apiFetch<{ trip_id: string; weather: WeatherData }>(`/api/trips/${encodeURIComponent(tripId)}/weather?period=${period}`, { signal: controller.signal, timeoutMs: 25000 })
       .then(result => {
         if (!result.weather || !Array.isArray(result.weather.dailyForecast)) throw new Error('Weather response was incomplete. Please retry.');
-        if (alive && result.trip_id === tripId) setData(result.weather);
+        if (alive && result.trip_id === tripId) {
+          setData(result.weather);
+          if (period === 'trip') onTripForecast?.(result.weather);
+        }
       })
       .catch(err => { if (alive) setError(err instanceof Error ? err.message : 'Unable to load weather.'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; controller.abort(); };
-  }, [tripId, period, revision]);
+  }, [tripId, period, revision, onTripForecast]);
   const contentRef = useContentFade(`${tripId}:${period}:${loading ? 'loading' : error ? 'error' : data?.dailyForecast?.length ? 'forecast' : 'unavailable'}:${revision}`);
   const days = data?.dailyForecast || [];
   return <div className="space-y-4">

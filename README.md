@@ -8,6 +8,8 @@ TravelAI is an autonomous, agentic travel planning and companion system powered 
 
 TravelAI combines conversational slot extraction, multi-agent orchestration, time-aware itinerary scheduling, and live rerouting.
 
+See the [current architecture and workflow guide](docs/architecture-workflow.md) for system diagrams, planning/booking/rerouting flows, data storage and the key concepts to explain during a demonstration.
+
 ![MVC Architecture](MVC%20ARCHITECTURE.png)
 ![MongoDB Data Model Architecture](architecture-mongodb.png)
 
@@ -27,7 +29,7 @@ Travel-AI/
 │   │   │   └── llm.py              # Groq generation client and rate coordination
 │   │   ├── api/                    # API route controllers (trips, chat, auth)
 │   │   ├── database/               # MongoDB client & connections
-│   │   ├── models/                 # Motor / Pydantic data models
+│   │   ├── models/                 # Pydantic document models; persistence uses PyMongo
 │   │   ├── schemas/                # Request/response DTO schemas
 │   │   ├── services/               # Chat, Reroute & Slot extraction services
 │   │   └── main.py                 # FastAPI application entrypoint
@@ -118,6 +120,7 @@ Authentication and travel requests share `VITE_FASTAPI_URL` (default `http://loc
 - **Time-Aware Sequencing**: Geographic routing and schedule validation.
 - **Companion Mode & Dynamic Rerouting**: Live on-trip rerouting, progress tracking, and fallback discovery.
 - **Saved Travel Choices**: Flight and accommodation choices persist with your trip. Changes update the schedule and known costs while preserving custom visits; choices are frozen after Companion Mode begins.
+- **Trip Readiness**: My Trip → Overview includes a collapsible checklist for planned flights and hotels, saved forecast coverage, incomplete or over-budget estimates, and venue opening hours. Links open the relevant review tab. It reads saved information without changing the trip; demo booking status is separate from planning selections and real reservations.
 - **Useful Exports**: Download calendar events for actual visits, copy itinerary text, and print a clean itinerary to PDF. Calendar export respects activity timezones and daylight-saving changes.
 
 ## Sessions, schedules, and data limitations
@@ -137,6 +140,10 @@ Flight and hotel cards now offer **Book — Demo**, with separate checkout and b
 Open a saved trip and choose **Upgrade this trip**, or use **Payments** in the sidebar. Trip Plus costs a simulated ₹499 once per trip and unlocks Companion Mode, rerouting, calendar and printable exports. Basic planning and travel selections stay free. No real money, bank details or reservations are involved. Restart the backend to register the new payment routes and MongoDB indexes; no new credentials are required. See [the demo-payment guide](docs/demo-payments.md) for the flow, API and verification details.
 
 ## Verification commands
+
+Planning progress reports actual backend stages through authenticated `/api/chat/requests` endpoints. Refresh checks the same saved request rather than creating another itinerary. Unavailable provider results remain labelled unavailable. Run the demo backend with one Uvicorn worker: interrupted requests are marked on restart; completed request records expire after seven days, while saved itineraries remain intact. Older backends retain the synchronous chat flow.
+
+Generated `Frontend/dist`, browser reports, Vite caches and Python `__pycache__` folders are disposable and ignored by Git. Builds and tests regenerate them. Keep `.env`, the virtual environment, installed dependencies, MongoDB/Chroma data, source tests and `package-lock.json`; they are not cleanup targets. Local `.cache` also contains the MongoDB runtime, recovery backups and review screenshots, so do not delete it wholesale.
 
 Run from `Frontend/`: `npm run lint`, `npm test`, and `npm run build`.
 

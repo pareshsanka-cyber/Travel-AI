@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { Check, Minus, Plus, X } from 'lucide-react';
 import { useModalFocus } from '../../hooks/useModalFocus';
 import { useTheme } from '../../context/ThemeContext';
+import { TripDatePicker } from './TripDatePicker';
 import { POPULAR_ORIGINS, DESTINATIONS, BUDGET_PRESETS, INTERESTS, createDraft, localDate, addDays,
-  inclusiveDays, interestKey, uniqueInterests, validateDraft, draftUpdates, formatBudget, type PlanningContext } from './tripDetailsModel';
+  inclusiveDays, interestKey, uniqueInterests, validateDraft, draftUpdates, formatBudget, isoDate, type PlanningContext } from './tripDetailsModel';
 
 const input = 'mt-1 w-full min-w-0 rounded-xl border border-surface-container-highest bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant px-3 py-2.5 text-sm focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2';
 function Choice({ selected, children, onClick, disabled, label }: {
@@ -68,7 +69,7 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
           <div className="flex items-center justify-between gap-3"><h2 id="trip-details-title" className="text-xl font-semibold">Trip details</h2><button type="button" aria-label="Close trip details" onClick={onClose} className="p-2 rounded-lg hover:bg-surface-container-highest"><X className="w-5 h-5" /></button></div>
           <p id="trip-details-description" className="text-sm text-on-surface-variant mt-1">Choose quick options or enter your own. Applying details updates planning preferences; your saved itinerary stays unchanged.</p>
         </header>
-        <div className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-6" data-testid="trip-details-body">
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-6" data-trip-details-scroll data-testid="trip-details-body">
           <fieldset className="min-w-0 space-y-3"><legend className="font-semibold mb-2">Route</legend>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="min-w-0"><label className="text-sm" htmlFor="trip-origin">From</label><input id="trip-origin" className={input} value={fields.origin} autoComplete="off" placeholder="Enter departure city" onChange={e => update('origin', e.target.value)} />
@@ -83,14 +84,11 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
             </div>
           </fieldset>
           <fieldset className="min-w-0"><legend className="font-semibold mb-2">Dates</legend>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <label className="text-sm">Start date<input type="date" min={today} className={input} style={{ colorScheme: theme }} value={fields.start_date} onChange={e => update('start_date', e.target.value)} /></label>
-              <label className="text-sm">End date<input type="date" min={fields.start_date > today ? fields.start_date : today} className={input} style={{ colorScheme: theme }} value={fields.end_date} onChange={e => update('end_date', e.target.value)} /></label>
-            </div>
+            <TripDatePicker start={fields.start_date} end={fields.end_date} today={today} onChange={update} />
             <div className="flex flex-wrap gap-2 mt-3" role="group" aria-label="Quick dates">
               <Choice selected={fields.start_date === today} onClick={() => update('start_date', localDate())}>Today</Choice>
               <Choice selected={fields.start_date === addDays(today, 1)} onClick={() => update('start_date', addDays(localDate(), 1))}>Tomorrow</Choice>
-              {[3, 5, 7].map(days => <Choice key={days} selected={duration === days} disabled={!fields.start_date || fields.start_date < today} onClick={() => update('end_date', addDays(fields.start_date, days-1))}>{days} days</Choice>)}
+              {[3, 5, 7].map(days => <Choice key={days} selected={duration === days} disabled={!fields.start_date || isoDate(fields.start_date) !== fields.start_date || fields.start_date < today} onClick={() => update('end_date', addDays(fields.start_date, days-1))}>{days} days</Choice>)}
             </div><p className="text-xs text-on-surface-variant mt-2">{duration ? `${duration} ${duration === 1 ? 'day' : 'days'}, including arrival and departure dates.` : 'Choose a start date to use duration shortcuts.'}</p>
           </fieldset>
           <fieldset className="min-w-0"><legend className="font-semibold mb-2">Budget</legend>

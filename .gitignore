@@ -13,6 +13,11 @@ Frontend/.env
 
 # Python Cache
 __pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 *.py[cod]
 *$py.class
 *.so
@@ -32,6 +37,7 @@ node_modules/
 .vite/
 .next/
 dist/
+*.tsbuildinfo
 chromadb_storage/
 **/chromadb_storage/
 *.sqlite3
@@ -41,3 +47,7 @@ chromadb_storage/
 # Benchmark & temporary test runs
 *_test_result.json
 benchmark_result.json
+
+# Generated browser reports
+test-results/
+playwright-report/

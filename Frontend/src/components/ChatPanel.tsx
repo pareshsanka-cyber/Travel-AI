@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { ChatMessage, ApiStatusState, TripSummary } from '../types';
 import { TripDetailsDialog } from './preferences/TripDetailsDialog';
+import { PlanningProgressCard } from './PlanningProgressCard';
+import type { PlanningProgress } from '../services/planningProgress';
 import { useMessageEntrances } from '../motion/useInteractionMotion';
 
 interface ChatPanelProps {
@@ -36,6 +38,9 @@ interface ChatPanelProps {
   onPromptChange: (val: string) => void;
   onSendMessage: (textToSend?: string) => void;
   isSending: boolean;
+  planningProgress?: PlanningProgress | null;
+  onCheckPlanning?: () => void;
+  onDismissPlanning?: () => void;
   onSwitchTab: (tabId: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   apiStatus: ApiStatusState;
   onClearContext: () => void;
@@ -51,11 +56,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   promptInput,
   onPromptChange,
   onSendMessage,
-  isSending,
+  isSending: isSendingRequest,
+  planningProgress,
+  onCheckPlanning,
+  onDismissPlanning,
   onSwitchTab,
   apiStatus,
   onClearContext,
 }) => {
+  const isSending = isSendingRequest || Boolean(planningProgress);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [moreSuggestions, setMoreSuggestions] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
@@ -132,7 +141,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {detailsOpen && <TripDetailsDialog context={travelContext} onApply={onUpdatePreference || (() => {})} onClose={() => setDetailsOpen(false)} />}
 
       {/* Message Feed */}
-      <div ref={messageFeed} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={isSending}>
+      <div ref={messageFeed} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={planningProgress ? undefined : isSending}>
         {messages.map((msg) => {
           if (msg.sender === 'user') {
             return (
@@ -289,14 +298,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         })}
 
         {isSending && (
-          <div role="status" className="flex gap-space-sm items-center text-xs text-on-surface-variant">
+          <div className="flex gap-space-sm items-start text-xs text-on-surface-variant">
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="p-3 rounded-xl bg-surface-container-high text-xs text-on-surface flex items-center gap-2">
+            {planningProgress ? <PlanningProgressCard progress={planningProgress} checking={isSendingRequest} onCheck={onCheckPlanning} onDismiss={onDismissPlanning} /> : <div role="status" className="p-3 rounded-xl bg-surface-container-high text-xs text-on-surface flex items-center gap-2">
               <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" />
               <span>TravelAI is working on your request…</span>
-            </div>
+            </div>}
           </div>
         )}
 
@@ -325,6 +334,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         <div className="motion-composer relative rounded-xl bg-surface-container-lowest border border-surface-container-highest/60 shadow-inner p-1.5 flex flex-col gap-1 focus-within:border-primary/50 transition-colors">
           <textarea
             id="chatPromptInput"
+            aria-label="Ask TravelAI"
+            disabled={isSending}
             value={promptInput}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}

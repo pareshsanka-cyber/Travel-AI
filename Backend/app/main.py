@@ -38,6 +38,8 @@ import uuid
 async def lifespan(app):
     client.admin.command("ping")
     setup_indexes()
+    from app.services.planning_progress import setup_indexes as setup_planning_indexes
+    setup_planning_indexes()
     db.users.create_index("email", unique=True)
     db.sessions.create_index("token_hash", unique=True)
     db.sessions.create_index("expires_at", expireAfterSeconds=0)
@@ -122,4 +124,4 @@ def readiness():
         client.admin.command('ping')
     except Exception:
         return JSONResponse(status_code=503, content={'status':'unavailable','message':'Database unavailable. Please try again shortly.'})
-    return {'status':'ok','message':'TravelAI is ready.'}
+    return {'status':'ok','message':'TravelAI is ready.', 'features': {'planning_progress': True}}

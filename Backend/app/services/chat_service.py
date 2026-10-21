@@ -5,7 +5,7 @@ from bson import ObjectId
 from fastapi import HTTPException
 from app.database.mongodb import db
 from app.ai.orchestrator.langgraph_graph import graph
-from app.ai.llm import llm
+from app.ai.llm import llm, public_llm_error
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.conversation_service import (
     get_or_create_conversation,
@@ -105,12 +105,15 @@ def build_travel_state_from_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "error_logs": []
     }
 
-def process_chat_message(conversation_id: Optional[str], user_message: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+def process_chat_message(conversation_id: Optional[str], user_message: str, user_id: Optional[str] = None,
+                         progress=None, planning_request_key=None) -> Dict[str, Any]:
     print(f"\n--- CHAT SERVICE: Processing chat turn for conversation: '{conversation_id}' (User: {user_id}) ---")
     
     # 1. Fetch or create conversation with user_id
     conv = get_or_create_conversation(conversation_id, user_id=user_id)
     conv_id = conv.conversation_id
+    if progress:
+        progress('conversation', conversation_id=conv_id)
     current_context = conv.travel_context.model_dump()
     has_trip = bool(conv.current_trip_id or current_context.get("current_trip_id"))
 
@@ -127,6 +130,8 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
 
     # 4. Single Conversational Analysis Step (1 LLM call)
     try:
+        if progress:
+            progress('analysis')
         analysis = analyze_user_message(
             user_message=user_message,
             current_context=current_context,
@@ -134,7 +139,9 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             has_current_trip=has_trip
         )
     except Exception as e:
-        err_msg = f"Sorry, I encountered a critical configuration issue and cannot process your message right now (Error: {e})"
+        if progress:
+            progress('analysis', 'failed')
+        err_msg = public_llm_error(e)
         add_message(conv_id, "assistant", err_msg)
         return {
             "conversation_id": conv_id,
@@ -145,6 +152,9 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         }
 
     intent = analysis.get("intent", "UPDATE_CONTEXT")
+    if progress:
+        progress('analysis', 'done')
+        progress('response')
     slots = analysis.get("slots", {})
     qa_category = analysis.get("qa_category")
     
@@ -194,6 +204,8 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         }
 
     elif intent == "GENERATE_ITINERARY":
+        if progress:
+            progress('kind', kind='planning')
         dest = current_context.get("destination")
         days = current_context.get("days")
 
@@ -241,7 +253,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         try:
             from app.services.planning_dates import validate_planning_dates
             validate_planning_dates(initial_state.get('start_date'), initial_state.get('end_date'))
-            final_state = graph.invoke(initial_state)
+            final_state = graph.invoke(initial_state, config={'configurable': {'planning_progress': progress}}) if progress else graph.invoke(initial_state)
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"[ITINERARY END] request_id={req_id} duration_ms={duration_ms} status=success\n")
         except Exception as e:
@@ -306,8 +318,18 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
 
         # Save to MongoDB 'trips'
         try:
-            res = db.trips.insert_one(trip_data)
-            trip_id = str(res.inserted_id)
+            if progress:
+                progress('saving')
+            if planning_request_key:
+                from pymongo import ReturnDocument
+                trip_data['planning_request_key'] = planning_request_key
+                saved = db.trips.find_one_and_update({'planning_request_key': planning_request_key, 'user_id': user_id},
+                    {'$setOnInsert': trip_data}, upsert=True, return_document=ReturnDocument.AFTER)
+                trip_data = dict(saved)
+                trip_id = str(trip_data['_id'])
+            else:
+                res = db.trips.insert_one(trip_data)
+                trip_id = str(res.inserted_id)
             trip_data["id"] = trip_id
             if "_id" in trip_data:
                 del trip_data["_id"]
@@ -329,6 +351,9 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             intent="GENERATE_ITINERARY",
             structured_data={"trip_id": trip_id}
         )
+
+        if progress:
+            progress('saving', 'done', trip_id=trip_id)
 
         return {
             "conversation_id": conv_id,

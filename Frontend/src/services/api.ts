@@ -64,15 +64,14 @@ export async function apiFetch<T>(
   const url = `${baseUrl}${cleanEndpoint}`;
 
   const controller = new AbortController();
+  const forwardAbort = () => controller.abort(options.signal?.reason);
 
   // If caller provided an AbortSignal, propagate its abortion to our controller
   if (options.signal) {
     if (options.signal.aborted) {
       controller.abort(options.signal.reason);
     } else {
-      options.signal.addEventListener('abort', () => {
-        controller.abort(options.signal?.reason);
-      });
+      options.signal.addEventListener('abort', forwardAbort, { once: true });
     }
   }
 
@@ -104,8 +103,6 @@ export async function apiFetch<T>(
       },
     });
 
-    if (timeoutId) clearTimeout(timeoutId);
-
     if (response.status === 401) window.dispatchEvent(new Event('travelai-session-expired'));
     if (!response.ok) {
       let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
@@ -128,6 +125,9 @@ export async function apiFetch<T>(
     if (options.signal?.aborted) throw err;
     if (err instanceof ApiError) throw err;
     throw new NetworkError(controller.signal.aborted ? 'TravelAI request timed out. Retry when the service is available.' : 'Unable to reach TravelAI. Check your connection and API Settings, then retry.');
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
 }
 
@@ -137,11 +137,12 @@ export async function apiFetch<T>(
 export async function checkFastApiHealth(): Promise<ApiStatusState> {
   const baseUrl = getApiBaseUrl();
   try {
-    const res = await apiFetch<{ status?: string; message?: string }>('/health/ready', {
+    const res = await apiFetch<{ status?: string; message?: string; features?: { planning_progress?: boolean } }>('/health/ready', {
       timeoutMs: 5000,
     });
     const state: ApiStatusState = {
       isConnected: true,
+      supportsPlanningProgress: res.features?.planning_progress === true,
       endpointUrl: baseUrl,
       statusCode: 200,
       statusMessage: res?.message || '200 OK - Connected',
@@ -2047,6 +2048,13 @@ export function migrateLegacyExecutionState(
   return hasChanges ? { ...rawState, activity_log: log } : rawState;
 }
 
+function normalizeOpeningHours(value: unknown): string[] | undefined {
+  const lines = (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/\r?\n/) : [])
+    .filter((line): line is string => typeof line === 'string' && Boolean(line.trim()))
+    .map(line => line.trim());
+  return lines.length ? lines : undefined;
+}
+
 export function extractItineraryDays(trip?: any): ItineraryDay[] {
   if (!trip) return INITIAL_ITINERARY_DAYS;
 
@@ -2202,7 +2210,9 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
               thumbnail: (isObj && (stop.image_url || stop.thumbnail || stop.image || stop.imageUrl)) ? (stop.image_url || stop.thumbnail || stop.image || stop.imageUrl) : undefined,
               rating: isObj && stop.rating ? Number(stop.rating) : undefined,
               reviews: isObj && stop.review_count ? Number(stop.review_count) : undefined,
-              operatingHours: isObj ? stop.opening_hours : undefined,
+              operatingStatus: isObj && ['OPEN', 'CLOSED', 'UNKNOWN'].includes(String(stop.status).toUpperCase()) ? String(stop.status).toUpperCase() as ActivitySegment['operatingStatus'] : undefined,
+              statusReason: isObj ? stop.status_reason : undefined,
+              operatingHours: isObj ? normalizeOpeningHours(stop.opening_hours) : undefined,
               interests: isObj ? stop.interests : undefined,
               category: isObj ? stop.category : undefined,
               matchType: isObj ? stop.match_type : undefined,
@@ -2271,7 +2281,7 @@ export function extractItineraryDays(trip?: any): ItineraryDay[] {
           recommendedTimeSpent: dayAttraction?.recommended_time_spent || '1.5 - 2 Hours',
           entranceFee: dayAttraction?.entrance_fee !== undefined ? Number(dayAttraction.entrance_fee) : 0,
           operatingStatus: dayAttraction?.status?.toUpperCase() || undefined,
-          operatingHours: dayAttraction?.opening_hours || undefined,
+          operatingHours: normalizeOpeningHours(dayAttraction?.opening_hours),
           scheduledDate: dayAttraction?.scheduled_date || undefined,
           dayOfWeek: dayAttraction?.day_of_week || undefined,
           statusReason: dayAttraction?.reason || undefined,

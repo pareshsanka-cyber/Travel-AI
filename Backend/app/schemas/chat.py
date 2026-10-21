@@ -6,6 +6,10 @@ class ChatMessageRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
 
+class TrackedChatRequest(ChatMessageRequest):
+    request_id: str = Field(min_length=16, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+    message: str = Field(min_length=1, max_length=20000)
+
 class MessagePayload(BaseModel):
     role: str
     content: str

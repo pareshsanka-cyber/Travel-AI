@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useCallback, useId, useState } from 'react';
 import { LayoutGroup } from 'motion/react';
 import { ActiveIndicator } from '../motion/ActiveIndicator';
 import { useContentFade } from '../motion/useInteractionMotion';
@@ -30,9 +30,10 @@ import {
 import { RouteTab } from './tabs/RouteTab';
 import { FlightsTab } from './tabs/FlightsTab';
 import { HotelsTab } from './tabs/HotelsTab';
-import { WeatherTab } from './tabs/WeatherTab';
+import { WeatherTab, type WeatherData } from './tabs/WeatherTab';
 import { BudgetTab } from './tabs/BudgetTab';
 import { CompanionMode } from './tabs/CompanionMode';
+import { TripReadiness } from './TripReadiness';
 
 interface DashboardPanelProps {
   onOpenChat: () => void;
@@ -75,6 +76,11 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   onApplyRerouteResult,
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [checkedWeather, setCheckedWeather] = useState<{ tripId: string; revision?: number; data: WeatherData } | null>(null);
+  const saveTripForecast = useCallback((data: WeatherData) => {
+    if (trip?.id) setCheckedWeather({ tripId: trip.id, revision: trip.revision, data });
+  }, [trip?.id, trip?.revision]);
+  const readinessWeather = checkedWeather && checkedWeather.tripId === trip?.id && checkedWeather.revision === trip?.revision ? checkedWeather.data : weather;
   const [routeMode, setRouteMode] = useState<'overview' | 'days'>(() => sessionStorage.getItem(`TRAVELAI_ROUTE_MODE:${trip?.id}`) === 'days' ? 'days' : 'overview');
 
   const tabGroup = useId();
@@ -236,6 +242,13 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
 
       {/* Tab Content Area */}
       <div ref={contentFade} className="flex-1 min-w-0 p-3 sm:p-5 space-y-space-md">
+        {trip && activeTab === 'route-tab' && routeMode === 'overview' && <TripReadiness
+          trip={trip} days={days} flights={flights} hotels={hotels} nearbyHotels={nearbyHotels} weather={readinessWeather} budget={budget}
+          onNavigate={tab => {
+            if (tab === 'route-tab') { setRouteMode('days'); sessionStorage.setItem(`TRAVELAI_ROUTE_MODE:${trip.id}`, 'days'); }
+            onSwitchTab(tab);
+          }}
+        />}
         {trip && !trip.plusAccess && <section aria-label="Trip access" className="flex flex-wrap items-center gap-3 text-sm py-2"><span className="text-on-surface-variant">Basic planning is free.</span><button type="button" onClick={onBookings} className="text-primary underline">Book a flight or hotel — Demo</button><button type="button" onClick={onUpgrade} className="text-primary underline">Upgrade only — ₹499 Demo</button></section>}
         {activeTab === 'companion-tab' && trip?.plusAccess && (
           <CompanionMode
@@ -253,7 +266,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
         {activeTab === 'hotels-tab' && (
           <HotelsTab onBook={onBook} hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
         )}
-        {activeTab === 'weather-tab' && <WeatherTab key={trip?.id} tripId={trip?.id} weather={weather} destination={trip?.destination} />}
+        {activeTab === 'weather-tab' && <WeatherTab key={trip?.id} tripId={trip?.id} weather={weather} destination={trip?.destination} onTripForecast={saveTripForecast} />}
         {activeTab === 'budget-tab' && <BudgetTab budget={budget} />}
       </div>
     </section>

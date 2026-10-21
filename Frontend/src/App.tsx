@@ -55,6 +55,7 @@ function AppContent() {
     promptInput,
     setPromptInput,
     isSendingMessage,
+    planningProgress, handleCheckPlanning, handleDismissPlanning,
     handleSendMessage,
     handleSelectConversation,
     handleSelectFlight,
@@ -270,6 +271,9 @@ function AppContent() {
                 onPromptChange={setPromptInput}
                 onSendMessage={handleSendMessage}
                 isSending={isSendingMessage}
+                planningProgress={planningProgress}
+                onCheckPlanning={handleCheckPlanning}
+                onDismissPlanning={handleDismissPlanning}
                 activeTab={activeDashboardTab}
                 onSwitchTab={(tab) => {
                   if (tab === 'companion-tab' && !trip?.plusAccess) upgrade();

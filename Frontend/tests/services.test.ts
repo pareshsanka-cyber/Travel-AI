@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { apiFetch, ApiError, fetchFlightOptions, fetchBudgetOverview, fetchHotelOptions, fetchWeatherCondition, updateExecutionState, applyReroute, extractTripSummary, setApiStatusListener, checkTripPlanningConstraints } from '../src/services/api';
+import { apiFetch, ApiError, fetchFlightOptions, fetchBudgetOverview, fetchHotelOptions, fetchWeatherCondition, updateExecutionState, applyReroute, extractTripSummary, extractItineraryDays, setApiStatusListener, checkTripPlanningConstraints } from '../src/services/api';
 import { getApiBaseUrl } from '../src/services/apiConfig';
 import { paymentApi, formatMoney } from '../src/services/payments';
 
@@ -8,6 +8,20 @@ const storage = new Map<string, string>();
 Object.assign(globalThis, {
   localStorage: { getItem: (key: string) => storage.get(key) || null },
   window: { dispatchEvent: () => true },
+});
+
+test('saved venue hours normalize strings and arrays and preserve closure information', () => {
+  const trip = { destination: 'Sydney', days: 1, start_date: '2026-10-21', end_date: '2026-10-21',
+    route_details: { day_by_day_route: [{ day: 1, date: '2026-10-21', stops: [
+      { id: 'closed', name: 'Museum', type: 'attraction', opening_hours: ' Monday: Closed\n Tuesday: 09:00–17:00 ', status: 'CLOSED', status_reason: 'Saved venue hours' },
+      { id: 'listed', name: 'Gallery', type: 'attraction', opening_hours: [' 09:00–17:00 ', '', null], status: 'UNKNOWN' }
+    ] }] } };
+  const activities = extractItineraryDays(trip)[0].activities;
+  assert.deepEqual(activities[0].operatingHours, ['Monday: Closed', 'Tuesday: 09:00–17:00']);
+  assert.equal(activities[0].operatingStatus, 'CLOSED');
+  assert.equal(activities[0].statusReason, 'Saved venue hours');
+  assert.deepEqual(activities[1].operatingHours, ['09:00–17:00']);
+  assert.equal(activities[1].operatingStatus, 'UNKNOWN');
 });
 
 test('server errors retain their HTTP status and request reference', async () => {

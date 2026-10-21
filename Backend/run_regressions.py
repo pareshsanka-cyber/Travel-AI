@@ -7,6 +7,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parent
 suites = ['reroute_v2_tests.py', 'routing_reliability_tests.py', 'edit_session_tests.py', 'weather_tests.py', 'booking_tests.py', 'planning_error_tests.py', 'payment_tests.py', 'security_consistency_tests.py', 'activity_identity_audit_tests.py',
           'itinerary_engine_audit_tests.py', 'dynamic_reroute_tests.py', 'phase2_1_reroute_tests.py']
+suites.insert(0, 'llm_connection_tests.py')
+suites.insert(0, 'planning_progress_tests.py')
 failed = False
 for suite in suites:
     result = subprocess.run([sys.executable, str(root / suite)], cwd=root, capture_output=True,

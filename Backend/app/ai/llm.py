@@ -5,6 +5,7 @@ import uuid
 import threading
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
+from groq import APIConnectionError, AuthenticationError, PermissionDeniedError
 
 load_dotenv()
 
@@ -28,6 +29,17 @@ class GroqRateLimitError(Exception):
     def __init__(self, message: str, retry_after: float = 0.0):
         super().__init__(message)
         self.retry_after = retry_after
+
+
+def public_llm_error(error: Exception) -> str:
+    """Explain a failed AI request without leaking provider internals or credentials."""
+    if isinstance(error, (APIConnectionError, ConnectionError, TimeoutError)):
+        return "TravelAI couldn't connect to its AI provider. Please try again in a moment. Your saved trips have not been changed."
+    if isinstance(error, GroqRateLimitError) or getattr(error, 'status_code', None) == 429:
+        return 'The AI service is busy right now. Please try again shortly. Your saved trips have not been changed.'
+    if isinstance(error, (AuthenticationError, PermissionDeniedError)):
+        return 'The AI service credentials need attention. Please contact the project administrator. Your saved trips have not been changed.'
+    return "TravelAI couldn't process the AI response safely. Please try again. Your saved trips have not been changed."
 
 
 class GroqTokenCoordinator:
@@ -232,6 +244,7 @@ class RateAwareLLM:
             print(f"[LLM START] req_id={req_id} agent={agent_name} model={self.model_name} requested={max_tokens} reserved={clamped_tokens} otpm_used={used_tokens}/{coordinator.otpm_limit}")
 
             retries_attempted = 0
+            deadline = time.monotonic() + timeout
             while retries_attempted <= max_retries:
                 start_time = time.time()
                 try:
@@ -240,7 +253,7 @@ class RateAwareLLM:
                         temperature=0.0,
                         max_tokens=clamped_tokens,
                         max_retries=0,
-                        request_timeout=timeout
+                        request_timeout=max(0.001, deadline - time.monotonic())
                     )
 
                     response = client.invoke(prompt, **kwargs)
@@ -262,11 +275,19 @@ class RateAwareLLM:
                     error_str = str(e)
                     is_429 = "429" in error_str or "rate_limit" in error_str.lower() or "too large" in error_str.lower()
 
+                    if isinstance(e, APIConnectionError):
+                        # Retry only the completion, not chat writes; reuse its reservation and deadline.
+                        if retries_attempted < max_retries and deadline - time.monotonic() > 0.5:
+                            retries_attempted += 1
+                            print(f"[LLM CONNECTION RETRY] req_id={req_id} agent={agent_name} error_type={type(e).__name__} cause_type={type(e.__cause__).__name__} attempt={retries_attempted + 1}/{max_retries + 1}")
+                            time.sleep(0.5)
+                            continue
+
                     if is_429:
                         retry_delay = coordinator.parse_retry_after(e)
                         print(f"[LLM 429] req_id={req_id} agent={agent_name} rate_limit_hit=True retry_delay={retry_delay:.2f}s attempt={retries_attempted + 1}/{max_retries + 1}")
 
-                        if retries_attempted < max_retries and retry_delay <= 20.0:
+                        if retries_attempted < max_retries and retry_delay <= 20.0 and retry_delay + 0.5 < deadline - time.monotonic():
                             retries_attempted += 1
                             time.sleep(retry_delay + 0.5)
                             continue

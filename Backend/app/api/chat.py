@@ -18,6 +18,19 @@ from app.utils.auth_utils import require_user_id
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
+from app.schemas.chat import TrackedChatRequest
+from app.services import planning_progress
+
+@router.post('/requests', status_code=202)
+def start_tracked_request(request: TrackedChatRequest, owner: str = Depends(require_user_id)):
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail='Message content cannot be empty.')
+    return planning_progress.create_request(owner, request.request_id, request.message.strip(), request.conversation_id)
+
+@router.get('/requests/{request_id}')
+def tracked_request_status(request_id: str, owner: str = Depends(require_user_id)):
+    return planning_progress.get_request(owner, request_id)
+
 @router.post("/message", response_model=ChatMessageResponse)
 def send_chat_message(request: ChatMessageRequest, x_user_id: str = Depends(require_user_id)):
     if not request.message or not request.message.strip():

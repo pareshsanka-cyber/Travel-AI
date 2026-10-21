@@ -1,5 +1,6 @@
 import React, { useLayoutEffect } from 'react';
 import { ChatPanel } from '../components/ChatPanel';
+import type { PlanningProgress } from '../services/planningProgress';
 import { DashboardPanel } from '../components/DashboardPanel';
 import { useContentFade } from '../motion/useInteractionMotion';
 import {
@@ -37,6 +38,9 @@ interface PlannerStudioPageProps {
   onPromptChange: (val: string) => void;
   onSendMessage: (textToSend?: string) => void;
   isSending: boolean;
+  planningProgress?: PlanningProgress | null;
+  onCheckPlanning?: () => void;
+  onDismissPlanning?: () => void;
   activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
   onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   onSelectFlight: (id: string) => Promise<boolean>;
@@ -69,6 +73,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onPromptChange,
   onSendMessage,
   isSending,
+  planningProgress, onCheckPlanning, onDismissPlanning,
   activeTab,
   onSwitchTab,
   onSelectFlight,
@@ -117,6 +122,9 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
         onPromptChange={onPromptChange}
         onSendMessage={onSendMessage}
         isSending={isSending}
+        planningProgress={planningProgress}
+        onCheckPlanning={onCheckPlanning}
+        onDismissPlanning={onDismissPlanning}
         onSwitchTab={tab => { onSwitchTab(tab); changeView('trip'); }}
         apiStatus={apiStatus}
         onClearContext={onClearContext}

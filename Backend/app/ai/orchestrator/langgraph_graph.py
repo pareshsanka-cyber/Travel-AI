@@ -16,17 +16,22 @@ from app.ai.reviewer.reviewer_agent import reviewer_node
 from app.ai.agents.synthesis_agent import synthesis_node
 
 import time
+from langchain_core.runnables import RunnableConfig
+from app.services.planning_progress import node_progress
 
 def log_node_execution(name, func):
-    def wrapper(state: TravelState):
+    def wrapper(state: TravelState, config: RunnableConfig = None):
         start_t = time.time()
         print(f"[STAGE START] {name}")
+        node_progress(config, name, 'running')
         try:
             result = func(state)
+            node_progress(config, name, 'done', result)
             duration_ms = int((time.time() - start_t) * 1000)
             print(f"[STAGE END] {name} duration_ms={duration_ms} status=success")
             return result
         except Exception as e:
+            node_progress(config, name, 'failed')
             duration_ms = int((time.time() - start_t) * 1000)
             print(f"[STAGE ERROR] {name} duration_ms={duration_ms} status=failed error={e}")
             raise

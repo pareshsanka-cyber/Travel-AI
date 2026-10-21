@@ -41,6 +41,8 @@ import {
   ApiError,
   apiFetch,
 } from '../services/api';
+import { clearPendingPlanning, newPlanningRequest, ProgressUnavailable, readPendingPlanning, savePendingPlanning, trackPlanning,
+  type PendingPlanningRequest, type PlanningProgress } from '../services/planningProgress';
 
 export function useTravelApi() {
   const [plannerView, setPlannerView] = useState<'plan' | 'trip'>(() => new URL(window.location.href).searchParams.get('view') === 'plan' ? 'plan' : 'trip');
@@ -128,7 +130,15 @@ export function useTravelApi() {
   });
   const [promptInput, setPromptInput] = useState(() => sessionStorage.getItem(draftKey(currentConversationId)) || '');
   useEffect(() => { sessionStorage.setItem(draftKey(currentConversationId), promptInput); }, [promptInput, currentConversationId]);
-  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const pendingPlanning = useRef(readPendingPlanning());
+  const sendInFlight = useRef(false);
+  const sendController = useRef<AbortController | null>(null);
+  const recoveryStarted = useRef(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(Boolean(pendingPlanning.current));
+  const [planningProgress, setPlanningProgress] = useState<PlanningProgress | null>(() => pendingPlanning.current ? {
+    request_id: pendingPlanning.current.id, status: 'restoring', kind: 'request', stages: {},
+  } : null);
+  useEffect(() => () => sendController.current?.abort(), []);
 
   // Conversational Context & Intent states: restore from cached state if available
   const [travelContext, setTravelContext] = useState<Record<string, any> | null>(() => {
@@ -373,7 +383,7 @@ export function useTravelApi() {
         try {
           const detail = await fetchConversationDetail(convToLoad);
           if (restoration !== conversationLoad.current || convToLoad !== currentConversationRef.current) return;
-          if (detail && Array.isArray(detail.messages) && detail.messages.length > 0) {
+          if (!sendInFlight.current && detail && Array.isArray(detail.messages) && detail.messages.length > 0) {
             const mappedMessages: ChatMessage[] = detail.messages.map((m: any, idx: number) => ({
               id: `msg-${convToLoad}-${idx}`,
               sender: m.role === 'user' ? 'user' : 'assistant',
@@ -384,7 +394,7 @@ export function useTravelApi() {
             }));
             setMessages(mappedMessages);
           }
-          if (detail?.travel_context) {
+          if (!sendInFlight.current && detail?.travel_context) {
             setTravelContext((prev) => ({
               ...(prev || {}),
               ...detail.travel_context,
@@ -422,13 +432,14 @@ export function useTravelApi() {
 
   // Handler: Send Chat message with return result for trip creation verification
   const handleSendMessage = async (
-    textToSend?: string
+    textToSend?: string,
+    recovery?: PendingPlanningRequest,
   ): Promise<{ success: boolean; trip: any | null; error?: string }> => {
     const text = (typeof textToSend === 'string' && textToSend.trim() !== '' ? textToSend : promptInput).trim();
     if (!text) {
       return { success: false, trip: null, error: 'Message cannot be empty.' };
     }
-    if (isSendingMessage) {
+    if (sendInFlight.current || (pendingPlanning.current && !recovery)) {
       return { success: false, trip: null, error: 'A request is currently in progress. Please wait.' };
     }
 
@@ -439,12 +450,13 @@ export function useTravelApi() {
       text,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setPromptInput('');
+    sendInFlight.current = true;
+    if (!recovery) { setMessages((prev) => [...prev, userMsg]); setPromptInput(''); }
     setIsSendingMessage(true);
 
     // Evaluate trip planning constraints
-    const checkResult = checkTripPlanningConstraints(text, travelContext);
+    const checkResult = checkTripPlanningConstraints(text, recovery?.context || travelContext);
+    if (recovery) checkResult.mergedContext = recovery.context;
     
     // Always immediately update travelContext with any extracted slots (e.g. destination & dates)
     // so preference bar updates instantly in real time
@@ -460,6 +472,7 @@ export function useTravelApi() {
       };
       setMessages((prev) => [...prev, guidanceAssistantMsg]);
       setIsSendingMessage(false);
+      sendInFlight.current = false;
       return { success: true, trip: null };
     }
 
@@ -469,7 +482,22 @@ export function useTravelApi() {
       const promptToSend = buildChatPromptWithFallbackContext(text, checkResult.mergedContext);
 
       // POST /api/chat/message with EXACTLY { message, conversation_id }
-      const response = await sendChatMessage(promptToSend, currentConversationId);
+      const tracked = recovery || (apiStatus.supportsPlanningProgress ? newPlanningRequest(text, promptToSend, checkResult.mergedContext, currentConversationId) : null);
+      let response: Awaited<ReturnType<typeof sendChatMessage>>;
+      if (tracked) {
+        pendingPlanning.current = tracked;
+        savePendingPlanning(tracked);
+        const controller = new AbortController(); sendController.current = controller;
+        setPlanningProgress({ request_id: tracked.id, status: 'restoring', kind: 'request', stages: {} });
+        response = await trackPlanning(tracked, progress => {
+          if (controller.signal.aborted || pendingPlanning.current?.id !== tracked.id) return;
+          setPlanningProgress(progress);
+          if (progress.conversation_id) {
+            setCurrentConversationId(progress.conversation_id);
+            localStorage.setItem('TRAVELAI_CONVERSATION_ID', progress.conversation_id);
+          }
+        }, controller.signal, Boolean(recovery));
+      } else response = await sendChatMessage(promptToSend, currentConversationId);
       
       // CRITICAL: Persist conversation_id so subsequent messages thread correctly
       if (response.rawResponse?.conversation_id) {
@@ -486,7 +514,8 @@ export function useTravelApi() {
         setCurrentIntent(response.rawResponse.intent);
       }
 
-      setMessages((prev) => [...prev, response.replyMessage]);
+      setMessages((prev) => prev.some(message => message.id === response.replyMessage.id) ||
+        (recovery && prev.at(-1)?.sender === 'assistant' && prev.at(-1)?.text === response.replyMessage.text) ? prev : [...prev, response.replyMessage]);
 
       let generatedTrip: any = null;
       if (response.rawResponse?.data?.itinerary) {
@@ -549,8 +578,17 @@ export function useTravelApi() {
       // Refresh conversations list in background
       fetchConversationsList().then(setConversations).catch(() => {});
 
+      if (tracked) {
+        clearPendingPlanning(tracked.id); pendingPlanning.current = null; setPlanningProgress(null);
+      }
+
       return { success: true, trip: generatedTrip };
     } catch (err: any) {
+      if (err instanceof ProgressUnavailable) {
+        setPlanningProgress(err.progress);
+        return { success: false, trip: null, error: err.message };
+      }
+      if (err?.name === 'AbortError' && pendingPlanning.current) return { success: false, trip: null, error: 'Request monitoring stopped.' };
       console.error('[CHAT DEBUG] handleSendMessage caught error:', err);
       // User-visible error feedback
       const errorText = err instanceof Error ? err.message : 'Failed to reach TravelAI server.';
@@ -566,13 +604,35 @@ export function useTravelApi() {
       setErrorMessage(`Failed to send message: ${errorText}`);
       return { success: false, trip: null, error: errorText };
     } finally {
+      sendInFlight.current = false; sendController.current = null;
       setIsSendingMessage(false);
     }
   };
 
+  const handleCheckPlanning = () => {
+    const pending = pendingPlanning.current || readPendingPlanning();
+    if (pending && !sendInFlight.current) void handleSendMessage(pending.text, pending);
+  };
+  const handleDismissPlanning = async () => {
+    if (!planningProgress || !['failed', 'interrupted'].includes(planningProgress.status) || sendInFlight.current) return;
+    if (planningProgress.trip_id) {
+      try { syncTripState(await fetchTrip(planningProgress.trip_id)); setPlannerView('trip'); }
+      catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open the saved trip.'); return; }
+    } else if (pendingPlanning.current) setPromptInput(pendingPlanning.current.text);
+    clearPendingPlanning(planningProgress.request_id); pendingPlanning.current = null; setPlanningProgress(null);
+  };
+  useEffect(() => {
+    if (isLoadingConversations || isLoadingTrips || recoveryStarted.current || !pendingPlanning.current) return;
+    const timer = setTimeout(() => {
+      if (recoveryStarted.current || sendInFlight.current) return;
+      recoveryStarted.current = true; handleCheckPlanning();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [isLoadingConversations, isLoadingTrips]);
+
   // Handler: Select a conversation from Sidebar
   const handleSelectConversation = async (conversationId: string, expectedTripId?: string) => {
-    if (isSendingMessage) { setErrorMessage('Wait for the current response before switching conversations.'); return false; }
+    if (isSendingMessage || pendingPlanning.current) { setErrorMessage('Check the current request before switching conversations.'); return false; }
     const request = ++conversationLoad.current;
     try {
       const detail = await fetchConversationDetail(conversationId);
@@ -598,7 +658,7 @@ export function useTravelApi() {
   };
 
   const openTripEdit = async () => {
-    if (!trip || isOpeningEdit || isSendingMessage) return false;
+    if (!trip || isOpeningEdit || isSendingMessage || pendingPlanning.current) return false;
     const id = trip.id;
     setIsOpeningEdit(true);
     try {
@@ -702,6 +762,7 @@ export function useTravelApi() {
 
   // Handler: Start a fresh new chat session without sending any default prompt
   const handleNewChat = useCallback(() => {
+    if (sendInFlight.current || pendingPlanning.current) { setErrorMessage('Check the current request before starting another chat.'); return; }
     ++conversationLoad.current;
     setPlannerView('plan');
     setCurrentConversationId(null);
@@ -857,6 +918,9 @@ export function useTravelApi() {
     promptInput,
     setPromptInput,
     isSendingMessage,
+    planningProgress,
+    handleCheckPlanning,
+    handleDismissPlanning,
     handleSendMessage,
     handleSelectConversation,
     handleSelectFlight,

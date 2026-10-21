@@ -350,6 +350,7 @@ export interface SavedTripSnippet {
 }
 
 export interface ApiStatusState {
+  supportsPlanningProgress?: boolean;
   isConnected: boolean;
   endpointUrl: string;
   statusCode: number | null;
