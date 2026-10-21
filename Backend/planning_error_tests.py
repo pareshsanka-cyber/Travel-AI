@@ -11,6 +11,15 @@ from app.ai.agents.synthesis_agent import synthesis_node
 
 
 class PlanningErrorTests(unittest.TestCase):
+    def test_acknowledgement_failure_does_not_expose_provider_details(self):
+        from app.services import chat_service
+        conversation = SimpleNamespace(conversation_id='ack-test', current_trip_id=None,
+            travel_context=SimpleNamespace(model_dump=lambda: {'destination': 'Goa', 'days': 2}))
+        with patch.object(chat_service, 'get_or_create_conversation', return_value=conversation), patch.object(chat_service, 'get_conversation_messages', return_value=[]), patch.object(chat_service, 'add_message'), patch.object(chat_service, 'analyze_user_message', return_value={'intent':'UPDATE_CONTEXT', 'slots':{}}), patch.object(chat_service.llm, 'invoke', side_effect=RuntimeError('private-provider-credential')):
+            result = chat_service.process_chat_message(None, 'These preferences look good', 'test-user')
+        self.assertIn('saved your travel preferences', result['message']['content'])
+        self.assertNotIn('private-provider-credential', str(result))
+
     def test_planning_date_boundaries_follow_today(self):
         from datetime import date, timedelta
         from app.services.planning_dates import validate_planning_dates
@@ -130,7 +139,7 @@ class PlanningErrorTests(unittest.TestCase):
             'arrival_airport': {'id': 'COK', 'name': 'Cochin Airport', 'time': '2026-10-22 01:30'},
             'airline': 'Test airline', 'flight_number': 'TA 123'}]}]}
         response = SimpleNamespace(status_code=200, json=lambda: payload, raise_for_status=lambda: None)
-        with patch.dict(os.environ, {'SERPAPI_API_KEY': 'test-only'}), patch.object(flight_agent, '_FLIGHT_CACHE', {}), \
+        with patch.object(flight_agent, 'search_guard', return_value=None), patch.dict(os.environ, {'SERPAPI_API_KEY': 'test-only'}), patch.object(flight_agent, '_FLIGHT_CACHE', {}), \
                 patch.object(flight_agent.httpx, 'get', return_value=response), \
                 patch.object(flight_agent, 'parse_and_validate_flight_date', return_value=('2026-10-21', False, False, '21 Oct 2026')):
             options = flight_agent.fetch_real_flights_serpapi('Kerala, India', 'New Delhi', 'INR', start_date='2026-10-21', travelers_count=3)['flights']

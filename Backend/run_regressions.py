@@ -9,6 +9,7 @@ suites = ['reroute_v2_tests.py', 'routing_reliability_tests.py', 'edit_session_t
           'itinerary_engine_audit_tests.py', 'dynamic_reroute_tests.py', 'phase2_1_reroute_tests.py']
 suites.insert(0, 'llm_connection_tests.py')
 suites.insert(0, 'planning_progress_tests.py')
+suites.insert(0, 'discovery_tests.py')
 failed = False
 for suite in suites:
     result = subprocess.run([sys.executable, str(root / suite)], cwd=root, capture_output=True,

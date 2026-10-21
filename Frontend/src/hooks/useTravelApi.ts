@@ -219,6 +219,15 @@ export function useTravelApi() {
     setBudget(fetchBudgetOverview(tripObj));
   }, []);
 
+  const discoveryLatestTrip = useRef(trip);
+  discoveryLatestTrip.current = trip;
+  const acceptDiscoveryTrip = useCallback((fresh: Record<string, any>) => {
+    const id = fresh.id || fresh._id;
+    if (activeTripIdRef.current !== id || Number(discoveryLatestTrip.current?.revision || 1) > Number(fresh.revision || 1)) return;
+    setRawTripsHistory(previous => previous.map(item => (item.id || item._id) === id && Number(item.revision || 1) <= Number(fresh.revision || 1) ? fresh : item));
+    syncTripState(fresh);
+  }, [syncTripState]);
+
   const refreshTripAccess = useCallback(async (id: string): Promise<boolean> => {
     try {
       const fresh = await fetchTrip(id);
@@ -492,6 +501,7 @@ export function useTravelApi() {
         response = await trackPlanning(tracked, progress => {
           if (controller.signal.aborted || pendingPlanning.current?.id !== tracked.id) return;
           setPlanningProgress(progress);
+          if (!tracked.observedServer) { tracked.observedServer = true; savePendingPlanning(tracked); }
           if (progress.conversation_id) {
             setCurrentConversationId(progress.conversation_id);
             localStorage.setItem('TRAVELAI_CONVERSATION_ID', progress.conversation_id);
@@ -586,9 +596,15 @@ export function useTravelApi() {
     } catch (err: any) {
       if (err instanceof ProgressUnavailable) {
         setPlanningProgress(err.progress);
+        if (err.progress.result?.travel_context) setTravelContext(mergeTravelContexts(checkResult.mergedContext, err.progress.result.travel_context, text));
         return { success: false, trip: null, error: err.message };
       }
       if (err?.name === 'AbortError' && pendingPlanning.current) return { success: false, trip: null, error: 'Request monitoring stopped.' };
+      if (pendingPlanning.current) {
+        const error = 'The response could not be displayed. Check request status before sending again; your original details are preserved.';
+        setPlanningProgress({ request_id: pendingPlanning.current.id, status: 'connection_lost', kind: 'request', stages: {}, error });
+        return { success: false, trip: null, error };
+      }
       console.error('[CHAT DEBUG] handleSendMessage caught error:', err);
       // User-visible error feedback
       const errorText = err instanceof Error ? err.message : 'Failed to reach TravelAI server.';
@@ -613,6 +629,22 @@ export function useTravelApi() {
     const pending = pendingPlanning.current || readPendingPlanning();
     if (pending && !sendInFlight.current) void handleSendMessage(pending.text, pending);
   };
+  const handleRetryPlanning = () => {
+    const pending = pendingPlanning.current;
+    if (!pending || sendInFlight.current || planningProgress?.status !== 'failed' || !planningProgress.recovery?.retryable || planningProgress.trip_id) return;
+    const retry = { ...pending, retryAttemptId: crypto.randomUUID() };
+    pendingPlanning.current = retry; savePendingPlanning(retry);
+    void handleSendMessage(retry.text, retry);
+  };
+  const checkPlanningRef = useRef(handleCheckPlanning);
+  checkPlanningRef.current = handleCheckPlanning;
+  useEffect(() => {
+    if (planningProgress?.status !== 'connection_lost') return;
+    const reconnect = () => { if (document.visibilityState === 'visible') checkPlanningRef.current(); };
+    window.addEventListener('online', reconnect);
+    document.addEventListener('visibilitychange', reconnect);
+    return () => { window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', reconnect); };
+  }, [planningProgress?.status]);
   const handleDismissPlanning = async () => {
     if (!planningProgress || !['failed', 'interrupted'].includes(planningProgress.status) || sendInFlight.current) return;
     if (planningProgress.trip_id) {
@@ -620,6 +652,7 @@ export function useTravelApi() {
       catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open the saved trip.'); return; }
     } else if (pendingPlanning.current) setPromptInput(pendingPlanning.current.text);
     clearPendingPlanning(planningProgress.request_id); pendingPlanning.current = null; setPlanningProgress(null);
+    if (!planningProgress.trip_id) requestAnimationFrame(() => document.getElementById('chatPromptInput')?.focus());
   };
   useEffect(() => {
     if (isLoadingConversations || isLoadingTrips || recoveryStarted.current || !pendingPlanning.current) return;
@@ -889,7 +922,7 @@ export function useTravelApi() {
 
   return {
     plannerView, setPlannerView, openTripEdit, isOpeningEdit,
-    refreshTripAccess,
+    refreshTripAccess, acceptDiscoveryTrip,
     activePage,
     setActivePage,
     activeDashboardTab,
@@ -920,6 +953,7 @@ export function useTravelApi() {
     isSendingMessage,
     planningProgress,
     handleCheckPlanning,
+    handleRetryPlanning,
     handleDismissPlanning,
     handleSendMessage,
     handleSelectConversation,

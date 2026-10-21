@@ -1,6 +1,6 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthContextType } from '../types';
-import { getApiBaseUrl } from '../services/apiConfig';
+import { authRequest, AuthHttpError } from '../services/authTransport';
 
 const TOKEN_KEY = 'travelai_token';
 const USER_KEY = 'travelai_user';
@@ -13,41 +13,34 @@ function clearSessionStorage() {
     .forEach(key => localStorage.removeItem(key));
 }
 
-async function authRequest(path: string, body?: object, token?: string) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  try {
-    const response = await fetch(`${getApiBaseUrl()}/api/auth/${path}`, {
-      method: body ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}), signal: controller.signal,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Authentication failed');
-    return data;
-  } finally { clearTimeout(timer); }
-}
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
 
   useEffect(() => {
     let mounted = true;
+    setIsLoading(true); setSessionError(null);
     const storedToken = localStorage.getItem(TOKEN_KEY);
     if (!storedToken) { setIsLoading(false); return; }
     authRequest('me', undefined, storedToken).then(data => {
       if (!mounted) return;
+      if (!data?.user?.id) throw new Error('Invalid session response');
       setUser(data.user); setToken(storedToken);
       localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    }).catch(() => { if (mounted) clearSessionStorage(); })
+    }).catch(error => {
+      if (!mounted) return;
+      if (error instanceof AuthHttpError && [401, 403].includes(error.status)) clearSessionStorage();
+      else setSessionError('Unable to verify your session. Your saved login and planning details are preserved. Check that the backend and MongoDB are running, then try again.');
+    })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, []);
+  }, [restoreAttempt]);
 
   useEffect(() => {
-    const expire = () => { clearSessionStorage(); setUser(null); setToken(null); };
+    const expire = () => { clearSessionStorage(); setSessionError(null); setUser(null); setToken(null); };
     window.addEventListener('travelai-session-expired', expire);
     return () => window.removeEventListener('travelai-session-expired', expire);
   }, []);
@@ -69,10 +62,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const register = (name: string, email: string, password: string) => authenticate('register', { name, email, password });
   const logout = () => {
     if (token) void authRequest('logout', {}, token).catch(() => {});
-    clearSessionStorage(); setToken(null); setUser(null);
+    clearSessionStorage(); setSessionError(null); setToken(null); setUser(null);
   };
   return <AuthContext.Provider value={{ user, token, isAuthenticated: !!token && !!user,
-    isLoading, login, register, logout }}>{children}</AuthContext.Provider>;
+    isLoading, login, register, logout, sessionError,
+    retrySession: () => { setIsLoading(true); setRestoreAttempt(value => value + 1); },
+    dismissSessionRecovery: () => { clearSessionStorage(); setSessionError(null); }
+  }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = (): AuthContextType => {

@@ -1,10 +1,12 @@
+import { TravelDiscoveryPanel } from '../TravelDiscoveryPanel';
 import { MotionImage } from '../../motion/SecondaryMotion';
 import { BookDemoButton } from '../BookDemoButton';
 import React, { useState } from 'react';
 import { MapPin, Star, Check } from 'lucide-react';
-import { HotelOption } from '../../types';
+import { HotelOption, TripSummary } from '../../types';
 
 interface HotelsTabProps {
+  trip?: TripSummary | null;
   onBook: (kind: 'flight' | 'hotel', id: string, source?: 'discovered' | 'sample') => Promise<void>;
   hotels: HotelOption[];
   nearbyHotels?: HotelOption[];
@@ -13,6 +15,7 @@ interface HotelsTabProps {
 
 export const HotelsTab: React.FC<HotelsTabProps> = ({
   hotels,
+  trip,
   nearbyHotels = [],
   onSelectHotel,
   onBook,
@@ -36,17 +39,8 @@ export const HotelsTab: React.FC<HotelsTabProps> = ({
         </span>
       </div>
 
-      {(!hotels || hotels.length === 0) ? (
-        <div className="flex flex-col items-center justify-center p-12 rounded-2xl bg-surface-container border border-surface-container-highest/60 text-center space-y-3">
-          <div className="w-12 h-12 rounded-xl bg-tertiary/10 text-tertiary flex items-center justify-center">
-            <MapPin className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-semibold text-on-surface">No hotels yet</h3>
-          <p className="text-xs text-on-surface-variant max-w-sm">
-            No accommodation results are available for this trip. Ask TravelAI in Planner Studio to recommend hotels.
-          </p>
-        </div>
-      ) : (
+      <TravelDiscoveryPanel key={trip?.id} kind="hotel" trip={trip} hasPricedOptions={[...hotels, ...nearbyHotels].some(h => Number.isFinite(h.pricePerNight) && h.pricePerNight > 0)} onBook={onBook} />
+      {hotels.length === 0 ? null : (
         hotels.map((hotel, idx) => {
           const isSelected = hotel.isSelected;
           return (

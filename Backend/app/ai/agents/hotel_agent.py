@@ -3,6 +3,8 @@ import json
 import httpx
 from datetime import datetime, timedelta
 from app.ai.orchestrator.state import TravelState
+from app.services.discovery_status import search_guard, classify_response, remember_failure, status
+from app.services.travel_offer_identity import stable_offer_id
 from app.ai.rag.retriever import retrieve_travel_knowledge
 from app.ai.agents.attraction_agent import resolve_destination_coordinates
 
@@ -20,6 +22,11 @@ def hotel_node(state: TravelState) -> dict:
 
     print(f"--- HOTEL AGENT: Finding real-time hotels in {destination} ---")
 
+    blocked = search_guard()
+    if blocked:
+        return {"hotels": [get_fallback_hotel(destination, days, currency)], "nearby_hotels": [],
+                "hotel_metadata": dict(blocked, data_status="error")}
+    metadata = status('empty_results')
     dest_coords = resolve_destination_coordinates(destination)
     api_key = os.getenv("SERPAPI_API_KEY")
     all_hotels = []
@@ -45,6 +52,11 @@ def hotel_node(state: TravelState) -> dict:
             }
 
             response = httpx.get("https://serpapi.com/search.json", params=params, timeout=15.0)
+            reason = classify_response(response)
+            if reason:
+                remember_failure(reason)
+                return {"hotels": [get_fallback_hotel(destination, days, currency)], "nearby_hotels": [],
+                        "hotel_metadata": dict(status(reason), data_status="error")}
             if response.status_code == 200:
                 data = response.json()
                 properties = data.get("properties", [])
@@ -67,6 +79,9 @@ def hotel_node(state: TravelState) -> dict:
                     lon = float(gps.get("longitude")) if gps.get("longitude") else dest_coords["lon"]
 
                     hotel = {
+                        "id": stable_offer_id('hotel', prop),
+                        "provider_id": prop.get('property_token') or prop.get('data_id') or prop.get('place_id'),
+                        "currency": currency, "source": "serpapi_google_hotels",
                         "name": hotel_name,
                         "rating": str(prop.get("overall_rating", "4.2")),
                         "price_per_night": float(price_per_night),
@@ -82,9 +97,10 @@ def hotel_node(state: TravelState) -> dict:
                     all_hotels.append(hotel)
 
         except Exception as e:
-            print(f"--- HOTEL AGENT: SerpAPI google_hotels failed ({e}), checking google_maps ---")
+            metadata = status('connection_failure' if isinstance(e, httpx.RequestError) else 'provider_unavailable')
+            print(f"--- HOTEL AGENT: Search failed ({type(e).__name__}) ---")
 
-        if not all_hotels:
+        if not all_hotels and not metadata.get('failure_reason') in {'connection_failure', 'provider_unavailable'} and not search_guard():
             try:
                 maps_params = {
                     "engine": "google_maps",
@@ -92,7 +108,11 @@ def hotel_node(state: TravelState) -> dict:
                     "api_key": api_key
                 }
                 maps_resp = httpx.get("https://serpapi.com/search.json", params=maps_params, timeout=10.0)
-                if maps_resp.status_code == 200:
+                maps_reason = classify_response(maps_resp)
+                if maps_reason:
+                    remember_failure(maps_reason)
+                    metadata = status(maps_reason)
+                if maps_resp.status_code == 200 and not maps_reason:
                     mdata = maps_resp.json()
                     local_results = mdata.get("local_results", [])
                     for idx, prop in enumerate(local_results[:8]):
@@ -100,6 +120,9 @@ def hotel_node(state: TravelState) -> dict:
                         h_lon = prop.get("gps_coordinates", {}).get("longitude") or dest_coords["lon"]
                         thumb = prop.get("thumbnail")
                         all_hotels.append({
+                            "id": stable_offer_id('hotel', prop),
+                            "provider_id": prop.get('place_id') or prop.get('data_id'),
+                            "currency": currency, "source": "serpapi_google_maps",
                             "name": prop.get("title", f"Hotel in {destination}"),
                             "rating": str(prop.get("rating") or 0),
                             "price_per_night": 0.0,
@@ -115,7 +138,7 @@ def hotel_node(state: TravelState) -> dict:
                     if all_hotels:
                         print(f"--- HOTEL AGENT: Google Maps yielded {len(all_hotels)} verified hotels ---")
             except Exception as me:
-                print(f"--- HOTEL AGENT: Secondary Google Maps hotel search failed: {me} ---")
+                metadata = status("connection_failure" if isinstance(me, httpx.RequestError) else "provider_unavailable")
 
     primary_hotels = [h for h in all_hotels if h.get("hotel_category") == "primary"]
     nearby_hotels = [h for h in all_hotels if h.get("hotel_category") == "nearby"]
@@ -128,4 +151,6 @@ def hotel_node(state: TravelState) -> dict:
     return {
         "hotels": primary_hotels,
         "nearby_hotels": nearby_hotels,
+        "hotel_metadata": dict(status('available') if all_hotels else metadata,
+                               data_status='search_results' if all_hotels else 'error' if metadata['failure_reason'] != 'empty_results' else 'no_results'),
     }

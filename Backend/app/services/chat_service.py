@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.database.mongodb import db
 from app.ai.orchestrator.langgraph_graph import graph
 from app.ai.llm import llm, public_llm_error
+from app.services.failure_recovery import recovery_for
 from langchain_core.prompts import ChatPromptTemplate
 from app.services.conversation_service import (
     get_or_create_conversation,
@@ -106,7 +107,7 @@ def build_travel_state_from_context(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def process_chat_message(conversation_id: Optional[str], user_message: str, user_id: Optional[str] = None,
-                         progress=None, planning_request_key=None) -> Dict[str, Any]:
+                         progress=None, planning_request_key=None, reuse_user_message=False) -> Dict[str, Any]:
     print(f"\n--- CHAT SERVICE: Processing chat turn for conversation: '{conversation_id}' (User: {user_id}) ---")
     
     # 1. Fetch or create conversation with user_id
@@ -126,7 +127,8 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             break
 
     # 3. Add incoming user message to database
-    add_message(conv_id, "user", user_message)
+    if not reuse_user_message:
+        add_message(conv_id, "user", user_message)
 
     # 4. Single Conversational Analysis Step (1 LLM call)
     try:
@@ -147,6 +149,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             "conversation_id": conv_id,
             "message": {"role": "assistant", "content": err_msg},
             "intent": "ERROR",
+            "recovery": recovery_for(e),
             "travel_context": current_context,
             "data": None
         }
@@ -179,7 +182,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         try:
             ack_resp = llm.invoke(prompt_val).content.strip()
         except Exception as e:
-            ack_resp = f"Got it! I have updated your travel preferences. (Warning: LLM failed: {e})"
+            ack_resp = "I've saved your travel preferences. The AI acknowledgement is temporarily unavailable; you can continue planning."
 
         add_message(conv_id, "assistant", ack_resp, intent="UPDATE_CONTEXT", structured_data={"slots": slots})
 
@@ -259,12 +262,15 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"[ITINERARY ERROR] request_id={req_id} duration_ms={duration_ms} status=failed error={e}\n")
-            err_msg = f"Sorry, I encountered an issue generating your itinerary: {e}"
+            recovery = recovery_for(e, planning=True)
+            # Constraint errors are deliberate traveler-facing validation messages.
+            err_msg = f"Unable to create this itinerary: {e}" if recovery['code'] == 'trip_constraints' else recovery['message']
             add_message(conv_id, "assistant", err_msg)
             return {
                 "conversation_id": conv_id,
                 "message": {"role": "assistant", "content": err_msg},
                 "intent": "GENERATE_ITINERARY",
+                "recovery": recovery,
                 "travel_context": current_context,
                 "data": None
             }
@@ -296,6 +302,7 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             "planner_draft": final_state.get("planner_draft") or "Itinerary created",
             "flights": final_state.get("flights") or [],
             "flight_metadata": final_state.get("flight_metadata") or {},
+            "hotel_metadata": final_state.get("hotel_metadata") or {},
             "destination_timezone": final_state.get("destination_timezone"),
             "hotels": final_state.get("hotels") or [],
             "nearby_hotels": final_state.get("nearby_hotels") or [],

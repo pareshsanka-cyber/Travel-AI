@@ -1,3 +1,4 @@
+import { TravelDiscoveryPanel } from '../TravelDiscoveryPanel';
 import { BookDemoButton } from '../BookDemoButton';
 import React from 'react';
 import { Plane, CheckCircle2, ExternalLink, Calendar, Search, AlertCircle, ShieldCheck, Clock, Luggage, Sparkles } from 'lucide-react';
@@ -118,30 +119,8 @@ export const FlightsTab: React.FC<FlightsTabProps> = ({
         </div>
       )}
 
-      {/* Empty State when no flights exist */}
-      {(!flights || flights.length === 0) ? (
-        <div className="flex flex-col items-center justify-center p-10 rounded-2xl bg-surface-container border border-surface-container-highest/60 text-center space-y-3">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-            <Plane className="w-6 h-6" />
-          </div>
-          <h3 className="text-base font-semibold text-on-surface">
-            {flightMeta?.dataStatus === 'no_flights_found' ? 'No Commercial Flights Found' : 'No Flights Available'}
-          </h3>
-          <p className="text-xs text-on-surface-variant max-w-md">
-            {flightMeta?.message ||
-              `No live commercial flights were matched between ${depCode} and ${arrCode}. Check regional airports or explore available dates directly.`}
-          </p>
-          <a
-            href={`https://www.google.com/travel/flights?q=Flights%20to%20${arrCode}%20from%20${depCode}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold border border-primary/20 transition-colors"
-          >
-            <span>Search Alternative Routes on Google Flights</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
-      ) : (
+      <TravelDiscoveryPanel key={trip?.id} kind="flight" trip={trip} hasPricedOptions={flights.some(f => Number.isFinite(f.pricePerPerson) && f.pricePerPerson > 0)} onBook={onBook} />
+      {flights.length === 0 ? null : (
         /* Real Flights List */
         flights.map((flight, idx) => {
           const isSelected = flight.isSelected;

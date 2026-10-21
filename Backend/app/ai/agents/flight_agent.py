@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.ai.orchestrator.state import TravelState
+from app.services.discovery_status import search_guard, classify_response, remember_failure, status
+from app.services.travel_offer_identity import stable_offer_id
 
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
 
@@ -357,7 +359,8 @@ def fetch_real_flights_serpapi(
     budget: float = None,
     start_date: str = None,
     end_date: str = None,
-    travelers_count: int = 1
+    travelers_count: int = 1,
+    force_refresh: bool = False
 ) -> Dict[str, Any]:
     """
     Fetch genuine real-time flight options using SerpApi Google Flights engine.
@@ -411,7 +414,7 @@ def fetch_real_flights_serpapi(
         }
     cache_key = f"{departure_code}_{arrival_code}_{iso_outbound}_{currency}_{travelers_count}"
     now_ts = time.time()
-    if cache_key in _FLIGHT_CACHE:
+    if not force_refresh and cache_key in _FLIGHT_CACHE:
         entry = _FLIGHT_CACHE[cache_key]
         if (now_ts - entry["timestamp"]) < CACHE_TTL_SECONDS:
             print(f"--- FLIGHT AGENT: Cache hit for {departure_code} -> {arrival_code} ({iso_outbound}) ---")
@@ -421,21 +424,10 @@ def fetch_real_flights_serpapi(
             cached_data["metadata"]["last_checked_at"] = datetime.now(timezone.utc).isoformat()
             return cached_data
 
-    if not api_key:
-        print("--- FLIGHT AGENT: No SERPAPI_API_KEY configured. Returning provider unconfigured status. ---")
-        return {
-            "flights": [],
-            "metadata": {
-                "source": "serpapi_google_flights",
-                "data_status": "error",
-                "is_past_date": False,
-                "departure_date": iso_outbound,
-                "departure_date_display": display_date,
-                "origin": departure_code,
-                "destination": arrival_code,
-                "message": "SerpApi API key not configured on backend. Flight search unavailable."
-            }
-        }
+    blocked = search_guard()
+    if blocked:
+        return {"flights": [], "metadata": dict(blocked, data_status="error", departure_date=iso_outbound,
+            origin=departure_code, destination=arrival_code, source="serpapi_google_flights")}
 
     print(f"--- FLIGHT AGENT: Querying SerpApi Google Flights ({departure_code} -> {arrival_code}, date={iso_outbound}) ---")
 
@@ -456,25 +448,11 @@ def fetch_real_flights_serpapi(
     try:
         response = httpx.get("https://serpapi.com/search.json", params=params, timeout=15.0)
         
-        if response.status_code == 400:
-            error_json = response.json()
-            error_msg = error_json.get("error", "Bad request from Google Flights")
-            print(f"--- FLIGHT AGENT: SerpApi 400 Client Error: {error_msg} ---")
-            return {
-                "flights": [],
-                "metadata": {
-                    "source": "serpapi_google_flights",
-                    "data_status": "error",
-                    "is_past_date": is_past,
-                    "departure_date": iso_outbound,
-                    "departure_date_display": display_date,
-                    "origin": departure_code,
-                    "destination": arrival_code,
-                    "message": f"Provider search error: {error_msg}"
-                }
-            }
-
-        response.raise_for_status()
+        reason = classify_response(response)
+        if reason:
+            remember_failure(reason)
+            return {"flights": [], "metadata": dict(status(reason), data_status="error", departure_date=iso_outbound,
+                origin=departure_code, destination=arrival_code, source="serpapi_google_flights")}
         data = response.json()
 
         google_flights_url = data.get("search_metadata", {}).get("google_flights_url") or (
@@ -565,7 +543,8 @@ def fetch_real_flights_serpapi(
                         extensions.append(ext)
 
             formatted_flights.append({
-                "id": f"fl_{departure_code}_{arrival_code}_{idx + 1}",
+                "id": stable_offer_id("flight", {"segments": flight_segments, "travel_class": travel_class}),
+                "provider_segments": flight_segments,
                 "airline": airline_name,
                 "airline_name": airline_name,
                 "airline_code": airline_code,
@@ -632,7 +611,7 @@ def fetch_real_flights_serpapi(
         return result
 
     except Exception as e:
-        print(f"--- FLIGHT AGENT: SerpApi request error: {e} ---")
+        print(f"--- FLIGHT AGENT: Search failed ({type(e).__name__}) ---")
         return {
             "flights": [],
             "metadata": {
@@ -643,8 +622,7 @@ def fetch_real_flights_serpapi(
                 "departure_date_display": display_date,
                 "origin": departure_code,
                 "destination": arrival_code,
-                "error": str(e),
-                "message": "Flight search provider is temporarily unavailable. Live fares could not be loaded."
+                **status("connection_failure" if isinstance(e, httpx.RequestError) else "provider_unavailable")
             }
         }
 
@@ -670,7 +648,8 @@ def flight_node(state: TravelState) -> dict:
         budget=state.get("budget"),
         start_date=start_date,
         end_date=end_date,
-        travelers_count=travelers_count
+        travelers_count=travelers_count,
+        force_refresh=bool(state.get('_refresh_discovery'))
     )
 
     flights = result.get("flights", [])

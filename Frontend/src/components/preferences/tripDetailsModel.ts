@@ -3,6 +3,8 @@ export const POPULAR_ORIGINS = ['Hyderabad', 'Mumbai', 'New Delhi', 'Bengaluru',
 export const DESTINATIONS = [
   ['Goa', 'India', 'South Asia'], ['Jaipur', 'India', 'South Asia'], ['Kerala', 'India', 'South Asia'],
   ['Ladakh', 'India', 'South Asia'], ['Mumbai', 'India', 'South Asia'], ['New Delhi', 'India', 'South Asia'],
+  ['Bengaluru', 'India', 'South Asia'], ['Hyderabad', 'India', 'South Asia'],
+  ['Chennai', 'India', 'South Asia'], ['Kolkata', 'India', 'South Asia'],
   ['Tokyo', 'Japan', 'East Asia'], ['Kyoto', 'Japan', 'East Asia'], ['Bali', 'Indonesia', 'Southeast Asia'],
   ['Bangkok', 'Thailand', 'Southeast Asia'], ['Singapore', 'Singapore', 'Southeast Asia'],
   ['Dubai', 'United Arab Emirates', 'Middle East'], ['Paris', 'France', 'Europe'], ['Rome', 'Italy', 'Europe'],
@@ -10,6 +12,13 @@ export const DESTINATIONS = [
   ['Swiss Alps', 'Switzerland', 'Europe'], ['New York', 'United States', 'North America'],
   ['San Francisco', 'United States', 'North America'], ['Sydney', 'Australia', 'Oceania'], ['Cape Town', 'South Africa', 'Africa'],
 ].map(([city, country, region]) => ({ city, country, region, value: `${city}, ${country}` }));
+export function destinationKey(value: string) {
+  return value.trim().toLowerCase().replace(/\bbangalore\b/g, 'bengaluru');
+}
+export function matchingDestinations(query: string) {
+  const key = destinationKey(query);
+  return DESTINATIONS.filter(d => destinationKey(`${d.city}, ${d.country} ${d.region}`).includes(key));
+}
 export const BUDGET_PRESETS: Record<string, number[]> = {
   INR: [30000, 50000, 75000, 100000, 150000, 250000], USD: [1000, 2000, 3500, 5000, 7500, 10000],
   EUR: [1000, 1800, 3000, 4500, 7000, 9000], GBP: [800, 1500, 2500, 4000, 6000, 8000],

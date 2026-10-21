@@ -41,6 +41,8 @@ interface PlannerStudioPageProps {
   planningProgress?: PlanningProgress | null;
   onCheckPlanning?: () => void;
   onDismissPlanning?: () => void;
+  onRetryPlanning?: () => void;
+  onApiSettings?: () => void;
   activeTab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab';
   onSwitchTab: (tab: 'companion-tab' | 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   onSelectFlight: (id: string) => Promise<boolean>;
@@ -74,6 +76,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onSendMessage,
   isSending,
   planningProgress, onCheckPlanning, onDismissPlanning,
+  onRetryPlanning, onApiSettings,
   activeTab,
   onSwitchTab,
   onSelectFlight,
@@ -125,6 +128,8 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
         planningProgress={planningProgress}
         onCheckPlanning={onCheckPlanning}
         onDismissPlanning={onDismissPlanning}
+        onRetryPlanning={onRetryPlanning}
+        onApiSettings={onApiSettings}
         onSwitchTab={tab => { onSwitchTab(tab); changeView('trip'); }}
         apiStatus={apiStatus}
         onClearContext={onClearContext}

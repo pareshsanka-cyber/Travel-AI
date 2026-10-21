@@ -264,7 +264,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           <FlightsTab onBook={onBook} flights={flights} onSelectFlight={onSelectFlight} destination={trip?.destination} trip={trip} />
         )}
         {activeTab === 'hotels-tab' && (
-          <HotelsTab onBook={onBook} hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
+          <HotelsTab trip={trip} onBook={onBook} hotels={hotels} nearbyHotels={nearbyHotels} onSelectHotel={onSelectHotel} />
         )}
         {activeTab === 'weather-tab' && <WeatherTab key={trip?.id} tripId={trip?.id} weather={weather} destination={trip?.destination} onTripForecast={saveTripForecast} />}
         {activeTab === 'budget-tab' && <BudgetTab budget={budget} />}

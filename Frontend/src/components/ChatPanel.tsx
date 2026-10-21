@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   Compass,
   MapPin,
@@ -41,6 +41,8 @@ interface ChatPanelProps {
   planningProgress?: PlanningProgress | null;
   onCheckPlanning?: () => void;
   onDismissPlanning?: () => void;
+  onRetryPlanning?: () => void;
+  onApiSettings?: () => void;
   onSwitchTab: (tabId: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   apiStatus: ApiStatusState;
   onClearContext: () => void;
@@ -60,6 +62,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   planningProgress,
   onCheckPlanning,
   onDismissPlanning,
+  onRetryPlanning, onApiSettings,
   onSwitchTab,
   apiStatus,
   onClearContext,
@@ -70,6 +73,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const feedEndRef = useRef<HTMLDivElement>(null);
   const messageIds = useMemo(() => messages.map(message => message.id), [messages]);
   const messageFeed = useMessageEntrances(messageIds, isSending, isVisible);
+  const followingFeed = useRef(true);
+  useLayoutEffect(() => {
+    const feed = messageFeed.current;
+    if (feed && followingFeed.current && planningProgress && ['failed', 'interrupted', 'connection_lost'].includes(planningProgress.status)) feed.scrollTop = feed.scrollHeight;
+  }, [planningProgress?.status]);
 
   useEffect(() => {
     const feed = document.getElementById('chatMessageFeed');
@@ -141,7 +149,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {detailsOpen && <TripDetailsDialog context={travelContext} onApply={onUpdatePreference || (() => {})} onClose={() => setDetailsOpen(false)} />}
 
       {/* Message Feed */}
-      <div ref={messageFeed} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={planningProgress ? undefined : isSending}>
+      <div ref={messageFeed} onScroll={event => { const feed = event.currentTarget; followingFeed.current = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 96; }} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={planningProgress ? undefined : isSending}>
         {messages.map((msg) => {
           if (msg.sender === 'user') {
             return (
@@ -302,7 +310,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
               <Bot className="w-4 h-4" />
             </div>
-            {planningProgress ? <PlanningProgressCard progress={planningProgress} checking={isSendingRequest} onCheck={onCheckPlanning} onDismiss={onDismissPlanning} /> : <div role="status" className="p-3 rounded-xl bg-surface-container-high text-xs text-on-surface flex items-center gap-2">
+            {planningProgress ? <PlanningProgressCard progress={planningProgress} checking={isSendingRequest} onCheck={onCheckPlanning} onDismiss={onDismissPlanning} onRetry={onRetryPlanning} onApiSettings={onApiSettings} /> : <div role="status" className="p-3 rounded-xl bg-surface-container-high text-xs text-on-surface flex items-center gap-2">
               <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin" />
               <span>TravelAI is working on your request…</span>
             </div>}
@@ -394,18 +402,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   onSendMessage(trimmed);
                 }
               }}
-              aria-busy={isSending}
+              aria-busy={isSendingRequest}
               disabled={!promptInput.trim() || isSending}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-primary-container to-secondary-container text-on-primary text-xs sm:text-sm font-medium shadow-lg hover:shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {isSending ? (
+              {isSendingRequest ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Planning Trip...</span>
                 </>
               ) : (
                 <>
-                  <span>Send Message</span>
+                  <span>{planningProgress ? 'Review request above' : 'Send Message'}</span>
                   <Send className="w-3.5 h-3.5" />
                 </>
               )}

@@ -4,7 +4,7 @@ import { Check, Minus, Plus, X } from 'lucide-react';
 import { useModalFocus } from '../../hooks/useModalFocus';
 import { useTheme } from '../../context/ThemeContext';
 import { TripDatePicker } from './TripDatePicker';
-import { POPULAR_ORIGINS, DESTINATIONS, BUDGET_PRESETS, INTERESTS, createDraft, localDate, addDays,
+import { POPULAR_ORIGINS, DESTINATIONS, destinationKey, matchingDestinations, BUDGET_PRESETS, INTERESTS, createDraft, localDate, addDays,
   inclusiveDays, interestKey, uniqueInterests, validateDraft, draftUpdates, formatBudget, isoDate, type PlanningContext } from './tripDetailsModel';
 
 const input = 'mt-1 w-full min-w-0 rounded-xl border border-surface-container-highest bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant px-3 py-2.5 text-sm focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2';
@@ -38,9 +38,11 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
   const update = (name: 'origin' | 'destination' | 'start_date' | 'end_date' | 'budget' | 'currency', value: string) => {
     setFields(previous => ({ ...previous, [name]: value })); setError('');
   };
-  const filteredDestinations = destinationQuery.trim() ? DESTINATIONS.filter(d =>
-    `${d.city} ${d.country} ${d.region}`.toLowerCase().includes(destinationQuery.trim().toLowerCase())) : DESTINATIONS;
-  const visibleDestinations = destinationQuery.trim() || showAllDestinations ? filteredDestinations : filteredDestinations.slice(0, 6);
+  const filteredDestinations = matchingDestinations(destinationQuery);
+  const selectedDestination = DESTINATIONS.find(d => destinationKey(d.value) === destinationKey(fields.destination) || destinationKey(d.city) === destinationKey(fields.destination));
+  const initialDestinations = selectedDestination && !DESTINATIONS.slice(0, 6).includes(selectedDestination)
+    ? [...DESTINATIONS.slice(0, 6), selectedDestination] : DESTINATIONS.slice(0, 6);
+  const visibleDestinations = destinationQuery.trim() || showAllDestinations ? filteredDestinations : initialDestinations;
   const toggleInterest = (name: string) => setFields(previous => ({ ...previous, interests: previous.interests.some(i => interestKey(i) === interestKey(name))
     ? previous.interests.filter(i => interestKey(i) !== interestKey(name)) : [...previous.interests, name] }));
   const customInterests = fields.interests.filter(value => !INTERESTS.some(i => interestKey(value) === interestKey(i.name)));
@@ -77,8 +79,8 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
               </div>
               <div className="min-w-0"><label className="text-sm" htmlFor="trip-destination">Destination</label><input id="trip-destination" className={input} value={fields.destination} autoComplete="off" placeholder="Search or enter a destination" aria-describedby="destination-choice-note" onChange={e => { update('destination', e.target.value); setDestinationQuery(e.target.value); }} />
                 <p id="destination-choice-note" className="text-xs text-on-surface-variant mt-2">Search cities, countries or regions, or keep your own destination.</p>
-                <div role="group" aria-label="Destination suggestions" className="flex flex-wrap gap-2 mt-2">{visibleDestinations.map(d => <Choice key={d.value} label={d.value} selected={fields.destination.trim().toLowerCase() === d.value.toLowerCase()} onClick={() => update('destination', d.value)}>{d.city}<span className="sr-only">, {d.country}</span></Choice>)}</div>
-                {!filteredDestinations.length && <p className="text-xs text-on-surface-variant mt-2">No matching quick choice. Your custom destination will be kept.</p>}
+                <div role="group" aria-label="Destination suggestions" className="flex flex-wrap gap-2 mt-2">{visibleDestinations.map(d => <Choice key={d.value} label={d.value} selected={selectedDestination?.value === d.value} onClick={() => { update('destination', d.value); setDestinationQuery(d.city); }}>{d.city}<span className="sr-only">, {d.country}</span></Choice>)}</div>
+                {!filteredDestinations.length && <p className="text-xs text-on-surface-variant mt-2">No matching quick choice. Your custom destination will be kept. Custom destinations are supported.</p>}
                 {!destinationQuery.trim() && <button type="button" aria-expanded={showAllDestinations} onClick={() => setShowAllDestinations(v => !v)} className="text-primary text-xs underline mt-2 p-1">{showAllDestinations ? 'Show fewer destinations' : 'Show all destinations'}</button>}
               </div>
             </div>

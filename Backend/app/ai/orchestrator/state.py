@@ -38,6 +38,7 @@ class TravelState(TypedDict):
     planner_draft: Optional[str]
     flights: Optional[List[Dict[str, Any]]]
     flight_metadata: Optional[Dict[str, Any]]
+    hotel_metadata: Optional[Dict[str, Any]]
     hotels: Optional[List[Dict[str, Any]]]
     nearby_hotels: Optional[List[Dict[str, Any]]]
     weather: Optional[Dict[str, Any]]

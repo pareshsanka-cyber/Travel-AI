@@ -15,6 +15,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from app.database.mongodb import db
 from app.schemas.chat import ChatMessageResponse
+from app.services.failure_recovery import recovery_for
 
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='travelai-planning')
 slots = threading.BoundedSemaphore(8)
@@ -44,9 +45,19 @@ def snapshot(record):
         saved = db.trips.find_one({'planning_request_key': record['_id'], 'user_id': record['user_id']}, {'_id': 1})
         if saved:
             trip_id = str(saved['_id'])
+    recovery = dict(record.get('recovery') or (record.get('result') or {}).get('recovery') or {})
+    if record['status'] in {'failed', 'interrupted'}:
+        recovery.setdefault('message', record.get('error') or 'Review the saved details before trying again.')
+        safe_to_replay = record.get('kind') == 'planning' or (record.get('stages', {}).get('analysis') or {}).get('status') == 'failed'
+        recovery['retryable'] = bool(recovery.get('retryable')) and safe_to_replay and not trip_id and record['status'] == 'failed' and len(record.get('retry_attempt_ids', [])) < 3
+        recovery['failed_stage'] = next((stage for stage, details in record.get('stages', {}).items() if details.get('status') == 'failed'), None)
+    error = record.get('error')
+    if record['status'] == 'failed' and not error:
+        error = ((record.get('result') or {}).get('message') or {}).get('content')
     return {'request_id': record['request_id'], 'status': record['status'], 'kind': record.get('kind', 'request'),
             'conversation_id': record.get('conversation_id'), 'stages': record.get('stages', {}),
-            'result': record.get('result'), 'error': record.get('error'), 'trip_id': trip_id,
+            'result': record.get('result'), 'error': error, 'retry_attempt_id': (record.get('retry_attempt_ids') or [None])[-1],
+            'trip_id': trip_id, 'recovery': recovery or None,
             'created_at': record['created_at'].isoformat(), 'updated_at': record['updated_at'].isoformat()}
 
 
@@ -90,16 +101,20 @@ def run_request(key):
             return
         from app.services.chat_service import process_chat_message
         result = process_chat_message(record.get('submitted_conversation_id'), record['message'], record['user_id'],
-                                      progress=report_for(key), planning_request_key=key)
+                                      progress=report_for(key), planning_request_key=key, reuse_user_message=bool(record.get('retry_attempt_ids')))
         result = ChatMessageResponse.model_validate(result).model_dump(mode='json')
+        if result.get('recovery') is None:
+            result.pop('recovery', None)
         failed = result['intent'] == 'ERROR' or (result['intent'] == 'GENERATE_ITINERARY' and not result.get('data'))
         db.planning_requests.update_one({'_id': key, 'status': 'running'}, {'$set': {
             'status': 'failed' if failed else 'succeeded', 'result': result, 'conversation_id': result['conversation_id'],
+            'recovery': result.get('recovery'), 'stages.response': {'status': 'failed' if failed else 'done', 'note': None},
             'updated_at': datetime.utcnow(), 'expires_at': datetime.utcnow() + timedelta(days=7)}, '$unset': {'active_owner': ''}})
     except Exception as error:
         logger.error('Planning request failed error_type=%s', type(error).__name__)
         db.planning_requests.update_one({'_id': key, 'status': {'$in': ['queued', 'running']}}, {'$set': {
             'status': 'failed', 'error': 'This request could not finish. Check saved trips before trying again.',
+            'recovery': recovery_for(error), 'stages.response': {'status': 'failed', 'note': None},
             'updated_at': datetime.utcnow(), 'expires_at': datetime.utcnow() + timedelta(days=7)}, '$unset': {'active_owner': ''}})
     finally:
         slots.release()
@@ -140,6 +155,50 @@ def create_request(owner: str, request_id: str, message: str, conversation_id=No
     except RuntimeError:
         slots.release()
         db.planning_requests.update_one({'_id': key}, {'$set': {'status': 'interrupted', 'error': 'The server is shutting down. Check this request again after reconnecting.', 'expires_at': now + timedelta(days=7)}, '$unset': {'active_owner': ''}})
+    return get_request(owner, request_id)
+
+
+def retry_request(owner: str, request_id: str, attempt_id: str):
+    """Explicit, bounded retry of a finished failure; preserve its original request key."""
+    current = get_request(owner, request_id)
+    key = key_for(owner, request_id)
+    record = db.planning_requests.find_one({'_id': key, 'user_id': owner})
+    attempts = record.get('retry_attempt_ids', [])
+    if attempt_id in attempts:
+        return get_request(owner, request_id)  # A lost acknowledgement or refresh cannot replay this retry.
+    if current['trip_id']:
+        return current  # The caller must open the saved trip, never generate another.
+    if current['status'] != 'failed' or not (current.get('recovery') or {}).get('retryable'):
+        raise HTTPException(409, 'This request cannot be retried directly. Review its status and saved details first.')
+    retry_at = (current.get('recovery') or {}).get('retry_at')
+    if retry_at and datetime.fromisoformat(retry_at.rstrip('Z')) > datetime.utcnow():
+        raise HTTPException(429, 'The AI service is cooling down. Check status and retry after the displayed wait.')
+    conversation_id = record.get('conversation_id')
+    if conversation_id and not db.conversations.find_one({'conversation_id': conversation_id, 'user_id': owner}):
+        raise HTTPException(409, 'The conversation is no longer available. Return to planning with your saved details.')
+    if not slots.acquire(blocking=False):
+        raise HTTPException(503, 'Planning is busy. Check status before retrying.')
+    now = datetime.utcnow()
+    history = record.get('failure_history', []) + [{'updated_at': record['updated_at'], 'recovery': current.get('recovery'), 'stages': record.get('stages', {})}]
+    try:
+        claimed = db.planning_requests.find_one_and_update({'_id': key, 'user_id': owner, 'status': 'failed', 'updated_at': record['updated_at']},
+            {'$set': {'status': 'queued', 'active_owner': owner, 'updated_at': now, 'stages': {}, 'result': None, 'error': None,
+                      'recovery': None, 'retry_attempt_ids': attempts + [attempt_id], 'failure_history': history,
+                      'submitted_conversation_id': conversation_id}, '$unset': {'expires_at': ''}}, return_document=ReturnDocument.AFTER)
+    except DuplicateKeyError:
+        slots.release()
+        raise HTTPException(409, 'Another request is running. Check its status before retrying.')
+    except Exception:
+        slots.release()
+        raise
+    if not claimed:
+        slots.release()
+        return get_request(owner, request_id)
+    try:
+        executor.submit(run_request, key)
+    except RuntimeError:
+        slots.release()
+        db.planning_requests.update_one({'_id': key, 'status': 'queued'}, {'$set': {'status': 'interrupted', 'error': 'The server is shutting down. Review this request after reconnecting.', 'updated_at': now, 'expires_at': now + timedelta(days=7)}, '$unset': {'active_owner': ''}})
     return get_request(owner, request_id)
 
 

@@ -23,6 +23,9 @@ def owned_trip(db, trip_id, user_id):
 
 def serialize_trip(trip, db=None):
     result = dict(trip)
+    from app.services.discovery_status import safe_metadata
+    for meta in ("flight_metadata", "hotel_metadata"):
+        if meta in result: result[meta] = safe_metadata(result[meta])
     routes = (trip.get('route_details') or {}).get('day_by_day_route')
     if routes:
         from app.utils.activity_identity import routes_with_activity_ids

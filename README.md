@@ -143,6 +143,10 @@ Open a saved trip and choose **Upgrade this trip**, or use **Payments** in the s
 
 Planning progress reports actual backend stages through authenticated `/api/chat/requests` endpoints. Refresh checks the same saved request rather than creating another itinerary. Unavailable provider results remain labelled unavailable. Run the demo backend with one Uvicorn worker: interrupted requests are marked on restart; completed request records expire after seven days, while saved itineraries remain intact. Older backends retain the synchronous chat flow.
 
+Failed planning requests retain their original details and offer safe retry, status checking or an already-saved trip. See [planning failure recovery](docs/failure-recovery.md) for behavior, limits and verification.
+
+Flights and Hotels explain live-search availability, offer external searches and separate fictional demo choices, and can safely refresh saved trip choices without replacing selections or bookings. Bengaluru/Bangalore now share a destination suggestion. See [travel-search recovery](docs/discovery-recovery.md), including the provider-credit limitation and new authenticated refresh routes.
+
 Generated `Frontend/dist`, browser reports, Vite caches and Python `__pycache__` folders are disposable and ignored by Git. Builds and tests regenerate them. Keep `.env`, the virtual environment, installed dependencies, MongoDB/Chroma data, source tests and `package-lock.json`; they are not cleanup targets. Local `.cache` also contains the MongoDB runtime, recovery backups and review screenshots, so do not delete it wholesale.
 
 Run from `Frontend/`: `npm run lint`, `npm test`, and `npm run build`.

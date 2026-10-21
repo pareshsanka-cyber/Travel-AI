@@ -23,6 +23,7 @@ class TripModel(BaseModel):
     planner_draft: str
     flights: List[Dict[str, Any]] = []
     flight_metadata: Optional[Dict[str, Any]] = None
+    hotel_metadata: Optional[Dict[str, Any]] = None
     hotels: List[Dict[str, Any]] = []
     weather: Dict[str, Any] = {}
     attractions: List[Dict[str, Any]] = []

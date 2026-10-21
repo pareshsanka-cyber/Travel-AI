@@ -8,14 +8,20 @@ async function installProgress(page: Page) {
     localStorage.removeItem('TRAVELAI_CONVERSATION_ID');
     localStorage.setItem('TRAVELAI_TRAVEL_CONTEXT', JSON.stringify({ origin: 'Hyderabad', destination: 'Goa, India', days: 3, start_date: '2030-06-20', end_date: '2030-06-22', budget: 30000, currency: 'INR', travelers: 2 }));
   });
-  let creates = 0, reads = 0, unavailable = false;
+  let creates = 0, reads = 0, retries = 0, unavailable = false;
   let saved: any = null;
   await page.route('http://127.0.0.1:8000/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/health/ready') return route.fulfill({ json: { status: 'ok', features: { planning_progress: true } } });
     if (path === '/api/chat/requests' || path.startsWith('/api/chat/requests/')) {
       if (unavailable) return route.fulfill({ status: 503, json: { detail: 'Service unavailable' } });
-      if (route.request().method() === 'POST') {
+      if (path.endsWith('/retry')) {
+        const payload = route.request().postDataJSON();
+        expect(Object.keys(payload)).toEqual(['attempt_id']);
+        if (saved.retry_attempt_id !== payload.attempt_id) {
+          retries++; saved = { ...saved, status: 'running', result: null, error: null, recovery: null, retry_attempt_id: payload.attempt_id };
+        }
+      } else if (route.request().method() === 'POST') {
         creates++;
         const payload = route.request().postDataJSON();
         saved ||= { request_id: payload.request_id, status: 'running', kind: 'planning', conversation_id: 'progress-conversation', stages: {
@@ -34,7 +40,7 @@ async function installProgress(page: Page) {
   await composer.fill('Plan my trip');
   await page.getByRole('button', { name: 'Send Message', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Planning progress' })).toBeVisible();
-  return { composer, counts: () => ({ creates, reads }), update: (value: any) => { saved = { ...saved, ...value }; }, unavailable: (value: boolean) => { unavailable = value; } };
+  return { composer, counts: () => ({ creates, reads, retries }), update: (value: any) => { saved = { ...saved, ...value }; }, unavailable: (value: boolean) => { unavailable = value; } };
 }
 
 test('real stage states survive refresh without another submission and recover a response', async ({ page }, info) => {
@@ -85,4 +91,57 @@ test('interrupted planning restores the original prompt and reduced motion remai
   await expect(progress).toHaveCount(0);
   await expect(state.composer).toHaveValue('Plan my trip');
   await expect(state.composer).toBeEnabled();
+});
+
+test('failed responses show a persistent summary and explicit retry survives refresh once', async ({ page }, info) => {
+  const state = await installProgress(page);
+  const progress = page.getByRole('region', { name: 'Planning progress' });
+  state.update({ status: 'failed', error: 'The AI service could not be reached.', recovery: { code: 'provider_unavailable', retryable: true, message: 'Your details are saved.' },
+    result: { conversation_id: 'progress-conversation', intent: 'ERROR', message: { role: 'assistant', content: 'The AI service could not be reached.' }, travel_context: {}, data: null } });
+  await expect(progress.getByRole('alert')).toContainText('could not be reached');
+  await expect(progress.getByRole('button', { name: 'Retry saved request' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review request above', exact: true })).toBeDisabled();
+  await expect(state.composer).toBeDisabled();
+  await mkdir('../.cache/failure-recovery', { recursive: true });
+  await page.screenshot({ path: `../.cache/failure-recovery/${info.project.name}-retry.png` });
+  await progress.getByRole('button', { name: 'Retry saved request' }).click();
+  await expect.poll(() => state.counts().retries).toBe(1);
+  await page.reload();
+  await expect(progress).toBeVisible();
+  state.update({ status: 'succeeded', result: { conversation_id: 'progress-conversation', intent: 'GENERAL_CHAT', message: { role: 'assistant', content: 'Recovered after your retry.' }, travel_context: {}, data: null } });
+  await expect(page.getByText('Recovered after your retry.', { exact: true })).toBeVisible();
+  expect(state.counts()).toMatchObject({ creates: 1, retries: 1 });
+});
+
+test('constraint failures preserve the original request for editing without automatic retries', async ({ page }) => {
+  const state = await installProgress(page);
+  state.update({ status: 'failed', error: 'Known costs exceed your fixed budget.', recovery: { code: 'trip_constraints', retryable: false, message: 'Review your total trip budget.' } });
+  const progress = page.getByRole('region', { name: 'Planning progress' });
+  await expect(progress.getByRole('alert')).toContainText('fixed budget');
+  await expect(progress.getByRole('button', { name: 'Retry saved request' })).toHaveCount(0);
+  await progress.getByRole('button', { name: 'Return to planning' }).click();
+  await expect(state.composer).toHaveValue('Plan my trip');
+  await expect(state.composer).toBeFocused();
+  expect(state.counts().retries).toBe(0);
+});
+
+test('a saved itinerary is offered instead of another planning attempt', async ({ page }) => {
+  const state = await installProgress(page);
+  state.update({ status: 'failed', error: 'The response was interrupted after saving.', trip_id: 'layout-trip', recovery: { retryable: false } });
+  const progress = page.getByRole('region', { name: 'Planning progress' });
+  await expect(progress.getByRole('button', { name: 'Retry saved request' })).toHaveCount(0);
+  await progress.getByRole('button', { name: 'View saved trip' }).click();
+  await expect(progress).toHaveCount(0);
+  expect(state.counts().retries).toBe(0);
+});
+
+test('coming back online checks the existing request without submitting a new one', async ({ page }) => {
+  const state = await installProgress(page); state.unavailable(true);
+  const progress = page.getByRole('region', { name: 'Planning progress' });
+  await expect(progress.getByRole('button', { name: 'Check status', exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(progress.getByRole('button', { name: 'API Settings', exact: true })).toBeVisible();
+  state.unavailable(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(progress.getByRole('status')).toContainText('Checking places and travel options');
+  expect(state.counts()).toMatchObject({ creates: 1, retries: 0 });
 });

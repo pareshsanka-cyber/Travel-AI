@@ -14,6 +14,9 @@ export interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  sessionError: string | null;
+  retrySession: () => void;
+  dismissSessionRecovery: () => void;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
@@ -107,6 +110,8 @@ export interface ItineraryDay {
 }
 
 export interface FlightMetadata {
+  failureReason?: string;
+  title?: string;
   source?: string;
   dataStatus?: 'search_results' | 'historical_record' | 'no_flights_found' | 'error';
   fetchedAt?: string;
@@ -247,6 +252,7 @@ export interface ExecutionState {
 }
 
 export interface TripSummary {
+  origin?: string;
   plusAccess?: boolean;
   plusAccessSource?: "booking" | "upgrade" | null;
   startDate?: string;
@@ -255,6 +261,7 @@ export interface TripSummary {
   /** Explicit backend timezone only; never populated from the display fallback. */
   scheduleTimezone?: string;
   flightMetadata?: FlightMetadata;
+  hotelMetadata?: { failureReason?: string; title?: string; message?: string; dataStatus?: string };
   id: string;
   title: string;
   destination: string;

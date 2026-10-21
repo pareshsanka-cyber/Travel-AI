@@ -1,3 +1,4 @@
+import { TravelDiscoveryContext } from './context/TravelDiscoveryContext';
 /**
  * TravelAI - Autonomous Trip Architecture Frontend
  * 
@@ -55,7 +56,7 @@ function AppContent() {
     promptInput,
     setPromptInput,
     isSendingMessage,
-    planningProgress, handleCheckPlanning, handleDismissPlanning,
+    planningProgress, handleCheckPlanning, handleDismissPlanning, handleRetryPlanning,
     handleSendMessage,
     handleSelectConversation,
     handleSelectFlight,
@@ -73,7 +74,7 @@ function AppContent() {
     handleUpdateExecutionState,
     handleApplyRerouteResult,
     currentIntent,
-    refreshTripAccess,
+    refreshTripAccess, acceptDiscoveryTrip,
   } = useTravelApi();
 
   const bookings = useTripBookings(trip?.id, `${activePage}/${activeDashboardTab}/${trip?.revision || 1}`);
@@ -144,6 +145,7 @@ function AppContent() {
   };
 
   return (
+    <TravelDiscoveryContext.Provider value={acceptDiscoveryTrip}>
     <TripBookingsContext.Provider value={{ ...bookings, openOrder: openBooking, openSettings: () => setIsApiModalOpen(true) }}>
     <div className="min-h-screen bg-background text-on-surface flex font-sans antialiased selection:bg-primary-container selection:text-on-primary relative">
       {/* User-visible Error Feedback Toast / Banner */}
@@ -274,6 +276,8 @@ function AppContent() {
                 planningProgress={planningProgress}
                 onCheckPlanning={handleCheckPlanning}
                 onDismissPlanning={handleDismissPlanning}
+                onRetryPlanning={handleRetryPlanning}
+                onApiSettings={() => setIsApiModalOpen(true)}
                 activeTab={activeDashboardTab}
                 onSwitchTab={(tab) => {
                   if (tab === 'companion-tab' && !trip?.plusAccess) upgrade();
@@ -360,19 +364,32 @@ function AppContent() {
       />
     </div>
     </TripBookingsContext.Provider>
+    </TravelDiscoveryContext.Provider>
   );
 }
 
 function AuthenticatedApp() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, sessionError, retrySession, dismissSessionRecovery } = useAuth();
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-200">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#89ceff]" />
+      <div role="status" className="min-h-screen bg-slate-950 flex items-center justify-center gap-3 text-slate-200">
+        <div aria-hidden="true" className="animate-spin motion-reduce:animate-none rounded-full h-8 w-8 border-b-2 border-[#89ceff]" />
+        <span>Checking your session…</span>
       </div>
     );
+  }
+
+  if (!isAuthenticated && sessionError) {
+    return <main className="min-h-screen bg-surface-container-lowest text-on-surface flex items-center justify-center p-5">
+      <section aria-labelledby="session-recovery-title" className="w-full max-w-md rounded-2xl border border-primary/20 bg-surface-container p-6">
+        <h1 id="session-recovery-title" className="text-xl font-bold">Reconnect to TravelAI</h1>
+        <p role="alert" className="mt-3 text-sm text-on-surface-variant leading-relaxed">{sessionError}</p>
+        <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={retrySession} className="rounded-xl bg-primary text-on-primary px-4 py-2 font-semibold">Try again</button>
+          <button type="button" onClick={dismissSessionRecovery} className="rounded-xl border border-primary/30 px-4 py-2 text-primary">Sign in instead</button></div>
+      </section>
+    </main>;
   }
 
   if (!isAuthenticated) {

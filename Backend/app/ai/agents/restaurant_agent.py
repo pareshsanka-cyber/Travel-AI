@@ -1,3 +1,4 @@
+from app.services.discovery_status import search_guard
 import os
 import json
 import httpx
@@ -136,7 +137,7 @@ def discover_restaurants_serpapi(destination: str, limit: int = 5, timeout_secon
     Layer 1: Real-time verified restaurant discovery via SerpApi Google Maps.
     Returns restaurants with genuine place coordinates from Google Maps, ratings, reviews, cuisine, and photos.
     """
-    if not SERPAPI_API_KEY:
+    if not SERPAPI_API_KEY or search_guard():
         return []
     try:
         clean_dest = destination.split(',')[0].strip()
@@ -183,7 +184,7 @@ def discover_restaurants_serpapi(destination: str, limit: int = 5, timeout_secon
                 print(f"--- RESTAURANT AGENT: SerpApi Google Maps yielded {len(restaurants)} verified restaurants for {destination} ---")
                 return restaurants
     except Exception as e:
-        print(f"--- RESTAURANT AGENT: SerpApi restaurant query error: {e} ---")
+        print(f"--- RESTAURANT AGENT: SerpApi restaurant query error: {type(e).__name__} ---")
     return []
 
 

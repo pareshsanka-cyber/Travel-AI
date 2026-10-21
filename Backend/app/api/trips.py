@@ -170,6 +170,7 @@ def plan_trip(request: PlanRequest, x_user_id: str = Depends(require_user_id)):
         "planner_draft": final_state.get("planner_draft") or "No plan generated",
         "flights": final_state.get("flights") or [],
         "flight_metadata": final_state.get("flight_metadata") or {},
+        "hotel_metadata": final_state.get("hotel_metadata") or {},
             "destination_timezone": final_state.get("destination_timezone"),
         "hotels": final_state.get("hotels") or [],
         "weather": final_state.get("weather") or {},
@@ -519,3 +520,21 @@ def get_day_directions(id: str, day_number: int, travel_mode: Literal['driving',
         return day_directions(trip, day_number, travel_mode)
     except ValueError as error:
         raise HTTPException(400, str(error))
+
+
+class TravelOptionsRefreshRequest(BaseModel):
+    product: Literal['flight', 'hotel']
+    expected_revision: int = Field(ge=1)
+    model_config = {'extra': 'forbid'}
+
+
+@router.get('/{id}/discovery-status')
+def get_discovery_status(id: str, user_id: str = Depends(require_user_id)):
+    from app.services.travel_discovery import discovery_status
+    return discovery_status(db, id, user_id)
+
+
+@router.post('/{id}/travel-options/refresh')
+def refresh_travel_options(id: str, request: TravelOptionsRefreshRequest, user_id: str = Depends(require_user_id)):
+    from app.services.travel_discovery import refresh
+    return refresh(db, id, user_id, request.product, request.expected_revision)

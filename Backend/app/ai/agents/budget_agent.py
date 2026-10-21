@@ -14,14 +14,14 @@ def budget_node(state: TravelState) -> dict:
     if state.get('selections'):
         from app.services.trip_service import planning_options
         selected = dict(planning_options(state, 'flight')).get(state['selections'].get('flight_id'))
-        flights = [selected] if selected else flights
+        flights = [selected] if selected else []
     flight_cost = float(flights[0].get("total_price", float(flights[0].get("price", 0)) * travelers)) if flights else 0.0
     
     hotels = state.get("hotels") or []
     if state.get('selections'):
         from app.services.trip_service import planning_options
         selected = dict(planning_options(state, 'hotel')).get(state['selections'].get('hotel_id'))
-        hotels = [selected] if selected else hotels
+        hotels = [selected] if selected else []
     hotel_cost = float(hotels[0].get("total_cost", 0)) if hotels else 0.0
     
     attractions = state.get("attractions") or []

@@ -1,3 +1,4 @@
+from app.services.discovery_status import search_guard
 import os
 import json
 import httpx
@@ -80,7 +81,7 @@ def verify_and_enrich_place(name: str, destination: str) -> dict:
     if cache_key in enrichment_cache:
         return enrichment_cache[cache_key]
 
-    if not SERPAPI_API_KEY:
+    if not SERPAPI_API_KEY or search_guard():
         nom = enrich_place_nominatim(name, destination)
         enrichment_cache[cache_key] = nom
         return nom
@@ -194,7 +195,7 @@ def calculate_fame_level(rating, review_count):
 
 def discover_via_serpapi(destination: str, candidate_count: int, ranked_interests: list = None, timeout_seconds: float = 7.0) -> list:
     """Layer 2: SerpApi Google Maps discovery fallback with interest awareness."""
-    if not SERPAPI_API_KEY:
+    if not SERPAPI_API_KEY or search_guard():
         return []
     
     queries = []
@@ -240,7 +241,7 @@ def discover_via_serpapi(destination: str, candidate_count: int, ranked_interest
                         if len(candidates) >= candidate_count:
                             break
         except Exception as e:
-            print(f"--- ATTRACTION AGENT: SerpApi discovery fallback error for '{query}': {e} ---")
+            print(f"--- ATTRACTION AGENT: SerpApi discovery fallback error for '{query}': {type(e).__name__} ---")
             
     print(f"--- ATTRACTION AGENT: SerpApi discovery yielded {len(candidates)} candidates ---")
     return candidates
@@ -292,7 +293,7 @@ def discover_via_overpass(destination: str, candidate_count: int) -> list:
             print(f"--- ATTRACTION AGENT: OSM/Overpass fallback yielded {len(candidates)} candidates ---")
             return candidates
     except Exception as e:
-        print(f"--- ATTRACTION AGENT: OSM/Overpass fallback failed: {e} ---")
+        print(f"--- ATTRACTION AGENT: OSM/Overpass fallback failed: {type(e).__name__} ---")
     return []
 
 

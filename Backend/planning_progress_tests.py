@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict
 from app.services import planning_progress as progress
 from app.ai.orchestrator.langgraph_graph import log_node_execution
+from app.services.failure_recovery import recovery_for
 
 
 def matches(doc, query):
@@ -35,6 +36,8 @@ class Collection:
         with self.lock:
             for doc in self.docs:
                 if not matches(doc, query): continue
+                new_owner = update.get('$set', {}).get('active_owner')
+                if new_owner and any(other['_id'] != doc['_id'] and other.get('active_owner') == new_owner for other in self.docs): raise DuplicateKeyError('active owner')
                 for key, value in update.get('$set', {}).items():
                     if '.' in key:
                         parent, child = key.split('.', 1); doc.setdefault(parent, {})[child] = copy.deepcopy(value)
@@ -148,6 +151,87 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(report.call_args.args[:2], ('weather', 'warning'))
         progress.node_progress(config, 'reviewer', 'done', {'is_approved': False})
         self.assertEqual(report.call_args.args[:2], ('reviewer', 'failed'))
+
+    def failed_request(self, **updates):
+        self.create()
+        self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': dict(status='failed', kind='planning',
+            recovery=recovery_for(ConnectionError('private endpoint')), **updates), '$unset': {'active_owner': ''}})
+
+    def test_retry_is_idempotent_and_preserves_original_request_key(self):
+        self.failed_request()
+        first = progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        again = progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        self.assertEqual(first['status'], 'queued'); self.assertEqual(again['status'], 'queued')
+        self.assertEqual(first['request_id'], self.id); self.assertEqual(self.pool.submit.call_count, 2)
+        self.assertEqual(len(self.db.planning_requests.docs[0]['failure_history']), 1)
+
+    def test_duplicate_parallel_retry_clicks_start_one_attempt(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self.failed_request()
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(lambda _: progress.retry_request('owner', self.id, 'retry-attempt-123456'), range(4)))
+        self.assertTrue(all(item['status'] == 'queued' for item in results)); self.assertEqual(self.pool.submit.call_count, 2)
+
+    def test_saved_trip_prevents_retry_even_after_partial_save(self):
+        self.failed_request()
+        self.db.trips.insert_one({'_id': 'saved', 'user_id': 'owner', 'planning_request_key': 'owner:' + self.id})
+        result = progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        self.assertEqual(result['trip_id'], 'saved'); self.assertFalse(result['recovery']['retryable'])
+        self.assertEqual(self.pool.submit.call_count, 1)
+
+    def test_validation_and_configuration_failures_require_review(self):
+        self.failed_request()
+        for recovery in [recovery_for(ValueError('Budget exceeds limit'), planning=True), {'code': 'provider_configuration', 'retryable': False}]:
+            self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': {'recovery': recovery}})
+            with self.assertRaises(HTTPException) as error: progress.retry_request('owner', self.id, 'retry-attempt-123456')
+            self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(self.pool.submit.call_count, 1)
+
+    def test_retry_rechecks_ownership_and_never_replays_active_or_interrupted_work(self):
+        self.failed_request()
+        with self.assertRaises(HTTPException) as error: progress.retry_request('stranger', self.id, 'retry-attempt-123456')
+        self.assertEqual(error.exception.status_code, 404)
+        for state in ['running', 'queued', 'interrupted', 'succeeded']:
+            self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': {'status': state}})
+            with self.assertRaises(HTTPException): progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        self.assertEqual(self.pool.submit.call_count, 1)
+
+    def test_retries_are_bounded_and_cooldown_is_enforced_by_server(self):
+        self.failed_request()
+        self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': {'recovery': dict(retryable=True, retry_at=(datetime.utcnow() + timedelta(minutes=1)).isoformat() + 'Z')}})
+        with self.assertRaises(HTTPException) as error: progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        self.assertEqual(error.exception.status_code, 429)
+        self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': {'recovery': {'retryable': True}, 'retry_attempt_ids': ['a','b','c']}})
+        with self.assertRaises(HTTPException): progress.retry_request('owner', self.id, 'retry-attempt-123456')
+
+    def test_retry_preserves_conversation_and_does_not_reinsert_user_message(self):
+        self.failed_request(conversation_id='c')
+        self.db.conversations.insert_one({'_id': 'c', 'conversation_id': 'c', 'user_id': 'owner'})
+        progress.retry_request('owner', self.id, 'retry-attempt-123456')
+        result = dict(conversation_id='c', intent='GENERAL_CHAT', message={'role': 'assistant', 'content': 'Recovered'}, travel_context={}, data=None)
+        with patch('app.services.chat_service.process_chat_message', return_value=result) as chat:
+            progress.run_request('owner:' + self.id)
+        self.assertEqual(chat.call_args.args[0], 'c'); self.assertTrue(chat.call_args.kwargs['reuse_user_message'])
+        self.assertEqual(progress.get_request('owner', self.id)['stages']['response']['status'], 'done')
+
+    def test_failure_after_an_unknown_edit_is_not_directly_replayable(self):
+        self.failed_request()
+        self.db.planning_requests.update_one({'_id': 'owner:' + self.id}, {'$set': {'kind': 'request', 'stages': {'analysis': {'status': 'done'}}}})
+        self.assertFalse(progress.get_request('owner', self.id)['recovery']['retryable'])
+
+    def test_recovery_guidance_does_not_expose_provider_exception(self):
+        recovery = recovery_for(ConnectionError('secret-key https://private-provider'))
+        self.assertEqual(recovery['code'], 'provider_unavailable'); self.assertNotIn('secret-key', str(recovery))
+
+    def test_retry_route_rejects_tampered_payloads(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.utils.auth_utils import require_user_id
+        app.dependency_overrides[require_user_id] = lambda: 'owner'
+        try:
+            response = TestClient(app).post('/api/chat/requests/' + self.id + '/retry', json={'attempt_id':'retry-attempt-123456', 'message':'tampered', 'trip_id':'another-trip'})
+            self.assertEqual(response.status_code, 422)
+        finally: app.dependency_overrides.pop(require_user_id, None)
 
 
 if __name__ == '__main__': unittest.main()

@@ -14,12 +14,17 @@ class MessagePayload(BaseModel):
     role: str
     content: str
 
+class RetryChatRequest(BaseModel):
+    model_config = {'extra': 'forbid'}
+    attempt_id: str = Field(min_length=16, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')
+
 class ChatMessageResponse(BaseModel):
     conversation_id: str
     message: MessagePayload
     intent: str
     travel_context: Dict[str, Any]
     data: Optional[Dict[str, Any]] = None
+    recovery: Optional[Dict[str, Any]] = None
 
 class ConversationSummaryResponse(BaseModel):
     conversation_id: str
