@@ -51,3 +51,4 @@ benchmark_result.json
 # Generated browser reports
 test-results/
 playwright-report/
+*.zip

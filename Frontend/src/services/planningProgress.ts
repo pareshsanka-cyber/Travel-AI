@@ -79,7 +79,10 @@ export async function trackPlanning(request: PendingPlanningRequest, onProgress:
         error: current.error || current.result?.message?.content || 'The request stopped before a response was saved. Review saved trips before trying again.' });
       if (current.result) {
         if (current.status !== 'succeeded' || !current.result.conversation_id || !current.result.message?.content) throw new ProgressUnavailable({ ...current, status: 'connection_lost', error: 'The server response is incomplete. Check this request again before sending another one.' });
-        return { rawResponse: current.result, replyMessage: { id: `assistant-request-${request.id}`, sender: 'assistant', text: current.result.message.content,
+        const richContent = current.result.data?.type === 'place_recommendations'
+          ? { placeRecommendations: current.result.data.places, suggestedActions: current.result.data.suggested_actions }
+          : undefined;
+        return { rawResponse: current.result, replyMessage: { id: 'assistant-request-' + request.id, sender: 'assistant', text: current.result.message.content, richContent,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } };
       }
       if (current.status === 'succeeded') throw new ProgressUnavailable({ ...current, status: 'connection_lost',

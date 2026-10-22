@@ -100,8 +100,19 @@ def run_request(key):
         if not record:
             return
         from app.services.chat_service import process_chat_message
-        result = process_chat_message(record.get('submitted_conversation_id'), record['message'], record['user_id'],
-                                      progress=report_for(key), planning_request_key=key, reuse_user_message=bool(record.get('retry_attempt_ids')))
+        result = process_chat_message(
+            record.get('submitted_conversation_id'),
+            record['message'],
+            record['user_id'],
+            progress=report_for(key),
+            planning_request_key=key,
+            reuse_user_message=bool(record.get('retry_attempt_ids')),
+            current_lat=record.get('current_lat'),
+            current_lon=record.get('current_lon'),
+            current_day=record.get('current_day'),
+            active_segment_id=record.get('active_segment_id'),
+            destination=record.get('destination')
+        )
         result = ChatMessageResponse.model_validate(result).model_dump(mode='json')
         if result.get('recovery') is None:
             result.pop('recovery', None)
@@ -120,7 +131,8 @@ def run_request(key):
         slots.release()
 
 
-def create_request(owner: str, request_id: str, message: str, conversation_id=None):
+def create_request(owner: str, request_id: str, message: str, conversation_id=None,
+                   current_lat=None, current_lon=None, current_day=None, active_segment_id=None, destination=None):
     key = key_for(owner, request_id)
     fingerprint = hashlib.sha256(json.dumps([message, conversation_id], ensure_ascii=False).encode()).hexdigest()
     existing = db.planning_requests.find_one({'_id': key, 'user_id': owner})
@@ -138,6 +150,9 @@ def create_request(owner: str, request_id: str, message: str, conversation_id=No
     record = {'_id': key, 'request_id': request_id, 'user_id': owner, 'active_owner': owner,
               'fingerprint': fingerprint, 'message': message, 'submitted_conversation_id': conversation_id,
               'conversation_id': conversation_id, 'status': 'queued', 'kind': 'request', 'stages': {},
+              'current_lat': current_lat, 'current_lon': current_lon,
+              'current_day': current_day, 'active_segment_id': active_segment_id,
+              'destination': destination,
               'created_at': now, 'updated_at': now}
     try:
         db.planning_requests.insert_one(record)

@@ -42,6 +42,7 @@ function AppContent() {
     isCheckingApi,
     updateApiUrl,
     trip,
+    activeTrip,
     days,
     flights,
     hotels,
@@ -343,11 +344,13 @@ function AppContent() {
               fallbackMessage="An unexpected error occurred while browsing curated places. You can reload the page or return to the studio."
             >
               <AiPlacesMemoryPage
+                trip={trip}
+                activeTrip={activeTrip}
+                days={days}
                 onGoToStudio={() => {
                   setActiveDashboardTab('route-tab');
                   setActivePage('planner-studio');
                 }}
-
               />
             </ErrorBoundary>
           )}

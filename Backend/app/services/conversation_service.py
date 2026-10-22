@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from typing import Optional, List, Dict, Any
 from app.database.mongodb import db
@@ -28,8 +28,8 @@ def create_conversation(title: str = "New Travel Chat", user_id: Optional[str] =
         title=title,
         status="active",
         travel_context=TravelContext(),
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
     doc = conv.model_dump()
     if user_id:
@@ -62,7 +62,7 @@ def get_or_create_conversation(conversation_id: Optional[str] = None, user_id: O
     return create_conversation(user_id=user_id)
 
 def update_travel_context(conversation_id: str, new_context: Dict[str, Any], current_trip_id: Optional[str] = None) -> ConversationModel:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     update_fields = {"updated_at": now}
     if current_trip_id is not None:
         update_fields["current_trip_id"] = current_trip_id
@@ -101,7 +101,7 @@ def add_message(
         content=content,
         intent=intent,
         structured_data=structured_data,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     doc = msg.model_dump()
     messages_col.insert_one(doc)
@@ -109,7 +109,7 @@ def add_message(
     # Touch updated_at on conversation
     conversations_col.update_one(
         {"conversation_id": conversation_id},
-        {"$set": {"updated_at": datetime.utcnow()}}
+        {"$set": {"updated_at": datetime.now(timezone.utc)}}
     )
     return msg
 

@@ -220,7 +220,7 @@ def fetch_real_restaurants_overpass(destination: str, limit: int = 5) -> list | 
             OVERPASS_API_URL, 
             data={"data": overpass_query}, 
             headers=headers,
-            timeout=8.0
+            timeout=3.5
         )
         response.raise_for_status()
         data = response.json()
@@ -339,19 +339,48 @@ def get_authentic_fallback_restaurants(destination: str) -> list:
 
 def restaurant_node(state: TravelState) -> dict:
     destination = state.get("destination", "Destination")
-    print(f"--- RESTAURANT AGENT: Finding restaurants in {destination} ---")
+    travel_style = (state.get("travel_style") or "").upper()
+    budget_mode = (state.get("budget_mode") or "").upper()
+    interests = [str(i).lower() for i in (state.get("interests") or [])]
+    
+    print(f"--- RESTAURANT AGENT: Finding restaurants in {destination} (Style: {travel_style}) ---")
+    
+    candidates = []
     
     # 1. Prefer verified places from SerpApi Google Maps
-    serp_restaurants = discover_restaurants_serpapi(destination, limit=5)
-    if serp_restaurants and len(serp_restaurants) > 0:
-        return {"restaurants": serp_restaurants}
+    serp_restaurants = discover_restaurants_serpapi(destination, limit=8)
+    if serp_restaurants:
+        candidates.extend(serp_restaurants)
 
     # 2. Try Live OpenStreetMap Overpass API
-    live_restaurants = fetch_real_restaurants_overpass(destination, limit=5)
-    if live_restaurants and len(live_restaurants) > 0:
-        return {"restaurants": live_restaurants}
+    if len(candidates) < 4:
+        live_restaurants = fetch_real_restaurants_overpass(destination, limit=6)
+        if live_restaurants:
+            candidates.extend(live_restaurants)
     
     # 3. Authentic curated venues fallback
-    print(f"--- RESTAURANT AGENT: Using authentic curated restaurants for {destination} ---")
-    authentic_restaurants = get_authentic_fallback_restaurants(destination)
-    return {"restaurants": authentic_restaurants}
+    if len(candidates) < 4:
+        authentic_restaurants = get_authentic_fallback_restaurants(destination)
+        if authentic_restaurants:
+            candidates.extend(authentic_restaurants)
+
+    # Personalize candidate ordering by travel_style and culinary interests
+    def score_restaurant(r):
+        s = float(r.get("rating") or 4.0) * 10
+        pr = str(r.get("price_range") or "$$")
+        if travel_style == "LUXURY" or budget_mode in ["LUXURY", "NO_LIMIT"]:
+            if "$$$$" in pr: s += 30
+            elif "$$$" in pr: s += 20
+        elif travel_style == "BUDGET" or budget_mode == "ECONOMY":
+            if "$$" in pr and "$$$" not in pr: s += 25
+        # Culinary interest matches
+        r_text = f"{r.get('name', '')} {r.get('cuisine', '')} {r.get('popular_dish', '')} {r.get('description', '')}".lower()
+        for interest in interests:
+            if interest in r_text:
+                s += 15
+        return s
+
+    if candidates:
+        candidates.sort(key=score_restaurant, reverse=True)
+
+    return {"restaurants": candidates[:5]}

@@ -902,10 +902,16 @@ export const INITIAL_SAVED_TRIPS: SavedTripSnippet[] = PRESET_TRIPS.map((t) => (
 // -------------------------------------------------------------
 // Time formatting helper
 // -------------------------------------------------------------
-function formatTimeAgo(dateString?: string): string {
+export function formatTimeAgo(dateString?: string): string {
   if (!dateString) return 'Recently';
   try {
-    const diffMs = Date.now() - new Date(dateString).getTime();
+    const raw = String(dateString).trim();
+    // Normalize timestamps without timezone offset so browser correctly interprets UTC from backend
+    const normalized = raw.endsWith('Z') || /[+-]\d{2}(:\d{2})?$/.test(raw)
+      ? raw
+      : `${raw}Z`;
+    const diffMs = Date.now() - new Date(normalized).getTime();
+    if (isNaN(diffMs) || diffMs < 0) return 'Just now';
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
@@ -917,10 +923,6 @@ function formatTimeAgo(dateString?: string): string {
     return 'Recently';
   }
 }
-
-// -------------------------------------------------------------
-// Pure Functions: Read from ACTIVE TRIP OBJECT (No Network Fetching)
-// -------------------------------------------------------------
 
 export function getTripStartDate(trip?: any): { dateObj: Date; isoDate: string; formattedDate: string } {
   // 1. Prioritize authoritative backend flight metadata and flights array date
@@ -2423,15 +2425,30 @@ export interface ChatMessageResponsePayload {
 
 export async function sendChatMessage(
   prompt: string,
-  conversationId?: string | null
+  conversationId?: string | null,
+  contextPayload?: {
+    current_lat?: number;
+    current_lon?: number;
+    current_day?: number;
+    active_segment_id?: string;
+    destination?: string;
+  }
 ): Promise<{ replyMessage: ChatMessage; rawResponse: ChatMessageResponsePayload }> {
-  const requestBody: { message: string; conversation_id?: string } = {
+  const requestBody: {
+    message: string;
+    conversation_id?: string;
+    current_lat?: number;
+    current_lon?: number;
+    current_day?: number;
+    active_segment_id?: string;
+    destination?: string;
+  } = {
     message: prompt,
+    ...contextPayload,
   };
   if (conversationId && !conversationId.startsWith('c-') && conversationId.trim() !== '') {
     requestBody.conversation_id = conversationId;
   }
-
 
   try {
     const res = await apiFetch<ChatMessageResponsePayload>('/api/chat/message', {
@@ -2439,12 +2456,19 @@ export async function sendChatMessage(
       body: JSON.stringify(requestBody),
     });
 
+    const richContent = res.data?.type === 'place_recommendations'
+      ? {
+          placeRecommendations: res.data.places,
+          suggestedActions: res.data.suggested_actions,
+        }
+      : undefined;
 
     const replyMessage: ChatMessage = {
-      id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: "assistant-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
       sender: 'assistant',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       text: res.message?.content || 'Acknowledged.',
+      richContent,
     };
 
     return { replyMessage, rawResponse: res };

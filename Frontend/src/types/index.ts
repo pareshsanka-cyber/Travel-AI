@@ -312,6 +312,31 @@ export interface RerouteApplyResult {
   reroute_record?: any;
 }
 
+export interface PlaceRecommendation {
+  name: string;
+  category: string;
+  description: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  distance_meters?: number | null;
+  travel_duration_minutes?: number | null;
+  rating?: number | null;
+  review_count?: number | null;
+  opening_status: 'OPEN' | 'CLOSED' | 'UNKNOWN' | string;
+  source: string;
+  source_url?: string | null;
+  image_url?: string | null;
+  reason_recommended?: string;
+  supported_actions?: string[];
+}
+
+export interface SuggestedAction {
+  label: string;
+  action: string;
+  payload?: Record<string, any>;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
@@ -340,6 +365,8 @@ export interface ChatMessage {
       pricePerNight: string;
       isApplied?: boolean;
     }>;
+    placeRecommendations?: PlaceRecommendation[];
+    suggestedActions?: SuggestedAction[];
   };
 }
 
@@ -375,5 +402,9 @@ export interface PlaceMemoryItem {
   rating: number;
   note: string;
   price: string;
+  imageUrl?: string;
+  lat?: number;
+  lon?: number;
+  isScheduled?: boolean;
 }
 

@@ -67,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'planner-studio', label: 'Plan', Icon: Compass, color: 'text-primary' },
     { id: 'itinerary-hub', label: 'My trips', Icon: CalendarDays, color: 'text-tertiary' },
     { id: 'bookings-desk', label: 'Travel Selections', Icon: Plane, color: 'text-secondary' },
-    { id: 'ai-places-memory', label: 'Example Places', Icon: Sparkles, color: 'text-primary' },
+    { id: 'ai-places-memory', label: 'Places & Memory', Icon: Sparkles, color: 'text-primary' },
     { id: 'payments', label: 'Payments', Icon: CreditCard, color: '' },
   ] as const;
   return (

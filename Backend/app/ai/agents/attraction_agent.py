@@ -201,12 +201,12 @@ def discover_via_serpapi(destination: str, candidate_count: int, ranked_interest
     queries = []
     if ranked_interests:
         for r_int in ranked_interests[:2]:
-            queries.append(f"{r_int} attractions in {destination}")
-    queries.append(f"top tourist attractions in {destination}")
+            queries.append((r_int, f"{r_int} attractions in {destination}"))
+    queries.append(("general", f"top tourist attractions in {destination}"))
 
     candidates = []
     seen_titles = set()
-    for query in queries:
+    for query_tag, query in queries:
         if len(candidates) >= candidate_count:
             break
         try:
@@ -222,12 +222,16 @@ def discover_via_serpapi(destination: str, candidate_count: int, ranked_interest
                     coords = r.get("gps_coordinates")
                     if coords and coords.get("latitude"):
                         seen_titles.add(title)
+                        cand_type = r.get("type", "attraction")
+                        c_interests = [query_tag] if query_tag != "general" else []
+                        if cand_type and cand_type.lower() != "attraction":
+                            c_interests.append(cand_type)
                         candidates.append({
                             "name": title,
-                            "category": r.get("type", "attraction"),
+                            "category": cand_type,
                             "description": r.get("description") or f"A notable landmark in {destination}.",
                             "why_visit": f"Verified attraction in {destination}.",
-                            "interests": ranked_interests or [],
+                            "interests": c_interests,
                             "lat": float(coords["latitude"]),
                             "lon": float(coords["longitude"]),
                             "image_url": r.get("thumbnail"),
@@ -264,7 +268,7 @@ def discover_via_overpass(destination: str, candidate_count: int) -> list:
     out body {candidate_count};
     """
     try:
-        resp = httpx.post("https://overpass-api.de/api/interpreter", data={"data": query}, timeout=8.0)
+        resp = httpx.post("https://overpass-api.de/api/interpreter", data={"data": query}, timeout=3.5)
         if resp.status_code == 200:
             elements = resp.json().get("elements", [])
             candidates = []
@@ -306,7 +310,7 @@ def evaluate_attraction_priority(cand: dict, ranked_interests: list, must_visit_
     2: Matches 2nd user interest (score: 80)
     3: Matches 3rd user interest (score: 60)
     4+: Matches subsequent interest (score: 40)
-    99: General popular recommendation (score: 10)
+    99: General / balanced recommendation
     """
     name = cand.get("name", "").lower()
     
@@ -323,20 +327,65 @@ def evaluate_attraction_priority(cand: dict, ranked_interests: list, must_visit_
     all_text = f"{cat} {desc} {why} {' '.join(cand_interests)} {name}"
 
     if ranked_interests:
+        best_score = 0
+        best_rank = 99
+        best_int = "General"
+        match_count = 0
+
         for rank_idx, r_int in enumerate(ranked_interests):
             r_lower = r_int.lower().strip()
-            # Category synonyms check
+            # Comprehensive category synonyms
             synonyms = [r_lower]
-            if "nature" in r_lower: synonyms += ["park", "garden", "wildlife", "forest", "reserve", "waterfall", "scenic"]
-            if "beach" in r_lower: synonyms += ["coast", "cove", "bay", "shore", "sea"]
-            if "temple" in r_lower: synonyms += ["church", "cathedral", "shrine", "monastery", "mosque", "worship"]
-            if "history" in r_lower or "historic" in r_lower: synonyms += ["heritage", "fort", "palace", "ruins", "monument", "castle"]
-            if "museum" in r_lower: synonyms += ["gallery", "exhibit", "art"]
+            if "nature" in r_lower or "wildlife" in r_lower or "scenic" in r_lower:
+                synonyms += ["park", "garden", "wildlife", "forest", "reserve", "waterfall", "scenic", "hills", "lake", "eco", "sanctuary", "viewpoint"]
+            if "beach" in r_lower or "coast" in r_lower or "sea" in r_lower:
+                synonyms += ["coast", "coastal", "cove", "bay", "shore", "sea", "ocean", "swimming", "beachfront", "sand", "watersports"]
+            if "temple" in r_lower or "spiritual" in r_lower or "pilgrimage" in r_lower:
+                synonyms += ["church", "cathedral", "shrine", "monastery", "mosque", "worship", "basilica", "ashram", "deity", "spiritual"]
+            if "history" in r_lower or "historic" in r_lower or "heritage" in r_lower:
+                synonyms += ["heritage", "fort", "palace", "ruins", "monument", "castle", "ancient", "citadel", "dynasty", "16th-century", "17th-century", "18th-century", "unesco"]
+            if "museum" in r_lower or "art" in r_lower or "culture" in r_lower:
+                synonyms += ["gallery", "exhibit", "art", "collection", "sculpture", "artifacts", "culture"]
+            if "adventure" in r_lower or "outdoor" in r_lower or "trek" in r_lower:
+                synonyms += ["trek", "trekking", "hike", "hiking", "safari", "rafting", "watersports", "scuba", "snorkeling", "camping", "climbing"]
+            if "food" in r_lower or "culinary" in r_lower or "dining" in r_lower:
+                synonyms += ["culinary", "restaurant", "cafe", "bistro", "street food", "market", "tasting", "dining", "seafood"]
+            if "shopping" in r_lower or "market" in r_lower:
+                synonyms += ["bazaar", "market", "flea market", "souvenir", "handicrafts", "boutique"]
+            if "nightlife" in r_lower or "entertainment" in r_lower:
+                synonyms += ["pub", "bar", "club", "lounge", "brewery", "party", "music"]
+            if "luxury" in r_lower or "premium" in r_lower:
+                synonyms += ["royal", "palace", "spa", "resort", "exclusive", "wellness", "yacht", "durbar", "fine dining", "vip"]
+            if "peaceful" in r_lower or "relax" in r_lower or "offbeat" in r_lower:
+                synonyms += ["peaceful", "calm", "serene", "quiet", "offbeat", "secluded", "scenic"]
+            if "family" in r_lower or "kid" in r_lower:
+                synonyms += ["family", "kids", "children", "amusement", "park", "aquarium", "zoo"]
 
             matched = any(syn in all_text for syn in synonyms) or any(syn in x for x in cand_interests for syn in synonyms)
             if matched:
-                score = max(20, 100 - (rank_idx * 20))
-                return score, rank_idx + 1, r_int, "interest_match"
+                match_count += 1
+                base_score = max(20, 100 - (rank_idx * 20))
+                if base_score > best_score:
+                    best_score = base_score
+                    best_rank = rank_idx + 1
+                    best_int = r_int
+
+        if best_score > 0:
+            final_score = best_score + (15 if match_count > 1 else 0)
+            return final_score, best_rank, best_int, "interest_match"
+
+    # Phase 5: Balanced default distribution when no specific interests are specified
+    category_signatures = [
+        ("Heritage & Historic Landmark", ["fort", "palace", "monument", "historic", "heritage", "citadel", "ruins", "castle", "unesco"]),
+        ("Nature, Scenic & Waterfall", ["nature", "waterfall", "park", "garden", "wildlife", "scenic", "viewpoint", "lake", "sanctuary"]),
+        ("Coastal & Beaches", ["beach", "coast", "cove", "bay", "sea", "ocean"]),
+        ("Spiritual & Culture", ["temple", "church", "cathedral", "shrine", "mosque", "museum", "gallery", "art"]),
+        ("Local Experience & Market", ["market", "bazaar", "food", "flea", "shopping", "promenade"])
+    ]
+    for cat_idx, (cat_title, keywords) in enumerate(category_signatures):
+        if any(kw in all_text for kw in keywords):
+            div_score = 45 - (cat_idx * 2)
+            return div_score, 10 + cat_idx, cat_title, "balanced_recommendation"
 
     return 10, 99, "General", "popular_recommendation"
 
@@ -345,20 +394,26 @@ def attraction_node(state: TravelState) -> dict:
     destination = state.get("destination", "Unknown")
     days = int(state.get("days", 3))
     budget = float(state.get("budget", 500.0))
-    preferences = state.get("preferences") or "General sightseeing"
+    preferences = state.get("preferences") or ""
     pace = (state.get("pace") or "balanced").lower()
     
     # Extract ranked interests
     raw_interests = state.get("interests")
     ranked_interests = []
     if isinstance(raw_interests, list) and raw_interests:
-        ranked_interests = [str(x).strip() for x in raw_interests if str(x).strip()]
+        ranked_interests = [
+            str(x).strip() for x in raw_interests 
+            if str(x).strip() and str(x).strip().lower() not in ["general sightseeing", "general", "none", "sightseeing"]
+        ]
     elif preferences:
         for sep in [' > ', ' -> ', ',', '|']:
             if sep in preferences:
-                ranked_interests = [s.strip() for s in preferences.split(sep) if s.strip()]
+                ranked_interests = [
+                    s.strip() for s in preferences.split(sep) 
+                    if s.strip() and s.strip().lower() not in ["general sightseeing", "general", "none", "sightseeing"]
+                ]
                 break
-        if not ranked_interests and preferences.strip():
+        if not ranked_interests and preferences.strip() and preferences.strip().lower() not in ["general sightseeing", "general", "none", "sightseeing"]:
             ranked_interests = [preferences.strip()]
 
     must_visit_places = [str(x).strip() for x in (state.get("must_visit_places") or []) if str(x).strip()]
@@ -390,6 +445,19 @@ def attraction_node(state: TravelState) -> dict:
             "_pre_enriched": False,
             "_is_must_visit": True
         })
+
+    # 0. Inject verified authentic destination attractions
+    dest_clean = destination.lower().strip()
+    try:
+        from app.services.travel_guide_agent import AUTHENTIC_DESTINATION_ATTRACTIONS
+        if dest_clean in AUTHENTIC_DESTINATION_ATTRACTIONS:
+            seen_names = set(c["name"].lower() for c in candidates)
+            for auth_cand in AUTHENTIC_DESTINATION_ATTRACTIONS[dest_clean]:
+                if auth_cand["name"].lower() not in seen_names:
+                    seen_names.add(auth_cand["name"].lower())
+                    candidates.append(dict(auth_cand, source="curated_verified", _pre_enriched=True))
+    except Exception as e:
+        print(f"--- ATTRACTION AGENT: Curated lookup notice: {e} ---")
 
     # 1. LLM Discovery Call (budget-clamped to max 400 tokens)
     interests_display = " > ".join(ranked_interests) if ranked_interests else preferences
@@ -427,7 +495,20 @@ def attraction_node(state: TravelState) -> dict:
     except Exception as e:
         print(f"--- ATTRACTION AGENT: LLM discovery fallback triggered ({e}). ---")
         
-    # Layer 2 & 3 Fallbacks if candidates are insufficient
+    # Layer 2: Authentic curated destination knowledge
+    try:
+        from app.services.travel_guide_agent import AUTHENTIC_DESTINATION_ATTRACTIONS
+        dest_clean = destination.lower().strip()
+        if dest_clean in AUTHENTIC_DESTINATION_ATTRACTIONS:
+            seen_names = set(c["name"].lower() for c in candidates)
+            for auth_cand in AUTHENTIC_DESTINATION_ATTRACTIONS[dest_clean]:
+                if auth_cand["name"].lower() not in seen_names:
+                    seen_names.add(auth_cand["name"].lower())
+                    candidates.append(dict(auth_cand, source="curated_verified", _pre_enriched=True))
+    except Exception as e:
+        print(f"--- ATTRACTION AGENT: Curated destination lookup note: {type(e).__name__} ---")
+
+    # Layer 3: SerpApi & Overpass if candidates are still insufficient
     if len(candidates) < candidate_count:
         needed = candidate_count - len(candidates)
         serp_cands = discover_via_serpapi(destination, needed + 3, ranked_interests=ranked_interests)
@@ -511,11 +592,84 @@ def attraction_node(state: TravelState) -> dict:
                 except Exception as e:
                     print(f"⚠️ Error enriching {name}: {e}")
 
-    # Sort strictly by priority_score descending (Must-visits first, then Rank 1, Rank 2, etc.)
+    # Sort candidates by priority_score descending first
     final_attractions.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
     
-    # Cap to candidate count
-    final_attractions = final_attractions[:candidate_count]
+    # Balance selection across interests or default categories
+    selected_attractions = []
+    seen_names = set()
+    
+    # 1. Must-visit places first
+    for a in final_attractions:
+        if a.get("priority_rank") == 0 or a.get("match_type") == "must_visit":
+            if a["name"].lower() not in seen_names:
+                seen_names.add(a["name"].lower())
+                selected_attractions.append(a)
+                
+    if ranked_interests:
+        # 2. Guarantee representation across each specified interest (e.g. 1-2 per interest)
+        for r_int in ranked_interests:
+            r_lower = r_int.lower().strip()
+            count_for_int = 0
+            for a in final_attractions:
+                if a["name"].lower() in seen_names:
+                    continue
+                m_int = (a.get("matched_interest") or "").lower()
+                c_ints = [str(x).lower() for x in a.get("interests", [])]
+                cat_str = (a.get("category") or "").lower()
+                desc_str = (a.get("description") or "").lower()
+                all_s = f"{m_int} {' '.join(c_ints)} {cat_str} {desc_str}"
+                
+                # Check match against this specific interest
+                synonyms = [r_lower]
+                if "beach" in r_lower or "coast" in r_lower:
+                    synonyms += ["beach", "coast", "coastal", "cove", "bay", "sea", "ocean"]
+                if "temple" in r_lower or "spiritual" in r_lower:
+                    synonyms += ["temple", "church", "cathedral", "shrine", "monastery", "basilica", "mandir"]
+                if "food" in r_lower or "culinary" in r_lower:
+                    synonyms += ["food", "culinary", "restaurant", "cafe", "bistro", "market", "dining", "seafood"]
+                if "history" in r_lower or "heritage" in r_lower:
+                    synonyms += ["fort", "palace", "monument", "historic", "heritage", "unesco"]
+                if "nature" in r_lower or "wildlife" in r_lower:
+                    synonyms += ["nature", "waterfall", "park", "garden", "wildlife", "scenic"]
+                    
+                if any(syn in all_s for syn in synonyms):
+                    seen_names.add(a["name"].lower())
+                    selected_attractions.append(a)
+                    count_for_int += 1
+                    if count_for_int >= 2:
+                        break
+    else:
+        # 2. Balanced default: round-robin across diverse categories
+        categories_map = {}
+        for a in final_attractions:
+            cat_group = a.get("matched_interest") or a.get("category") or "General"
+            categories_map.setdefault(cat_group, []).append(a)
+        
+        while len(selected_attractions) < candidate_count:
+            added_any = False
+            for cat_group, group_items in list(categories_map.items()):
+                while group_items:
+                    candidate_item = group_items.pop(0)
+                    if candidate_item["name"].lower() not in seen_names:
+                        seen_names.add(candidate_item["name"].lower())
+                        selected_attractions.append(candidate_item)
+                        added_any = True
+                        break
+                if len(selected_attractions) >= candidate_count:
+                    break
+            if not added_any:
+                break
+
+    # 3. Fill remaining slots with remaining highest priority attractions
+    for a in final_attractions:
+        if len(selected_attractions) >= candidate_count:
+            break
+        if a["name"].lower() not in seen_names:
+            seen_names.add(a["name"].lower())
+            selected_attractions.append(a)
+            
+    final_attractions = selected_attractions
     print(f"--- ATTRACTION AGENT: Finalized {len(final_attractions)} verified attractions for {destination} ---")
 
     # Evaluate operating hours directly against trip date

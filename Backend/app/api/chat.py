@@ -25,7 +25,17 @@ from app.services import planning_progress
 def start_tracked_request(request: TrackedChatRequest, owner: str = Depends(require_user_id)):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail='Message content cannot be empty.')
-    return planning_progress.create_request(owner, request.request_id, request.message.strip(), request.conversation_id)
+    return planning_progress.create_request(
+        owner,
+        request.request_id,
+        request.message.strip(),
+        request.conversation_id,
+        current_lat=request.current_lat,
+        current_lon=request.current_lon,
+        current_day=request.current_day,
+        active_segment_id=request.active_segment_id,
+        destination=request.destination
+    )
 
 @router.get('/requests/{request_id}')
 def tracked_request_status(request_id: str, owner: str = Depends(require_user_id)):
@@ -44,7 +54,12 @@ def send_chat_message(request: ChatMessageRequest, x_user_id: str = Depends(requ
         response_data = process_chat_message(
             conversation_id=request.conversation_id,
             user_message=request.message.strip(),
-            user_id=x_user_id
+            user_id=x_user_id,
+            current_lat=request.current_lat,
+            current_lon=request.current_lon,
+            current_day=request.current_day,
+            active_segment_id=request.active_segment_id,
+            destination=request.destination
         )
         return response_data
     except HTTPException:

@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useMemo, useState } from 're
 import {
   Compass,
   MapPin,
+  Navigation,
   Clock,
   Wallet,
   Users,
@@ -226,6 +227,150 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                       ))}
                     </div>
                   )}
+                  {/* Place Recommendation Cards (Travel Guide Agent) */}
+                  {msg.richContent?.placeRecommendations && msg.richContent.placeRecommendations.length > 0 && (
+                    <div className="space-y-2.5 pt-2">
+                      <div className="text-[11px] font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                        <Compass className="w-3.5 h-3.5" />
+                        <span>Recommended Places</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2.5">
+                        {msg.richContent.placeRecommendations.map((place, pIdx) => {
+                          const hasCoords = place.latitude != null && place.longitude != null;
+                          const mapsUrl = place.source_url || (hasCoords ? `https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}` : undefined);
+
+                          return (
+                            <div
+                              key={`${msg.id}-place-${pIdx}-${place.name}`}
+                              className="rounded-xl bg-surface-container/70 p-3.5 border border-surface-container-highest/80 shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between gap-2.5"
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <h4 className="font-semibold text-sm text-on-surface truncate">
+                                      {place.name}
+                                    </h4>
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 capitalize">
+                                        {place.category.replace('_', ' ')}
+                                      </span>
+                                      {place.rating != null && (
+                                        <span className="flex items-center text-[11px] font-medium text-tertiary">
+                                          <Star className="w-3 h-3 fill-tertiary text-tertiary mr-0.5" />
+                                          {place.rating}
+                                          {place.review_count != null && (
+                                            <span className="text-on-surface-variant font-normal text-[10px] ml-0.5">
+                                              ({place.review_count.toLocaleString()})
+                                            </span>
+                                          )}
+                                        </span>
+                                      )}
+                                      {place.opening_status === 'OPEN' && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                          Open
+                                        </span>
+                                      )}
+                                      {place.opening_status === 'CLOSED' && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                          Closed
+                                        </span>
+                                      )}
+                                      {place.opening_status === 'UNKNOWN' && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] text-on-surface-variant bg-surface-container-highest/40">
+                                          Hours unverified
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {place.source && (
+                                    <span className="text-[10px] text-on-surface-variant px-1.5 py-0.5 rounded bg-surface-container-highest/60 flex-shrink-0">
+                                      {place.source === 'google_maps' ? 'Google Maps' : place.source === 'osm_overpass' ? 'OpenStreetMap' : place.source}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <p className="text-xs text-on-surface-variant leading-relaxed line-clamp-2">
+                                  {place.description}
+                                </p>
+
+                                {place.reason_recommended && (
+                                  <div className="text-[11px] text-primary/90 flex items-start gap-1 font-medium bg-primary/5 p-1.5 rounded-lg border border-primary/10">
+                                    <Sparkles className="w-3 h-3 text-primary flex-shrink-0 mt-0.5" />
+                                    <span>{place.reason_recommended}</span>
+                                  </div>
+                                )}
+
+                                <div className="flex flex-wrap items-center gap-3 text-[11px] text-on-surface-variant pt-0.5">
+                                  {place.distance_meters != null && (
+                                    <span className="flex items-center gap-1">
+                                      <MapPin className="w-3 h-3 text-primary" />
+                                      {place.distance_meters >= 1000
+                                        ? `${(place.distance_meters / 1000).toFixed(1)} km away`
+                                        : `${place.distance_meters}m away`}
+                                    </span>
+                                  )}
+                                  {place.address && (
+                                    <span className="truncate max-w-[240px]" title={place.address}>
+                                      {place.address}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="pt-2 border-t border-surface-container-highest/40 flex flex-wrap items-center gap-2">
+                                {mapsUrl && (
+                                  <a
+                                    href={mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-container-highest hover:bg-surface-bright text-on-surface transition-colors"
+                                  >
+                                    <Navigation className="w-3 h-3 text-primary" />
+                                    <span>Directions</span>
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => onSendMessage(`Tell me more about ${place.name}`)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-container-highest hover:bg-surface-bright text-on-surface transition-colors"
+                                >
+                                  <span>Details</span>
+                                </button>
+                                {trip && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onSendMessage(`Add ${place.name} to Day 2`)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary transition-colors ml-auto"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Add to Itinerary</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Suggested Follow-up Actions */}
+                  {msg.richContent?.suggestedActions && msg.richContent.suggestedActions.length > 0 && (
+                    <div className="pt-2 flex flex-wrap gap-1.5">
+                      {msg.richContent.suggestedActions.map((action, aIdx) => (
+                        <button
+                          key={`${msg.id}-action-${aIdx}`}
+                          type="button"
+                          onClick={() => onSendMessage(action.label)}
+                          className="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-highest/80 hover:bg-primary-container hover:text-on-primary text-on-surface border border-surface-container-highest transition-all flex items-center gap-1"
+                        >
+                          <Sparkles className="w-3 h-3 text-primary" />
+                          <span>{action.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
 
                   {/* Action Button */}
                   {msg.richContent?.actionButton && (

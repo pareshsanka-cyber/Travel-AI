@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -19,7 +20,21 @@ from app.services.slot_extraction_service import (
     merge_travel_context,
     calculate_days_from_dates
 )
-from app.services.qa_service import handle_travel_qa
+from app.services.travel_guide_agent import handle_travel_guide_query, resolve_place_from_reference
+from app.services.itinerary_edit_service import modify_itinerary, add_activity_to_day
+from app.services.trip_consistency import revision_filter
+
+GENERAL_CHAT_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        "You are TravelAI, an intelligent, versatile, and friendly conversational assistant. "
+        "Answer the user's question, greeting, or statement directly, warmly, and naturally. "
+        "If the user asks an ordinary question (such as science, technology, history, everyday questions, or chit-chat), "
+        "provide an accurate, helpful, and articulate answer without forcing them into a travel funnel. "
+        "You may politely mention that you are also ready to assist with destination recommendations or trip planning whenever they like."
+    ),
+    ("human", "{user_message}")
+])
 
 ACKNOWLEDGEMENT_PROMPT = ChatPromptTemplate.from_messages([
     (
@@ -106,8 +121,19 @@ def build_travel_state_from_context(context: Dict[str, Any]) -> Dict[str, Any]:
         "error_logs": []
     }
 
-def process_chat_message(conversation_id: Optional[str], user_message: str, user_id: Optional[str] = None,
-                         progress=None, planning_request_key=None, reuse_user_message=False) -> Dict[str, Any]:
+def process_chat_message(
+    conversation_id: Optional[str],
+    user_message: str,
+    user_id: Optional[str] = None,
+    progress=None,
+    planning_request_key=None,
+    reuse_user_message=False,
+    current_lat: Optional[float] = None,
+    current_lon: Optional[float] = None,
+    current_day: Optional[int] = None,
+    active_segment_id: Optional[str] = None,
+    destination: Optional[str] = None
+) -> Dict[str, Any]:
     print(f"\n--- CHAT SERVICE: Processing chat turn for conversation: '{conversation_id}' (User: {user_id}) ---")
     
     # 1. Fetch or create conversation with user_id
@@ -117,6 +143,15 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         progress('conversation', conversation_id=conv_id)
     current_context = conv.travel_context.model_dump()
     has_trip = bool(conv.current_trip_id or current_context.get("current_trip_id"))
+
+    active_trip_doc = None
+    if has_trip:
+        trip_id = conv.current_trip_id or current_context.get("current_trip_id")
+        if trip_id:
+            try:
+                active_trip_doc = db.trips.find_one({"_id": ObjectId(trip_id)})
+            except Exception:
+                active_trip_doc = None
 
     # 2. Get message history to identify previous assistant message
     messages = get_conversation_messages(conv_id, limit=10)
@@ -169,7 +204,24 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         update_travel_context(conv_id, current_context)
 
     # 5. Execute Intent Logic
-    if intent == "UPDATE_CONTEXT":
+    if intent == "GENERAL_CHAT":
+        try:
+            prompt_val = GENERAL_CHAT_PROMPT.format_messages(user_message=user_message)
+            chat_reply = llm.invoke(prompt_val).content.strip()
+        except Exception:
+            chat_reply = "Hello! I am TravelAI, your personal AI travel concierge. Feel free to ask me anything—whether it's about travel destinations, trip ideas, or general topics!"
+
+        add_message(conv_id, "assistant", chat_reply, intent="GENERAL_CHAT")
+
+        return {
+            "conversation_id": conv_id,
+            "message": {"role": "assistant", "content": chat_reply},
+            "intent": "GENERAL_CHAT",
+            "travel_context": current_context,
+            "data": None
+        }
+
+    elif intent == "UPDATE_CONTEXT":
         updated_context = current_context
 
         # Generate conversational acknowledgment
@@ -195,15 +247,49 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         }
 
     elif intent == "TRAVEL_QA":
-        answer = handle_travel_qa(user_message, current_context, qa_category=qa_category)
-        add_message(conv_id, "assistant", answer, intent="TRAVEL_QA")
+        guide_res = handle_travel_guide_query(
+            user_message=user_message,
+            travel_context=current_context,
+            qa_category=qa_category,
+            current_lat=current_lat,
+            current_lon=current_lon,
+            current_day=current_day,
+            active_segment_id=active_segment_id,
+            destination=destination,
+            user_id=user_id,
+            conversation_id=conv_id,
+            has_current_trip=has_trip,
+            active_trip=active_trip_doc
+        )
+
+        answer = guide_res.get("answer") or "Here is what I found for your trip."
+        places = guide_res.get("places") or []
+        suggested_actions = guide_res.get("suggested_actions") or []
+
+        # Cache recommendations in travel_context for follow-up references
+        if places:
+            current_context["last_recommendations"] = places
+            update_travel_context(conv_id, current_context)
+
+        add_message(conv_id, "assistant", answer, intent="TRAVEL_QA", structured_data={"places": places} if places else None)
+
+        guide_data = None
+        if places or suggested_actions:
+            guide_data = {
+                "type": "place_recommendations",
+                "category": guide_res.get("category", "ATTRACTIONS"),
+                "destination": guide_res.get("destination", ""),
+                "user_location_used": guide_res.get("user_location_used", False),
+                "places": places,
+                "suggested_actions": suggested_actions
+            }
 
         return {
             "conversation_id": conv_id,
             "message": {"role": "assistant", "content": answer},
             "intent": "TRAVEL_QA",
             "travel_context": current_context,
-            "data": None
+            "data": guide_data
         }
 
     elif intent == "GENERATE_ITINERARY":
@@ -263,7 +349,6 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"[ITINERARY ERROR] request_id={req_id} duration_ms={duration_ms} status=failed error={e}\n")
             recovery = recovery_for(e, planning=True)
-            # Constraint errors are deliberate traveler-facing validation messages.
             err_msg = f"Unable to create this itinerary: {e}" if recovery['code'] == 'trip_constraints' else recovery['message']
             add_message(conv_id, "assistant", err_msg)
             return {
@@ -405,15 +490,25 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
             }
 
         dest = trip_doc.get("destination", "Destination")
-        from app.services.itinerary_edit_service import modify_itinerary
-        from app.services.trip_consistency import revision_filter
+        is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
+        day_match = re.search(r'\bday\s*(\d+)\b', user_message, re.IGNORECASE)
+        last_recs = current_context.get("last_recommendations") or []
+        resolved_place_for_add = resolve_place_from_reference(user_message, last_recs) if is_add_request else None
+
         try:
-            updated_trip = modify_itinerary(trip_doc, user_message)
-        except Exception:
-            reply = "I could not safely apply that change. Try removing or replacing a named attraction or restaurant, or changing its visit duration. Your schedule is unchanged."
+            if is_add_request and resolved_place_for_add:
+                target_day = int(day_match.group(1)) if day_match else 1
+                updated_trip = add_activity_to_day(trip_doc, resolved_place_for_add, target_day)
+                reply = f"I've added {resolved_place_for_add.get('name', 'the place')} to Day {target_day} of your itinerary!"
+            else:
+                updated_trip = modify_itinerary(trip_doc, user_message)
+                reply = f"I've updated your itinerary for {dest} according to your request!"
+        except Exception as e:
+            reply = f"I could not safely apply that change: {e}. Try removing or replacing a named attraction or restaurant, or changing its visit duration. Your schedule is unchanged."
             add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
             return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
                     "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
         changes = {k: updated_trip[k] for k in ('route_details', 'planner_draft', 'budget_breakdown', 'final_itinerary')}
         changes.update(revision=int(trip_doc.get('revision', 1)) + 1, updated_at=datetime.utcnow().isoformat())
         write = db.trips.update_one(revision_filter({"_id": ObjectId(current_trip_id), "user_id": user_id}, trip_doc), {"$set": changes})
@@ -431,7 +526,6 @@ def process_chat_message(conversation_id: Optional[str], user_message: str, user
         if "updated_at" in trip_doc and hasattr(trip_doc["updated_at"], "isoformat"):
             trip_doc["updated_at"] = trip_doc["updated_at"].isoformat()
 
-        reply = f"I've updated your itinerary for {dest} according to your request!"
         add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
 
         return {

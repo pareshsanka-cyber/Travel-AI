@@ -1,10 +1,17 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from app.schemas.travel_guide import PlaceRecommendation, SuggestedAction, TravelGuideDataPayload
 
 class ChatMessageRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
+    current_lat: Optional[float] = None
+    current_lon: Optional[float] = None
+    current_day: Optional[int] = None
+    active_segment_id: Optional[str] = None
+    destination: Optional[str] = None
+    travel_context: Optional[Dict[str, Any]] = None
 
 class TrackedChatRequest(ChatMessageRequest):
     request_id: str = Field(min_length=16, max_length=80, pattern=r'^[A-Za-z0-9_-]+$')

@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 class TravelContext(BaseModel):
     destination: Optional[str] = None
@@ -27,6 +30,7 @@ class TravelContext(BaseModel):
     bedtime: Optional[str] = None
 
     current_trip_id: Optional[str] = None
+    last_recommendations: Optional[List[Dict[str, Any]]] = None
 
 class ConversationModel(BaseModel):
     conversation_id: str
@@ -34,5 +38,5 @@ class ConversationModel(BaseModel):
     status: str = "active"
     travel_context: TravelContext = Field(default_factory=TravelContext)
     current_trip_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

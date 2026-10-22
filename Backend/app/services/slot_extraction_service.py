@@ -3,6 +3,7 @@ import re
 from typing import Dict, Any, List, Optional
 from app.ai.llm import llm
 from langchain_core.prompts import ChatPromptTemplate
+from app.ai.rag.retriever import LANDMARK_DESTINATIONS, resolve_destination_from_query
 
 ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
     (
@@ -15,15 +16,18 @@ ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
         "- Previous Assistant Message: {previous_assistant_message}\n"
         "- Has Generated Itinerary: {has_current_trip}\n\n"
         "Supported Intents:\n"
-        "1. UPDATE_CONTEXT: User is ONLY providing or modifying trip details. BUT if they explicitly command you to plan or generate the itinerary, do NOT use UPDATE_CONTEXT. Use GENERATE_ITINERARY instead!\n"        "2. TRAVEL_QA: User is asking informational or Q&A questions about a destination (weather, food, places to visit, general tips).\n"
-        "3. GENERATE_ITINERARY: User explicitly requests creating or planning the itinerary. This SUPERSEDES UPDATE_CONTEXT if both apply!\n"        "4. MODIFY_ITINERARY: When Has Generated Itinerary is True and the user asks to change, edit, or adjust the existing trip or a day (e.g. 'Change day 2 to focus on watersports', 'Make day 2 more relaxed', 'Remove that restaurant'), intent MUST be MODIFY_ITINERARY.\n\n"
+        "1. UPDATE_CONTEXT: User is sharing, updating, or specifying preferences, interests, budget, or trip parameters (e.g. 'I love beaches and temples', 'My budget is 50k', 'We are 4 people', 'I prefer luxury travel') WITHOUT explicitly commanding you to plan or generate an itinerary right now.\n"
+        "2. TRAVEL_QA: User is asking informational, factual, or recommendation questions about a destination, landmark, monument, weather, food, attractions, or travel tips (e.g. 'What is famous in Jaipur?', 'Why is Hawa Mahal famous?', 'Best food in Goa', 'How is the weather in Munnar?', 'What about places near the second attraction you suggested?').\n"
+        "3. GENERATE_ITINERARY: User explicitly commands you to plan, create, generate, or build the trip or itinerary (e.g. 'Plan a five-day trip to Goa', 'Generate my itinerary', 'Build the trip for 3 days'). This SUPERSEDES UPDATE_CONTEXT if both apply!\n"
+        "4. MODIFY_ITINERARY: When Has Generated Itinerary is True and the user asks to change, edit, or adjust the existing trip or a day (e.g. 'Change day 2 to focus on watersports', 'Make day 2 more relaxed', 'Remove that restaurant'), intent MUST be MODIFY_ITINERARY.\n"
+        "5. GENERAL_CHAT: User is greeting ('Hi', 'Hello'), engaging in small talk ('How are you?'), asking general knowledge or non-travel questions ('Can you explain something unrelated to travel?', 'What is quantum computing?', 'Who are you?', 'Tell me a joke'), or seeking conversational assistance.\n\n"
         "Q&A Categories (only for TRAVEL_QA):\n"
         "- 'WEATHER': Questions about climate, temperature, weather.\n"
-        "- 'ATTRACTION': Questions about places to see, landmarks, activities.\n"
+        "- 'ATTRACTION': Questions about places to see, landmarks, activities, monuments, heritage, history.\n"
         "- 'RESTAURANT': Questions about food, dining, dishes, restaurants.\n"
-        "- 'GENERAL': General travel Q&A or destination advice.\n\n"
+        "- 'GENERAL': General travel advice or destination tips.\n\n"
         "Slot Extraction Rules:\n"
-        "- destination: string (e.g. 'Goa')\n"
+        "- destination: string (e.g. 'Goa', 'Jaipur', 'Hyderabad')\n"
         "- days: integer (e.g. 4)\n"
         "- budget: float numeric amount if explicit (e.g. 20000.0 for ₹20,000, 100000.0 for ₹1 lakh, 500.0 for $500)\n"
         "- currency: string code (e.g. 'INR', 'USD')\n"
@@ -36,7 +40,9 @@ ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
         "- travel_style: string ('BUDGET', 'STANDARD', 'PREMIUM', 'LUXURY')\n"
         "- transport_preferences: list of strings (e.g. ['business_class'], ['economy_flight'], ['private_cab'])\n"
         "- accommodation_preferences: list of strings (e.g. ['5_star'], ['standard_hotel'], ['resort'], ['homestay'])\n"
+        "- interests: list of strings (e.g. ['beaches', 'temples', 'history', 'adventure', 'luxury'])\n"
         "- preferences: list of strings (e.g. ['beaches', 'local food'])\n"
+        "- must_visit_places: list of strings (e.g. ['Aguada Fort', 'Hawa Mahal'])\n"
         "- constraints: list of strings (e.g. ['avoid crowded places'])\n\n"
         "Return ONLY a raw JSON object with keys: intent, slots, qa_category, confidence, needs_clarification, clarification_prompt.\n"
         "Do not include markdown wrappers or extra text."
@@ -127,7 +133,9 @@ def extract_context_tags(text: str) -> Dict[str, Any]:
                         result['travelers'] = int(tm.group(1))
                 elif 'interests' in k or 'preferences' in k:
                     if v and v.lower() != 'none':
-                        result['preferences'] = [p.strip() for p in v.split(',') if p.strip()]
+                        parsed_list = [p.strip() for p in v.split(',') if p.strip()]
+                        result['preferences'] = parsed_list
+                        result['interests'] = parsed_list
 
     # 2. Parse date ranges in text (e.g. "sept-26 to sept -30 2026", "2026-09-26 to 2026-09-30", "12 Jan to 21 Jan")
     lower = text.lower()
@@ -214,9 +222,16 @@ def merge_travel_context(existing_context: Dict[str, Any], extracted_slots: Dict
     updated = dict(existing_context)
     
     # List fields that should be merged as lists
-    list_fields = ["preferences", "constraints", "accommodation_preferences", "transport_preferences"]
+    list_fields = ["preferences", "interests", "constraints", "accommodation_preferences", "transport_preferences", "must_visit_places"]
     
-    for key, value in extracted_slots.items():
+    # Ensure interests and preferences are kept in sync
+    incoming_slots = dict(extracted_slots)
+    if "preferences" in incoming_slots and "interests" not in incoming_slots:
+        incoming_slots["interests"] = incoming_slots["preferences"]
+    elif "interests" in incoming_slots and "preferences" not in incoming_slots:
+        incoming_slots["preferences"] = incoming_slots["interests"]
+
+    for key, value in incoming_slots.items():
         if value is None:
             continue
             
@@ -246,7 +261,7 @@ def analyze_user_message(
     has_current_trip: bool = False
 ) -> Dict[str, Any]:
     """
-    Single Conversational Analysis Step using Qwen LLM.
+    Single Conversational Analysis Step using LLM.
     Returns structured analysis containing intent, extracted slots, qa_category, and clarification flags.
     """
     print(f"--- ANALYZER: Analyzing message: '{user_message}' ---")
@@ -272,21 +287,48 @@ def analyze_user_message(
         print(f"Warning: Analyzer LLM parsing failed: {e}. Propagating exception.")
         raise e
 
+    if "slots" not in analysis or not isinstance(analysis["slots"], dict):
+        analysis["slots"] = {}
+
     # Apply Python currency regex fallback if slots budget is missing but numeric pattern exists
     python_currency = normalize_currency_and_numbers(user_message)
-    if python_currency and "slots" in analysis:
+    if python_currency:
         for k, v in python_currency.items():
-            # Explicit preference-bar values must win over an LLM interpretation.
             if k in {'start_date', 'end_date', 'days', 'origin', 'destination', 'travelers'} or k not in analysis["slots"] or analysis["slots"][k] is None:
                 analysis["slots"][k] = v
 
-    # Deterministic override for itinerary modifications when trip exists
-    if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', user_message, re.IGNORECASE):
+    # Intent refinement and overrides
+    clean_msg = user_message.strip().lower()
+
+    # 1. Deterministic detection for explicit itinerary creation commands
+    if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', clean_msg):
         analysis['intent'] = 'GENERATE_ITINERARY'
 
+    # 2. Deterministic override for itinerary modifications when trip exists
     if has_current_trip:
         mod_pattern = r'\b(?:day\s*\d+|change|modify|replace|remove|swap|adjust|update day|instead of)\b'
-        if re.search(mod_pattern, user_message, re.IGNORECASE):
+        if re.search(mod_pattern, clean_msg):
             analysis["intent"] = "MODIFY_ITINERARY"
+
+    # 3. Known landmark recognition: Map to destination and route to TRAVEL_QA
+    for landmark, dest_name in LANDMARK_DESTINATIONS.items():
+        if re.search(r'\b' + re.escape(landmark) + r'\b', clean_msg):
+            if analysis.get('intent') != 'GENERATE_ITINERARY':
+                analysis['intent'] = 'TRAVEL_QA'
+                if not analysis.get('qa_category'):
+                    analysis['qa_category'] = 'ATTRACTION'
+                if not analysis['slots'].get('destination'):
+                    analysis['slots']['destination'] = dest_name
+            break
+
+    # 4. General conversational chat detection
+    # Common greetings, philosophical or non-travel inquiries without planning commands
+    general_greetings = r'^(hi|hello|hey|good\s*(?:morning|afternoon|evening)|howdy|hola|greetings)\b'
+    general_non_travel = r'\b(can you explain something unrelated|unrelated to travel|who are you|what is your name|tell me a joke|what can you do|how are you|quantum computing|artificial intelligence)\b'
+    has_planning_terms = bool(re.search(r'\b(trip|itinerary|destination|budget|flight|hotel|visiting|travel|places|attraction)\b', clean_msg))
+
+    if (re.search(general_greetings, clean_msg) or re.search(general_non_travel, clean_msg)) and not has_planning_terms:
+        if analysis.get('intent') not in {'GENERATE_ITINERARY', 'MODIFY_ITINERARY'}:
+            analysis['intent'] = 'GENERAL_CHAT'
 
     return analysis
