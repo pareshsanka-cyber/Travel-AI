@@ -325,9 +325,11 @@ def deduplicate_place_list(places: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 existing["address"] = place["address"]
             if not existing.get("image_url") and place.get("image_url"):
                 existing["image_url"] = place["image_url"]
-            if place.get("is_must_visit") or place.get("must_visit"):
+            if place.get("is_must_visit") or place.get("must_visit") or place.get("priority_rank") == 0:
                 existing["is_must_visit"] = True
                 existing["must_visit"] = True
+                existing["priority_rank"] = min(existing.get("priority_rank", 99), place.get("priority_rank", 99))
+                existing["priority_score"] = max(existing.get("priority_score", 0), place.get("priority_score", 0))
         else:
             unique_places.append(place)
 

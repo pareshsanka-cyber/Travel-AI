@@ -284,10 +284,28 @@ def generate_preference_revision_proposal(
         print(f"Warning: Discovery in proposal failed ({e}), falling back to existing attractions")
         discovered_attractions = []
 
+    must_visits = [str(mv).strip() for mv in (trip_doc.get("must_visit_places") or []) if str(mv).strip()]
+    mv_names = [m.lower() for m in must_visits]
+
     combined_candidates = []
     for ea in existing_attractions:
-        if ea.get("id") in completed_ids:
-            combined_candidates.append(ea)
+        ea_name = (ea.get("name") or ea.get("title") or "").lower().strip()
+        is_anchor = (
+            ea.get("id") in completed_ids
+            or ea.get("is_must_visit")
+            or ea.get("must_visit")
+            or ea.get("priority_rank") == 0
+            or any(is_same_physical_place(ea, {"name": mvn}) or mvn in ea_name or ea_name in mvn for mvn in mv_names)
+        )
+        if is_anchor:
+            ea_copy = copy.deepcopy(ea)
+            ea_copy["priority_rank"] = 0
+            ea_copy["priority_score"] = 1000
+            ea_copy["is_must_visit"] = True
+            ea_copy["match_type"] = "must_visit" 
+            if not any(is_same_physical_place(ea_copy, c) for c in combined_candidates):
+                combined_candidates.append(ea_copy)
+
     for ea in suitable_existing:
         if not any(is_same_physical_place(ea, c) for c in combined_candidates):
             combined_candidates.append(ea)
@@ -310,6 +328,7 @@ def generate_preference_revision_proposal(
         "travel_style": travel_style,
         "interests": new_interests,
         "preferences": new_interests,
+        "must_visit_places": must_visits,
         "pace": pace,
         "bedtime": bedtime,
         "wake_up_time": wake_up_time,
@@ -328,6 +347,20 @@ def generate_preference_revision_proposal(
     rev_days = revised_routes.get("day_by_day_route", [])
 
     if completed_ids:
+        # First, purge any misplaced duplicates of completed stops from other days in rev_days
+        for idx, orig_day in enumerate(orig_days):
+            orig_stops = orig_day.get("stops") or []
+            for ost in orig_stops:
+                if ost.get("id") in completed_ids:
+                    for r_idx, r_day in enumerate(rev_days):
+                        if r_idx != idx:
+                            r_day["stops"] = [
+                                s for s in (r_day.get("stops") or [])
+                                if not (s.get("id") == ost.get("id") or is_same_physical_place(s, ost))
+                            ]
+                            r_day["activities"] = r_day["stops"]
+
+        # Second, ensure completed stops are preserved on their exact original day
         for idx, orig_day in enumerate(orig_days):
             if idx < len(rev_days):
                 rev_day = rev_days[idx]
@@ -336,18 +369,41 @@ def generate_preference_revision_proposal(
 
                 for ost in orig_stops:
                     if ost.get("id") in completed_ids:
-                        existing_in_rev = next((s for s in rev_stops if s.get("id") == ost.get("id")), None)
+                        existing_in_rev = next(
+                            (s for s in rev_stops if s.get("id") == ost.get("id") or is_same_physical_place(s, ost)),
+                            None
+                        )
                         if not existing_in_rev:
                             replaced = False
+                            # Prefer replacing a non-anchor attraction
                             for s_idx, s in enumerate(rev_stops):
-                                if s.get("type") == "attraction" and s.get("id") not in completed_ids:
+                                is_s_anchor = bool(
+                                    s.get("is_must_visit")
+                                    or s.get("priority_rank") == 0
+                                    or any(is_same_physical_place(s, {"name": mvn}) for mvn in mv_names)
+                                )
+                                if s.get("type") == "attraction" and s.get("id") not in completed_ids and not is_s_anchor:
                                     rev_stops[s_idx] = copy.deepcopy(ost)
                                     replaced = True
                                     break
                             if not replaced:
+                                for s_idx, s in enumerate(rev_stops):
+                                    if s.get("type") == "attraction" and s.get("id") not in completed_ids:
+                                        displaced = rev_stops[s_idx]
+                                        rev_stops[s_idx] = copy.deepcopy(ost)
+                                        for other_day in rev_days:
+                                            other_stops = other_day.get("stops") or []
+                                            if other_day != rev_day and not any(is_same_physical_place(displaced, os) for os in other_stops):
+                                                other_stops.append(displaced)
+                                                other_day["stops"] = other_stops
+                                                other_day["activities"] = other_stops
+                                                break
+                                        replaced = True
+                                        break
+                            if not replaced:
                                 rev_stops.append(copy.deepcopy(ost))
                         else:
-                            existing_in_rev.update(ost)
+                            existing_in_rev.update(copy.deepcopy(ost))
                 rev_day["stops"] = rev_stops
                 rev_day["activities"] = rev_stops
 

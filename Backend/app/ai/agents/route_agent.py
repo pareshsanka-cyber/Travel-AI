@@ -489,9 +489,15 @@ def route_node(state: TravelState) -> dict:
     raw_attractions = state.get("attractions", [])
     raw_restaurants = state.get("restaurants", [])
 
-    # Sort attractions strictly by priority_score descending
+    # Sort attractions strictly prioritizing anchors/must-visits and priority_score descending
     valid_attractions = [a for a in raw_attractions if a.get("status") != "CLOSED"]
-    valid_attractions.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
+    valid_attractions.sort(
+        key=lambda x: (
+            bool(x.get("priority_rank", 99) == 0 or x.get("is_must_visit") or x.get("match_type") == "must_visit"),
+            x.get("priority_score", 0)
+        ),
+        reverse=True
+    )
     valid_attractions = deduplicate_place_list(valid_attractions)
 
     # Multi-interest diversity quota: when user specifies multiple interests,
@@ -506,7 +512,7 @@ def route_node(state: TravelState) -> dict:
         a for a in valid_attractions
         if a.get("priority_rank") == 0
         or a.get("match_type") == "must_visit"
-        or any(mvn in a.get("name", "").lower() for mvn in mv_names)
+        or any(is_same_physical_place(a, {"name": mvn}) or mvn in a.get("name", "").lower() for mvn in mv_names)
     ]
     regular = [a for a in valid_attractions if a not in must_visits]
 
