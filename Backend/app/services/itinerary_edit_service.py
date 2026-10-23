@@ -6,6 +6,7 @@ from app.ai.agents.route_agent import parse_hhmm_to_minutes, minutes_to_hhmm, fo
 from app.ai.agents.budget_agent import budget_node
 from app.ai.agents.synthesis_agent import synthesis_node
 from app.utils.activity_identity import generate_persistent_activity_id
+from app.utils.place_deduplication import is_same_physical_place, is_place_already_scheduled
 
 
 def render_schedule(routes):
@@ -60,6 +61,9 @@ def apply_schedule_edits(trip, edits):
         if edit.get('action') == 'add':
             new_place = edit.get('place') or {}
             place_name = new_place.get('name') or edit.get('place_name') or 'Sightseeing Spot'
+            all_current_stops = [s for d in days for s in (d.get('stops') or d.get('activities') or [])]
+            if not edit.get('allow_repeat') and is_place_already_scheduled({'name': place_name, **new_place}, all_current_stops):
+                raise ValueError(f"'{place_name}' is already included in this itinerary.")
             cat = str(new_place.get('category') or '').lower()
             place_type = new_place.get('type') or ('restaurant' if any(w in cat for w in ('restaurant', 'food', 'cafe', 'dining', 'catering')) else 'attraction')
             duration = int(edit.get('duration_minutes') or 90)
@@ -132,6 +136,13 @@ def apply_schedule_edits(trip, edits):
     ids = [s['id'] for d in days for s in d['stops']]
     if len(ids) != len(set(ids)):
         raise ValueError('The edit would introduce a duplicate activity.')
+    seen_venues = []
+    for d in days:
+        for s in (d.get('stops') or d.get('activities') or []):
+            if s.get('type') in {'attraction', 'restaurant'}:
+                if any(is_same_physical_place(s, v) for v in seen_venues):
+                    raise ValueError(f"Duplicate venue detected: '{s.get('name')}'. Each physical place can only be visited once unless explicitly requested.")
+                seen_venues.append(s)
     result['planner_draft'] = render_schedule(result['route_details'])
     result.update(budget_node(result))
     result.update(synthesis_node(result))

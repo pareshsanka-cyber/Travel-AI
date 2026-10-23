@@ -254,6 +254,79 @@ def merge_travel_context(existing_context: Dict[str, Any], extracted_slots: Dict
             updated['days'] = computed_days
     return updated
 
+def deterministic_fallback_analysis(
+    user_message: str,
+    current_context: Dict[str, Any],
+    has_current_trip: bool = False
+) -> Dict[str, Any]:
+    """
+    Deterministic rule-based fallback analyzer when LLM is unavailable or OTPM budget is exceeded.
+    """
+    clean_msg = user_message.strip().lower()
+    slots: Dict[str, Any] = {}
+    
+    intent = "GENERAL_CHAT"
+    qa_category = None
+    
+    # 1. GENERATE_ITINERARY
+    if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation|days?)\b', clean_msg):
+        intent = "GENERATE_ITINERARY"
+    # 2. MODIFY_ITINERARY
+    elif has_current_trip and re.search(r'\b(?:day\s*\d+|change|modify|replace|remove|swap|adjust|update day|instead of)\b', clean_msg):
+        intent = "MODIFY_ITINERARY"
+    # 3. UPDATE_CONTEXT
+    elif re.search(r'\b(change it to|prefer|interests?|focus on|switch to|update to|i want|love|like)\b', clean_msg):
+        intent = "UPDATE_CONTEXT"
+    # 4. TRAVEL_QA
+    elif (
+        any(w in clean_msg for w in (
+            "nearby", "near me", "close to me", "closest", "around here",
+            "near my current stop", "near current stop", "near the hotel", "near my hotel", "within"
+        ))
+        or re.search(r'\b(why|what|how|where|which|famous|best|places|attractions|visit|recommend)\b', clean_msg)
+        or clean_msg.endswith("?")
+    ):
+        intent = "TRAVEL_QA"
+        if any(w in clean_msg for w in ("weather", "temperature", "rain", "climate")):
+            qa_category = "WEATHER"
+        elif any(w in clean_msg for w in ("food", "restaurant", "cafe", "dishes", "eat")):
+            qa_category = "RESTAURANT"
+        elif any(w in clean_msg for w in ("nearby", "near me", "close", "stop")):
+            qa_category = "NEARBY"
+        else:
+            qa_category = "ATTRACTION"
+
+    # Extract slots from message using regex/numeric extractor
+    python_slots = normalize_currency_and_numbers(user_message)
+    if python_slots:
+        slots.update(python_slots)
+
+    # Extract interests keywords
+    found_interests = []
+    interest_keywords = [
+        "beaches", "beach", "temples", "temple", "history", "heritage", "luxury",
+        "food", "cuisine", "adventure", "nature", "nightlife", "wildlife", "shopping", "culture"
+    ]
+    for kw in interest_keywords:
+        if re.search(r'\b' + kw + r'\b', clean_msg):
+            norm_kw = kw + "s" if kw in {"beach", "temple"} else kw
+            if norm_kw not in found_interests:
+                found_interests.append(norm_kw)
+    if found_interests:
+        slots["interests"] = found_interests
+        slots["preferences"] = found_interests
+        if intent == "GENERAL_CHAT":
+            intent = "UPDATE_CONTEXT"
+
+    return {
+        "intent": intent,
+        "slots": slots,
+        "qa_category": qa_category,
+        "confidence": 0.8,
+        "needs_clarification": False,
+        "clarification_prompt": None
+    }
+
 def analyze_user_message(
     user_message: str,
     current_context: Dict[str, Any],
@@ -284,8 +357,11 @@ def analyze_user_message(
         
         analysis = json.loads(content)
     except Exception as e:
-        print(f"Warning: Analyzer LLM parsing failed: {e}. Propagating exception.")
-        raise e
+        print(f"Warning: Analyzer LLM parsing failed: {e}. Attempting deterministic extraction fallback.")
+        try:
+            analysis = deterministic_fallback_analysis(user_message, current_context, has_current_trip)
+        except Exception:
+            raise e
 
     if "slots" not in analysis or not isinstance(analysis["slots"], dict):
         analysis["slots"] = {}

@@ -10,6 +10,7 @@ from app.ai.llm import llm, GroqRateLimitError
 from app.ai.orchestrator.state import TravelState
 from app.ai.agents.opening_hours_agent import determine_status_from_hours
 from langchain_core.prompts import ChatPromptTemplate
+from app.utils.place_deduplication import is_same_physical_place, deduplicate_place_list
 
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
 
@@ -482,11 +483,9 @@ def attraction_node(state: TravelState) -> dict:
         data = json.loads(content.strip())
         llm_cands = data.get("attractions", [])
         
-        # Deduplicate against must-visit
-        seen_names = set(c["name"].lower() for c in candidates)
+        # Canonical deduplication against must-visit and existing candidates
         for cand in llm_cands:
-            if cand.get("name") and cand["name"].lower() not in seen_names:
-                seen_names.add(cand["name"].lower())
+            if cand.get("name") and not any(is_same_physical_place(cand, c) for c in candidates):
                 candidates.append(cand)
                 
         print(f"--- ATTRACTION AGENT: LLM discovery yielded {len(llm_cands)} candidates ---")
@@ -500,10 +499,8 @@ def attraction_node(state: TravelState) -> dict:
         from app.services.travel_guide_agent import AUTHENTIC_DESTINATION_ATTRACTIONS
         dest_clean = destination.lower().strip()
         if dest_clean in AUTHENTIC_DESTINATION_ATTRACTIONS:
-            seen_names = set(c["name"].lower() for c in candidates)
             for auth_cand in AUTHENTIC_DESTINATION_ATTRACTIONS[dest_clean]:
-                if auth_cand["name"].lower() not in seen_names:
-                    seen_names.add(auth_cand["name"].lower())
+                if not any(is_same_physical_place(auth_cand, c) for c in candidates):
                     candidates.append(dict(auth_cand, source="curated_verified", _pre_enriched=True))
     except Exception as e:
         print(f"--- ATTRACTION AGENT: Curated destination lookup note: {type(e).__name__} ---")
@@ -512,20 +509,19 @@ def attraction_node(state: TravelState) -> dict:
     if len(candidates) < candidate_count:
         needed = candidate_count - len(candidates)
         serp_cands = discover_via_serpapi(destination, needed + 3, ranked_interests=ranked_interests)
-        seen_names = set(c["name"].lower() for c in candidates)
         for sc in serp_cands:
-            if sc["name"].lower() not in seen_names:
-                seen_names.add(sc["name"].lower())
+            if not any(is_same_physical_place(sc, c) for c in candidates):
                 candidates.append(sc)
 
     if len(candidates) < candidate_count:
         needed = candidate_count - len(candidates)
         osm_cands = discover_via_overpass(destination, needed + 3)
-        seen_names = set(c["name"].lower() for c in candidates)
         for oc in osm_cands:
-            if oc["name"].lower() not in seen_names:
-                seen_names.add(oc["name"].lower())
+            if not any(is_same_physical_place(oc, c) for c in candidates):
                 candidates.append(oc)
+
+    # Ensure clean canonical deduplication across all candidate layers
+    candidates = deduplicate_place_list(candidates)
 
     final_attractions = []
     

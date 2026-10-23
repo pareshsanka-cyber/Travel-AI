@@ -35,6 +35,7 @@ from app.ai.rag.retriever import (
 )
 from app.services.road_routing import distance, coords, configuration
 from app.schemas.travel_guide import PlaceRecommendation, SuggestedAction
+from app.utils.place_deduplication import is_same_physical_place, deduplicate_place_list
 
 logger = logging.getLogger("travelai.guide")
 
@@ -93,6 +94,13 @@ def normalize_destination_name(raw: Optional[str]) -> Optional[str]:
         return None
     cleaned = str(raw).lower().strip().split(',')[0].strip()
     if not cleaned:
+        return None
+    # Reject relative locations, stop references, or pronouns
+    if cleaned in {
+        "my current stop", "current stop", "my stop", "our stop", "the stop",
+        "my hotel", "our hotel", "the hotel", "me", "us", "here", "my location",
+        "current location", "the area", "the city", "this place"
+    } or cleaned.startswith(("my ", "our ", "current ")):
         return None
     if cleaned in DESTINATION_ALIASES:
         return DESTINATION_ALIASES[cleaned]
@@ -509,7 +517,15 @@ def classify_guide_query(
         return "FOLLOW_UP"
 
     # 4. Nearby places / radius query
-    if any(w in text for w in ("nearby", "near me", "close to me", "closest", "around here", "walking distance", "near our stop", "near the hotel", "within")):
+    if (
+        any(w in text for w in (
+            "nearby", "near me", "close to me", "closest", "around here",
+            "walking distance", "near our stop", "near my stop", "near the stop",
+            "near my current stop", "near current stop", "near the hotel",
+            "near my hotel", "within"
+        )) or
+        re.search(r'\b(near|around|close to)\b.*\b(stop|hotel|station|me|here|spot)\b', text)
+    ):
         return "NEARBY_PLACES"
 
     # 5. Food, cafés, restaurants, markets
@@ -541,45 +557,8 @@ def normalize_place_name(name: str) -> str:
 
 
 def deduplicate_places(places: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Deduplicate records by provider identifiers, coordinate proximity, and name matching."""
-    unique_places: List[Dict[str, Any]] = []
-    seen_names = set()
-
-    for p in places:
-        name = p.get("name") or ""
-        norm_name = normalize_place_name(name)
-        if not norm_name or len(norm_name) < 3:
-            continue
-
-        p_lat, p_lon = p.get("lat") or p.get("latitude"), p.get("lon") or p.get("longitude")
-
-        # Check coordinate collision within 60 meters
-        duplicate = False
-        for existing in unique_places:
-            e_name = normalize_place_name(existing.get("name") or "")
-            if norm_name == e_name or norm_name in e_name or e_name in norm_name:
-                duplicate = True
-                # Merge details if existing was missing them
-                if existing.get("rating") is None and p.get("rating") is not None:
-                    existing["rating"] = p["rating"]
-                if not existing.get("address") and p.get("address"):
-                    existing["address"] = p["address"]
-                if not existing.get("image_url") and p.get("image_url"):
-                    existing["image_url"] = p["image_url"]
-                break
-
-            e_lat, e_lon = existing.get("lat") or existing.get("latitude"), existing.get("lon") or existing.get("longitude")
-            if p_lat is not None and p_lon is not None and e_lat is not None and e_lon is not None:
-                dist_km = distance((float(p_lat), float(p_lon)), (float(e_lat), float(e_lon)))
-                if dist_km < 0.06:  # within 60 meters
-                    duplicate = True
-                    break
-
-        if not duplicate:
-            seen_names.add(norm_name)
-            unique_places.append(p)
-
-    return unique_places
+    """Deduplicate records by provider identifiers, coordinate proximity, and canonical name matching."""
+    return deduplicate_place_list(places)
 
 
 def calculate_place_relevance_score(
@@ -891,11 +870,14 @@ def handle_travel_guide_query(
     dest = normalize_destination_name(dest)
 
     # Extract destination from user message if query mentions a specific city (e.g. "famous places in hyderanad", "places in hyd")
-    dest_match = re.search(r'\b(?:in|at|for|to|around|near|visiting)\s+([A-Za-z\s]{2,20})\b', user_message, re.IGNORECASE)
+    dest_match = re.search(r'\b(?:in|at|for|to|visiting)\s+([A-Za-z\s]{2,20})\b', user_message, re.IGNORECASE)
     if dest_match:
         cand_dest = dest_match.group(1).strip()
-        # Ensure it's not a general word
-        if cand_dest.lower() not in ("the city", "the area", "my location", "here", "india", "today", "tomorrow", "this place"):
+        # Ensure it's not a general word or relative location
+        if cand_dest.lower() not in (
+            "the city", "the area", "my location", "here", "india", "today", "tomorrow",
+            "this place", "my current stop", "my stop", "current stop", "our stop", "the stop"
+        ) and not cand_dest.lower().startswith(("my ", "our ", "current ")):
             normalized = normalize_destination_name(cand_dest)
             if normalized:
                 dest = normalized

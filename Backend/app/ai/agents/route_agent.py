@@ -11,6 +11,7 @@ from app.ai.llm import llm
 from app.ai.orchestrator.state import TravelState
 from app.ai.agents.attraction_agent import resolve_destination_coordinates
 from app.utils.activity_identity import generate_persistent_activity_id
+from app.utils.place_deduplication import is_same_physical_place, deduplicate_place_list
 
 AIRPORT_REGISTRY = {
     "hyderabad": {
@@ -491,8 +492,10 @@ def route_node(state: TravelState) -> dict:
     # Sort attractions strictly by priority_score descending
     valid_attractions = [a for a in raw_attractions if a.get("status") != "CLOSED"]
     valid_attractions.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
+    valid_attractions = deduplicate_place_list(valid_attractions)
 
     used_attraction_names = set()
+    used_attraction_objects: List[Dict[str, Any]] = []
     used_restaurant_names = set()
     seen_activity_slugs: Dict[str, int] = {}
     used_activity_ids = set()
@@ -659,7 +662,9 @@ def route_node(state: TravelState) -> dict:
             })
             used_activity_ids.add(act_id)
             act_counter += 1
-            if stop_type == "attraction": used_attraction_names.add(name)
+            if stop_type == "attraction":
+                used_attraction_names.add(name)
+                used_attraction_objects.append({"name": name, "lat": curr_lat, "lon": curr_lon, "category": category})
             if stop_type == "restaurant": used_restaurant_names.add(name)
 
         # -------------------------------------------------------------------------
@@ -768,7 +773,7 @@ def route_node(state: TravelState) -> dict:
             if current_cursor <= 960: # before 16:00
                 cand_attr = None
                 for a in valid_attractions:
-                    if a.get("name") not in used_attraction_names:
+                    if a.get("name") not in used_attraction_names and not any(is_same_physical_place(a, u) for u in used_attraction_objects):
                         cand_attr = a
                         break
                 if cand_attr:
@@ -978,7 +983,7 @@ def route_node(state: TravelState) -> dict:
             if not day_attractions:
                 # First attraction of the day: pick highest priority candidate available
                 for a in valid_attractions:
-                    if a.get("name") not in used_attraction_names:
+                    if a.get("name") not in used_attraction_names and not any(is_same_physical_place(a, u) for u in used_attraction_objects):
                         best_cand = a
                         break
             else:
@@ -988,7 +993,9 @@ def route_node(state: TravelState) -> dict:
                 
                 min_geo_score = float('inf')
                 for a in valid_attractions:
-                    if a.get("name") in used_attraction_names or any(chosen.get("name") == a.get("name") for chosen in day_attractions):
+                    if (a.get("name") in used_attraction_names or
+                        any(is_same_physical_place(a, u) for u in used_attraction_objects) or
+                        any(is_same_physical_place(a, chosen) for chosen in day_attractions)):
                         continue
                     a_lat = a.get("lat")
                     a_lon = a.get("lon")
