@@ -8,10 +8,22 @@ DB_PATH = os.path.join(
     "chromadb_storage"
 )
 
-# Initialize LangChain's Chroma wrapper
-# This automatically handles directory creation, collections, and vector search
-vector_store = Chroma(
-    collection_name="travel_knowledge",
-    embedding_function=embeddings,
-    persist_directory=DB_PATH
-)
+_vector_store_instance = None
+
+def get_vector_store(reinitialize: bool = False) -> Chroma:
+    """
+    Returns the singleton Chroma vector store instance.
+    If reinitialize is True, refreshes the underlying Chroma connection.
+    """
+    global _vector_store_instance, vector_store
+    if reinitialize or _vector_store_instance is None:
+        _vector_store_instance = Chroma(
+            collection_name="travel_knowledge",
+            embedding_function=embeddings,
+            persist_directory=DB_PATH
+        )
+        vector_store = _vector_store_instance
+    return _vector_store_instance
+
+# Initialize LangChain's Chroma wrapper singleton for backward compatibility
+vector_store = get_vector_store()

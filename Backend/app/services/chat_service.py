@@ -274,14 +274,15 @@ def process_chat_message(
         add_message(conv_id, "assistant", answer, intent="TRAVEL_QA", structured_data={"places": places} if places else None)
 
         guide_data = None
-        if places or suggested_actions:
+        if places or suggested_actions or guide_res.get("rag_meta"):
             guide_data = {
                 "type": "place_recommendations",
                 "category": guide_res.get("category", "ATTRACTIONS"),
                 "destination": guide_res.get("destination", ""),
                 "user_location_used": guide_res.get("user_location_used", False),
                 "places": places,
-                "suggested_actions": suggested_actions
+                "suggested_actions": suggested_actions,
+                "rag_meta": guide_res.get("rag_meta")
             }
 
         return {

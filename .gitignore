@@ -52,3 +52,4 @@ benchmark_result.json
 test-results/
 playwright-report/
 *.zip
+chromadb_storage_backup/

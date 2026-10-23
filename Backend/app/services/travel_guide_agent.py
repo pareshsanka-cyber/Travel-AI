@@ -27,7 +27,12 @@ from app.ai.agents.restaurant_agent import (
     AUTHENTIC_DESTINATION_RESTAURANTS,
 )
 from app.ai.agents.weather_agent import fetch_realtime_weather_openmeteo
-from app.ai.rag.retriever import retrieve_travel_knowledge, LANDMARK_DESTINATIONS, resolve_destination_from_query
+from app.ai.rag.retriever import (
+    retrieve_travel_knowledge,
+    retrieve_travel_knowledge_with_metadata,
+    LANDMARK_DESTINATIONS,
+    resolve_destination_from_query,
+)
 from app.services.road_routing import distance, coords, configuration
 from app.schemas.travel_guide import PlaceRecommendation, SuggestedAction
 
@@ -934,7 +939,8 @@ def handle_travel_guide_query(
             }
         days_count = int(travel_context.get("days") or 3)
         weather_res = fetch_realtime_weather_openmeteo(dest, days=days_count)
-        rag_notes = retrieve_travel_knowledge(f"{dest} climate season weather temperature", k=1)
+        weather_rag = retrieve_travel_knowledge_with_metadata(f"{dest} climate season weather temperature", destination=dest, k=2)
+        rag_notes = weather_rag.get("text", "")
 
         summary = weather_res.get("summary") if isinstance(weather_res, dict) else None
         cloth = weather_res.get("clothing_recommendation") if isinstance(weather_res, dict) else None
@@ -978,7 +984,8 @@ def handle_travel_guide_query(
             p_rating = resolved_place.get("rating")
             p_desc = resolved_place.get("description") or f"A notable {p_cat} in {dest}."
 
-            detail_facts = retrieve_travel_knowledge(f"{p_name} {dest} history architecture significance timing", k=2)
+            detail_rag = retrieve_travel_knowledge_with_metadata(f"{p_name} {dest} history architecture significance timing", destination=dest, k=2)
+            detail_facts = detail_rag.get("text", "")
             rating_text = f"Rated ⭐ {p_rating}." if p_rating else ""
             ans = (
                 f"**{p_name}** ({p_cat.title()}): {p_desc} {rating_text}\n\n"
@@ -1025,7 +1032,8 @@ def handle_travel_guide_query(
 
     # 6. Check destination presence for place-based queries
     if not dest:
-        rag_direct = retrieve_travel_knowledge(user_message, k=2)
+        rag_res = retrieve_travel_knowledge_with_metadata(user_message, destination=None, k=3)
+        rag_direct = rag_res.get("text", "")
         if rag_direct:
             pref_blob = f"Interests: {', '.join(interests) if interests else 'General sightseeing'} | Travel Style: {travel_context.get('travel_style', 'Balanced')}"
             try:
@@ -1044,7 +1052,12 @@ def handle_travel_guide_query(
                 "suggested_actions": [],
                 "category": "GENERAL_QA",
                 "destination": "",
-                "user_location_used": False
+                "user_location_used": False,
+                "rag_meta": {
+                    "method": rag_res.get("method", "none"),
+                    "sources": rag_res.get("sources", []),
+                    "confidence": rag_res.get("confidence", 0.0)
+                }
             }
         return {
             "answer": "Which city or destination would you like recommendations for? Tell me a destination (e.g. Jaipur, Goa, Munnar) and I will discover top places tailored to your style!",
@@ -1180,10 +1193,8 @@ def handle_travel_guide_query(
         recommended_places.append(rec)
 
     # 11. Retrieve RAG Knowledge for Synthesis
-    rag_context = retrieve_travel_knowledge(f"{dest} {user_message}", k=2)
-    # Filter out cross-destination vector leakage (e.g. Goa guide matching for Hyderabad query)
-    if rag_context and dest and dest.lower() not in rag_context.lower():
-        rag_context = ""
+    rag_res = retrieve_travel_knowledge_with_metadata(f"{dest} {user_message}", destination=dest, k=3)
+    rag_context = rag_res.get("text", "")
 
     # 12. Conversational Synthesis
     places_summary = "\n".join([f"- {p.name} ({p.category}): {p.description} (Reason: {p.reason_recommended})" for p in recommended_places])
@@ -1242,5 +1253,10 @@ def handle_travel_guide_query(
         "suggested_actions": [a.model_dump() for a in suggested_actions],
         "category": query_type,
         "destination": dest,
-        "user_location_used": user_location_used
+        "user_location_used": user_location_used,
+        "rag_meta": {
+            "method": rag_res.get("method", "none"),
+            "sources": rag_res.get("sources", []),
+            "confidence": rag_res.get("confidence", 0.0)
+        }
     }

@@ -1,15 +1,21 @@
 import os
 import re
 import difflib
+import logging
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 from app.ai.rag.chroma_client import vector_store
+
+logger = logging.getLogger("travelai.retriever")
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
 
 # Curated landmark-to-destination knowledge mapping
 LANDMARK_DESTINATIONS: Dict[str, str] = {
     "hawa mahal": "Jaipur",
+    "palace of breeze": "Jaipur",
+    "palace of the breeze": "Jaipur",
+    "palace of winds": "Jaipur",
     "amber fort": "Jaipur",
     "amer fort": "Jaipur",
     "city palace": "Jaipur",
@@ -49,6 +55,7 @@ LANDMARK_DESTINATIONS: Dict[str, str] = {
     "anjuna beach": "Goa",
     "palolem beach": "Goa",
     "aguada fort": "Goa",
+    "fort aguada": "Goa",
     "dudhsagar falls": "Goa",
     "dudhsagar waterfalls": "Goa",
     "basilica of bom jesus": "Goa",
@@ -96,25 +103,37 @@ CITY_GUIDE_FILES: Dict[str, str] = {
     "varanasi": "varanasi_guide.txt",
 }
 
+DESTINATION_KEYWORDS: Dict[str, str] = {
+    "hyderabad": "Hyderabad", "hyd": "Hyderabad",
+    "jaipur": "Jaipur", "pink city": "Jaipur",
+    "goa": "Goa", "panaji": "Goa",
+    "delhi": "Delhi", "new delhi": "Delhi",
+    "mumbai": "Mumbai", "bombay": "Mumbai",
+    "agra": "Agra",
+    "amritsar": "Amritsar",
+    "bengaluru": "Bengaluru", "bangalore": "Bengaluru", "blr": "Bengaluru",
+    "kerala": "Kerala", "kochi": "Kerala", "munnar": "Kerala", "alleppey": "Kerala",
+    "leh": "Leh", "ladakh": "Leh",
+    "manali": "Manali",
+    "shimla": "Shimla",
+    "ooty": "Ooty",
+    "darjeeling": "Darjeeling",
+    "udaipur": "Udaipur",
+    "varanasi": "Varanasi", "kashi": "Varanasi", "banaras": "Varanasi"
+}
+
 def resolve_destination_from_query(query: str) -> Optional[str]:
     """Infers canonical destination from query keywords or known landmarks."""
     q_lower = query.lower()
     for landmark, dest in LANDMARK_DESTINATIONS.items():
         if re.search(r'\b' + re.escape(landmark) + r'\b', q_lower):
             return dest
-    for city, canonical in {
-        "hyderabad": "Hyderabad", "jaipur": "Jaipur", "goa": "Goa",
-        "delhi": "Delhi", "mumbai": "Mumbai", "agra": "Agra",
-        "amritsar": "Amritsar", "bengaluru": "Bengaluru", "bangalore": "Bengaluru",
-        "kerala": "Kerala", "leh": "Leh", "manali": "Manali",
-        "shimla": "Shimla", "ooty": "Ooty", "darjeeling": "Darjeeling",
-        "udaipur": "Udaipur", "varanasi": "Varanasi"
-    }.items():
+    for city, canonical in DESTINATION_KEYWORDS.items():
         if re.search(r'\b' + re.escape(city) + r'\b', q_lower):
             return canonical
     return None
 
-def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None, k: int = 2) -> str:
+def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None, k: int = 3) -> str:
     """
     Retrieves authentic factual chunks directly from the local travel guides in knowledge/.
     Ensures zero-latency, high-precision retrieval without external service dependencies.
@@ -128,7 +147,6 @@ def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None
             target_files.append(target_file)
 
     if not target_files:
-        # Check if a landmark in query reveals the destination
         inferred = resolve_destination_from_query(query)
         if inferred and inferred.lower() in CITY_GUIDE_FILES:
             target_file = KNOWLEDGE_DIR / CITY_GUIDE_FILES[inferred.lower()]
@@ -136,7 +154,6 @@ def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None
                 target_files.append(target_file)
 
     if not target_files and KNOWLEDGE_DIR.exists():
-        # Scan all available txt guides if destination is unspecified
         target_files = list(KNOWLEDGE_DIR.glob("*_guide.txt"))
 
     if not target_files:
@@ -166,7 +183,6 @@ def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None
             for token in query_tokens:
                 if token in p_lower:
                     score += 5.0
-                    # Additional weight if token is in header or first sentence
                     if token in p_lower[:80]:
                         score += 5.0
 
@@ -181,46 +197,106 @@ def retrieve_local_guide_knowledge(query: str, destination: Optional[str] = None
     return "\n\n".join(top_chunks)
 
 
-def is_ollama_available(base_url: str = "http://localhost:11434") -> bool:
-    import urllib.parse
-    import socket
-    try:
-        parsed = urllib.parse.urlparse(base_url)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 11434
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.3)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        return result == 0
-    except Exception:
-        return False
-
-def retrieve_travel_knowledge(query: str, destination: Optional[str] = None, k: int = 2) -> str:
+def retrieve_travel_knowledge_with_metadata(
+    query: str,
+    destination: Optional[str] = None,
+    k: int = 3,
+    score_threshold: float = 1.35
+) -> Dict[str, Any]:
     """
     Search travel knowledge for documents relevant to the query.
-    Uses ChromaDB vector store when available, with strict destination isolation.
-    Gracefully falls back to local knowledge guides for factual accuracy.
+    1. Queries ChromaDB vector store with strict destination isolation if destination is known.
+    2. Validates relevance score against threshold.
+    3. Falls back gracefully to local guide text files if vector search fails or yields no confident results.
+    4. Returns rich metadata including observable retrieval method ('vector', 'local_keyword', 'none').
     """
     dest = destination or resolve_destination_from_query(query)
-    
-    # 1. Try vector store search if Ollama is available
-    vector_text = ""
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    if is_ollama_available(ollama_url):
-        try:
-            results = vector_store.similarity_search(query, k=k)
-            if results:
-                chunks = [doc.page_content for doc in results if doc.page_content]
-                # Verify destination relevance to prevent cross-city leakage (e.g. Goa chunks for non-Goa city)
-                if dest:
-                    chunks = [c for c in chunks if dest.lower() in c.lower()]
-                vector_text = "\n".join(chunks).strip()
-        except Exception:
-            vector_text = ""
+    dest_normalized = dest.lower().strip() if dest else None
 
-    if vector_text:
-        return vector_text
+    # Destination filter for Chroma to guarantee destination isolation
+    filter_dict = {"destination": dest_normalized} if dest_normalized else None
 
-    # 2. High-precision local guide retrieval fallback
-    return retrieve_local_guide_knowledge(query, destination=dest, k=k)
+    vector_chunks: List[str] = []
+    vector_records: List[Dict[str, Any]] = []
+    vector_sources: List[str] = []
+
+    # 1. Attempt ChromaDB vector retrieval
+    try:
+        if vector_store is not None:
+            raw_results = vector_store.similarity_search_with_score(
+                query,
+                k=k,
+                filter=filter_dict
+            )
+            for doc, score in raw_results:
+                # In Chroma L2 distance, lower score is closer.
+                # Threshold of 1.35 filters out irrelevant chunks.
+                if score <= score_threshold and doc.page_content:
+                    # Double-check destination isolation if destination is specified
+                    doc_dest = str(doc.metadata.get("destination", "")).lower()
+                    if dest_normalized and doc_dest and doc_dest != dest_normalized:
+                        continue
+                    
+                    vector_chunks.append(doc.page_content.strip())
+                    src = doc.metadata.get("source", "knowledge_base")
+                    if src not in vector_sources:
+                        vector_sources.append(src)
+                    vector_records.append({
+                        "content": doc.page_content.strip(),
+                        "score": round(float(score), 4),
+                        "confidence": round(max(0.0, 1.0 - (float(score) / 1.5)), 3),
+                        "source": src,
+                        "destination": doc_dest,
+                        "is_historical": bool(doc.metadata.get("is_historical", False))
+                    })
+    except Exception as e:
+        logger.warning("ChromaDB vector retrieval encountered exception: %s. Falling back to local guides.", e)
+        vector_chunks = []
+
+    if vector_chunks:
+        return {
+            "text": "\n\n".join(vector_chunks),
+            "method": "vector",
+            "destination": dest,
+            "chunks": vector_records,
+            "sources": vector_sources,
+            "confidence": vector_records[0]["confidence"] if vector_records else 0.8
+        }
+
+    # 2. High-precision local guide fallback
+    local_text = retrieve_local_guide_knowledge(query, destination=dest, k=k)
+    if local_text:
+        return {
+            "text": local_text,
+            "method": "local_keyword",
+            "destination": dest,
+            "chunks": [{"content": c, "source": CITY_GUIDE_FILES.get(dest_normalized, "guide_file")} for c in local_text.split("\n\n")],
+            "sources": [CITY_GUIDE_FILES.get(dest_normalized, "guide_file")] if dest_normalized in CITY_GUIDE_FILES else [],
+            "confidence": 0.75
+        }
+
+    return {
+        "text": "",
+        "method": "none",
+        "destination": dest,
+        "chunks": [],
+        "sources": [],
+        "confidence": 0.0
+    }
+
+
+def retrieve_travel_knowledge(
+    query: str,
+    destination: Optional[str] = None,
+    k: int = 3,
+    return_metadata: bool = False
+) -> Any:
+    """
+    Search travel knowledge for documents relevant to the query.
+    Backward-compatible interface: returns formatted string by default,
+    or rich dictionary if return_metadata=True.
+    """
+    res = retrieve_travel_knowledge_with_metadata(query, destination=destination, k=k)
+    if return_metadata:
+        return res
+    return res["text"]

@@ -7,7 +7,11 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from groq import APIConnectionError, AuthenticationError, PermissionDeniedError
 
+from pathlib import Path
 load_dotenv()
+_backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
+if _backend_env.exists():
+    load_dotenv(_backend_env)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
