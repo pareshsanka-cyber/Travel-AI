@@ -285,7 +285,8 @@ def process_chat_message(
             destination=destination,
             user_id=user_id,
             conversation_id=conv_id,
-            active_trip_doc=active_trip_doc
+            has_current_trip=bool(active_trip_doc),
+            active_trip=active_trip_doc
         )
         
         # Save last recommendations in travel_context for follow-up resolution
@@ -293,10 +294,12 @@ def process_chat_message(
             current_context["last_recommendations"] = guide_res["places"]
             update_travel_context(conv_id, current_context)
 
+        reply_text = guide_res.get("reply_text") or guide_res.get("answer") or "Here is what I found for your journey."
+
         add_message(
             conv_id,
             "assistant",
-            guide_res["reply_text"],
+            reply_text,
             intent="TRAVEL_QA",
             structured_data={
                 "places": guide_res.get("places"),
@@ -306,7 +309,7 @@ def process_chat_message(
 
         return {
             "conversation_id": conv_id,
-            "message": {"role": "assistant", "content": guide_res["reply_text"]},
+            "message": {"role": "assistant", "content": reply_text},
             "intent": "TRAVEL_QA",
             "travel_context": current_context,
             "data": {
@@ -325,7 +328,7 @@ def process_chat_message(
         if not dest or not days:
             missing = []
             if not dest:
-                missing.append("where you want to go")
+                missing.append("your destination (where you want to go)")
             if not days:
                 missing.append("how many days you want to travel")
             
