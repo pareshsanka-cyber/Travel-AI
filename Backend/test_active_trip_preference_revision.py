@@ -52,12 +52,12 @@ def run_tests():
     print("TEST 1 PASSED!")
 
     # =========================================================================
-    # TEST 2: Ask to change the current itinerary to temples and history
+    # TEST 2: Multi-Interest Revision: 'I want both temples and beaches'
     # =========================================================================
-    print("\n--- TEST 2: Ask to change current itinerary to temples and history ---")
+    print("\n--- TEST 2: Multi-Interest Revision ('I want both temples and beaches') ---")
     res2 = process_chat_message(
         conversation_id=conv_id,
-        user_message="Now change it to temples and history.",
+        user_message="i want both temples and beaches",
         user_id=test_user_id
     )
     assert res2["intent"] == "MODIFY_ITINERARY", f"Expected MODIFY_ITINERARY, got {res2['intent']}"
@@ -72,14 +72,19 @@ def run_tests():
     
     print(f"[OK] Revision Proposal Generated: {proposal_id}")
     print(f"Added Attractions ({len(added)}): {', '.join(added)}")
-    print(f"Removed Attractions ({len(removed)}): {', '.join(removed)}")
     print(f"Preserved Stops ({len(kept)}): {', '.join(kept)}")
+    print(f"Removed Attractions ({len(removed)}): {', '.join(removed)}")
 
-    # Verify material difference: added activities should be temples/heritage, removed should be beaches
-    assert len(added) > 0, "Expected added attractions in proposal"
-    assert any(any(kw in a.lower() for kw in ("temple", "cathedral", "basilica", "church")) for a in added), \
-        f"Expected temple/heritage sites in added attractions, got: {added}"
-    assert len(removed) > 0, "Expected removed beach attractions"
+    # Check place name display cleanliness (no trailing commas, no ', Goa' suffixes)
+    for name in added + kept + removed:
+        assert not name.endswith(","), f"Place name must not have trailing comma: '{name}'"
+        assert not name.lower().endswith(", goa"), f"Place name must not have ', Goa' suffix: '{name}'"
+
+    # Multi-interest validation: added should have temples, kept should have retained beaches
+    has_temple_in_proposal = any(any(kw in a.lower() for kw in ("temple", "cathedral", "basilica", "church")) for a in added + kept)
+    has_beach_in_proposal = any("beach" in a.lower() for a in added + kept)
+    assert has_temple_in_proposal, f"Expected temple in proposal: {added + kept}"
+    assert has_beach_in_proposal, f"Expected beach in proposal: {added + kept}"
 
     # Verify suggested actions
     actions = res2["data"].get("suggested_actions", [])
@@ -89,9 +94,9 @@ def run_tests():
     print("TEST 2 PASSED!")
 
     # =========================================================================
-    # TEST 3: Accept the proposal and verify that the revised trip is persisted
+    # TEST 3: Accept the proposal ('Apply Changes') and verify multi-interest schedule
     # =========================================================================
-    print("\n--- TEST 3: Accept proposal ('Apply Changes') and verify persistence ---")
+    print("\n--- TEST 3: Accept proposal ('Apply Changes') and verify multi-interest schedule ---")
     res3 = process_chat_message(
         conversation_id=conv_id,
         user_message="Apply Changes",
@@ -114,18 +119,23 @@ def run_tests():
         if s.get("type") == "attraction"
     ]
     print(f"[OK] Revised Trip Persisted in MongoDB (Revision {saved_trip.get('revision')})")
-    print(f"Updated Scheduled Attractions: {', '.join(saved_attractions)}")
-    assert any(any(kw in a.lower() for kw in ("temple", "cathedral", "basilica", "church")) for a in saved_attractions), \
-        "Expected temple/heritage sites in persisted trip"
+    print(f"Updated Scheduled Attractions ({len(saved_attractions)}): {', '.join(saved_attractions)}")
+
+    # Verify BOTH categories are present in the final scheduled activities
+    has_scheduled_temple = any(any(kw in a.lower() for kw in ("temple", "cathedral", "basilica", "church")) for a in saved_attractions)
+    has_scheduled_beach = any("beach" in a.lower() for a in saved_attractions)
+    assert has_scheduled_temple, f"Final itinerary MUST contain temples: {saved_attractions}"
+    assert has_scheduled_beach, f"Final itinerary MUST contain beaches: {saved_attractions}"
+    print(f"[OK] Both temples and beaches confirmed in final scheduled itinerary!")
     print("TEST 3 PASSED!")
 
     # =========================================================================
-    # TEST 4: Repeat and cancel the proposal; verify existing trip unchanged
+    # TEST 4: 'Now change it to temples and history'
     # =========================================================================
-    print("\n--- TEST 4: Request new change and Cancel ('Keep Current Itinerary') ---")
+    print("\n--- TEST 4: 'Now change it to temples and history' ---")
     res4_prop = process_chat_message(
         conversation_id=conv_id,
-        user_message="Change this trip to nature and waterfalls.",
+        user_message="Now change it to temples and history.",
         user_id=test_user_id
     )
     assert res4_prop["intent"] == "MODIFY_ITINERARY", f"Expected MODIFY_ITINERARY, got {res4_prop['intent']}"
@@ -156,7 +166,6 @@ def run_tests():
     # TEST 5: Verify that completed activities and active stops are preserved
     # =========================================================================
     print("\n--- TEST 5: Preservation of completed activities and active stops ---")
-    # Mark the first scheduled attraction across the days as completed
     first_attr = next(
         s for d in saved_trip["route_details"]["day_by_day_route"]
         for s in d.get("stops", [])
@@ -183,7 +192,7 @@ def run_tests():
     # Request revision proposal
     proposal_obj = generate_preference_revision_proposal(
         trip_doc=trip_with_completed,
-        new_interests=["beaches"],
+        new_interests=["nature", "waterfalls"],
         active_segment_id=None
     )
     
@@ -193,8 +202,10 @@ def run_tests():
     print(f"Proposal Removed Attractions: {changes.get('removed')}")
 
     # The completed activity MUST be preserved in 'kept' and MUST NOT be in 'removed'
-    assert completed_act_name in changes.get("kept", []), f"Completed activity '{completed_act_name}' must be kept!"
-    assert completed_act_name not in changes.get("removed", []), f"Completed activity '{completed_act_name}' must NOT be removed!"
+    from app.utils.place_deduplication import clean_display_name
+    clean_completed = clean_display_name(completed_act_name)
+    assert any(clean_completed.lower() in k.lower() for k in changes.get("kept", [])), f"Completed activity '{completed_act_name}' must be kept!"
+    assert not any(clean_completed.lower() in r.lower() for r in changes.get("removed", [])), f"Completed activity '{completed_act_name}' must NOT be removed!"
 
     # Verify in the proposed day schedule that the completed stop exists with exact ID
     prop_day_stops = proposal_obj["proposed_trip"]["route_details"]["day_by_day_route"][target_day_idx]["stops"]
@@ -207,7 +218,6 @@ def run_tests():
     # TEST 6: Verify that revision conflicts are rejected safely
     # =========================================================================
     print("\n--- TEST 6: Revision conflict rejection (Optimistic Locking) ---")
-    # Create proposal with expected_revision = 2
     stale_proposal_id = proposal_obj["proposal_id"]
     db.reroute_proposals.insert_one({
         "proposal_id": stale_proposal_id,
@@ -243,10 +253,10 @@ def run_tests():
     # =========================================================================
     # TEST 7: Ordinary preference statements use UPDATE_CONTEXT without modifying trip
     # =========================================================================
-    print("\n--- TEST 7: Ordinary preference statements use UPDATE_CONTEXT ---")
+    print("\n--- TEST 7: Ordinary preference statements ('I like temples and beaches') use UPDATE_CONTEXT ---")
     res7 = process_chat_message(
         conversation_id=conv_id,
-        user_message="I like temples and luxury travel.",
+        user_message="I like temples and beaches.",
         user_id=test_user_id
     )
     assert res7["intent"] == "UPDATE_CONTEXT", f"Expected UPDATE_CONTEXT, got {res7['intent']}"
@@ -260,7 +270,7 @@ def run_tests():
     print("TEST 7 PASSED!")
 
     # =========================================================================
-    # TEST 8: Modify command when NO active trip exists
+    # TEST 8: Preference change request when NO active trip exists
     # =========================================================================
     print("\n--- TEST 8: Preference change request when NO active trip exists ---")
     fresh_user_id = "fresh_user_no_trips"
@@ -269,7 +279,6 @@ def run_tests():
         user_message="Change this trip to temples and history.",
         user_id=fresh_user_id
     )
-    # When no trip exists, it updates context and asks whether user wants an itinerary generated
     assert res8["intent"] == "UPDATE_CONTEXT", f"Expected UPDATE_CONTEXT, got {res8['intent']}"
     reply8 = res8["message"]["content"]
     assert "haven't created an itinerary" in reply8 or "haven't generated" in reply8 or "build" in reply8, \

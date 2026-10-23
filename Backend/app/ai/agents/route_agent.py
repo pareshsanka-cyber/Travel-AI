@@ -494,6 +494,66 @@ def route_node(state: TravelState) -> dict:
     valid_attractions.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
     valid_attractions = deduplicate_place_list(valid_attractions)
 
+    # Multi-interest diversity quota: when user specifies multiple interests,
+    # round-robin interleave top candidates so neither category starves the schedule
+    raw_interests = state.get("interests") or state.get("preferences") or []
+    if isinstance(raw_interests, str):
+        raw_interests = [s.strip() for s in raw_interests.split(",") if s.strip()]
+    distinct_interests = [i.lower().strip() for i in raw_interests if isinstance(i, str) and i.strip()]
+
+    mv_names = [mv.lower().strip() for mv in state.get("must_visit_places", []) if isinstance(mv, str)]
+    must_visits = [
+        a for a in valid_attractions
+        if a.get("priority_rank") == 0
+        or a.get("match_type") == "must_visit"
+        or any(mvn in a.get("name", "").lower() for mvn in mv_names)
+    ]
+    regular = [a for a in valid_attractions if a not in must_visits]
+
+    if len(distinct_interests) > 1:
+        def _match_interest_cat(place: Dict[str, Any], target_int: str) -> bool:
+            t = target_int.lower().strip()
+            syns = [t]
+            if "beach" in t or "coast" in t:
+                syns += ["beach", "coast", "coastal", "cove", "bay", "sea", "ocean"]
+            if "temple" in t or "spiritual" in t:
+                syns += ["temple", "church", "cathedral", "shrine", "monastery", "basilica", "mandir"]
+            if "history" in t or "heritage" in t:
+                syns += ["fort", "palace", "monument", "historic", "heritage", "unesco"]
+            if "nature" in t or "waterfall" in t or "wildlife" in t:
+                syns += ["nature", "waterfall", "park", "garden", "wildlife", "scenic"]
+            if "food" in t or "culinary" in t:
+                syns += ["food", "culinary", "restaurant", "cafe", "bistro", "market", "dining", "seafood"]
+            if "luxury" in t:
+                syns += ["luxury", "resort", "exclusive", "premium"]
+            if "adventure" in t:
+                syns += ["adventure", "trek", "watersports", "dive"]
+            text = f"{place.get('name', '')} {place.get('category', '')} {place.get('matched_interest', '')} {place.get('description', '')}".lower()
+            return any(s in text for s in syns)
+
+        groups: Dict[str, List[Dict[str, Any]]] = {i: [] for i in distinct_interests}
+        unmatched: List[Dict[str, Any]] = []
+        for a in regular:
+            placed = False
+            for i in distinct_interests:
+                if _match_interest_cat(a, i):
+                    groups[i].append(a)
+                    placed = True
+                    break
+            if not placed:
+                unmatched.append(a)
+
+        interleaved: List[Dict[str, Any]] = []
+        max_group_len = max((len(g) for g in groups.values()), default=0)
+        for step in range(max_group_len):
+            for i in distinct_interests:
+                if step < len(groups[i]):
+                    interleaved.append(groups[i][step])
+        interleaved.extend(unmatched)
+        valid_attractions = must_visits + interleaved
+    elif must_visits:
+        valid_attractions = must_visits + regular
+
     used_attraction_names = set()
     used_attraction_objects: List[Dict[str, Any]] = []
     used_restaurant_names = set()

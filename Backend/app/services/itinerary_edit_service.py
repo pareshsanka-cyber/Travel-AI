@@ -18,7 +18,7 @@ from app.ai.agents.attraction_agent import attraction_node
 from app.ai.agents.budget_agent import budget_node
 from app.ai.agents.synthesis_agent import synthesis_node
 from app.utils.activity_identity import generate_persistent_activity_id
-from app.utils.place_deduplication import is_same_physical_place, is_place_already_scheduled
+from app.utils.place_deduplication import is_same_physical_place, is_place_already_scheduled, clean_display_name, deduplicate_place_list
 from app.services.trip_consistency import revision_filter
 
 
@@ -234,7 +234,41 @@ def generate_preference_revision_proposal(
     if active_segment_id:
         completed_ids.add(active_segment_id)
 
-    # 2. Discover new candidate attractions ranked by new_interests
+    # 2. Retain suitable existing activities matching updated preferences and discover new candidates
+    orig_days = trip_doc.get("route_details", {}).get("day_by_day_route", [])
+    existing_attractions = list(trip_doc.get("attractions") or [])
+    for d in orig_days:
+        for s in (d.get("stops") or []):
+            if s.get("type") == "attraction" and not any(is_same_physical_place(s, ea) for ea in existing_attractions):
+                existing_attractions.append(s)
+
+    def _matches_any_interest(place: Dict[str, Any], interests: List[str]) -> bool:
+        if not interests:
+            return True
+        text = f"{place.get('name', '')} {place.get('category', '')} {place.get('matched_interest', '')} {place.get('description', '')}".lower()
+        for i in interests:
+            t = i.lower().strip()
+            syns = [t]
+            if "beach" in t or "coast" in t:
+                syns += ["beach", "coast", "coastal", "cove", "bay", "sea", "ocean"]
+            if "temple" in t or "spiritual" in t:
+                syns += ["temple", "church", "cathedral", "shrine", "monastery", "basilica", "mandir"]
+            if "history" in t or "heritage" in t:
+                syns += ["fort", "palace", "monument", "historic", "heritage", "unesco"]
+            if "nature" in t or "waterfall" in t or "wildlife" in t:
+                syns += ["nature", "waterfall", "park", "garden", "wildlife", "scenic"]
+            if "food" in t or "culinary" in t:
+                syns += ["food", "culinary", "restaurant", "cafe", "bistro", "market", "dining", "seafood"]
+            if "luxury" in t:
+                syns += ["luxury", "resort", "exclusive", "premium"]
+            if "adventure" in t:
+                syns += ["adventure", "trek", "watersports", "dive"]
+            if any(s in text for s in syns):
+                return True
+        return False
+
+    suitable_existing = [ea for ea in existing_attractions if _matches_any_interest(ea, new_interests)]
+
     discovery_state = {
         "destination": dest,
         "interests": new_interests,
@@ -245,10 +279,23 @@ def generate_preference_revision_proposal(
     }
     try:
         attr_out = attraction_node(discovery_state)
-        new_attractions = attr_out.get("attractions") or []
+        discovered_attractions = attr_out.get("attractions") or []
     except Exception as e:
         print(f"Warning: Discovery in proposal failed ({e}), falling back to existing attractions")
-        new_attractions = trip_doc.get("attractions") or []
+        discovered_attractions = []
+
+    combined_candidates = []
+    for ea in existing_attractions:
+        if ea.get("id") in completed_ids:
+            combined_candidates.append(ea)
+    for ea in suitable_existing:
+        if not any(is_same_physical_place(ea, c) for c in combined_candidates):
+            combined_candidates.append(ea)
+    for na in discovered_attractions:
+        if not any(is_same_physical_place(na, c) for c in combined_candidates):
+            combined_candidates.append(na)
+
+    new_attractions = deduplicate_place_list(combined_candidates)
 
     # 3. Schedule revised itinerary using route_node
     route_state = {
@@ -322,7 +369,8 @@ def generate_preference_revision_proposal(
     added = []
     for p in prop_stops:
         if not any(is_same_physical_place(p, c) for c in curr_stops):
-            p_name = p.get("name") or p.get("title")
+            raw_p_name = p.get("name") or p.get("title") or ""
+            p_name = clean_display_name(raw_p_name)
             if p_name and p_name not in added:
                 added.append(p_name)
 
@@ -331,14 +379,16 @@ def generate_preference_revision_proposal(
         if c.get("id") in completed_ids:
             continue
         if not any(is_same_physical_place(c, p) for p in prop_stops):
-            c_name = c.get("name") or c.get("title")
+            raw_c_name = c.get("name") or c.get("title") or ""
+            c_name = clean_display_name(raw_c_name)
             if c_name and c_name not in removed:
                 removed.append(c_name)
 
     kept = []
     for p in prop_stops:
         if any(is_same_physical_place(p, c) for c in curr_stops):
-            p_name = p.get("name") or p.get("title")
+            raw_p_name = p.get("name") or p.get("title") or ""
+            p_name = clean_display_name(raw_p_name)
             if p_name and p_name not in kept:
                 kept.append(p_name)
 
@@ -347,10 +397,13 @@ def generate_preference_revision_proposal(
         matching = next((c for c in curr_stops if is_same_physical_place(p, c)), None)
         if matching and matching.get("start_time") != p.get("start_time"):
             rescheduled.append({
-                "name": p.get("name") or p.get("title"),
+                "name": clean_display_name(p.get("name") or p.get("title") or ""),
                 "old_time": matching.get("start_time"),
                 "new_time": p.get("start_time")
             })
+
+    focus_desc = " and ".join(new_interests) if new_interests else (new_travel_style or "your requested focus")
+    explanation = f"Balanced schedule reflecting your updated interest in {focus_desc}."
 
     proposal_id = f"prop_{secrets.token_urlsafe(16)}"
     trip_id = str(trip_doc.get("_id") or trip_doc.get("id"))
@@ -363,6 +416,8 @@ def generate_preference_revision_proposal(
         "expected_revision": curr_rev,
         "new_preferences": new_interests,
         "new_travel_style": new_travel_style,
+        "focus_description": focus_desc,
+        "explanation": explanation,
         "changes_summary": {
             "added": added,
             "removed": removed,

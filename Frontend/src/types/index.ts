@@ -337,6 +337,21 @@ export interface SuggestedAction {
   payload?: Record<string, any>;
 }
 
+export interface RevisionProposalCard {
+  proposalId: string;
+  tripId: string;
+  destination: string;
+  days: number;
+  expectedRevision: number;
+  focusDescription: string;
+  explanation: string;
+  added: string[];
+  removed: string[];
+  kept: string[];
+  rescheduled?: Array<{ name: string; oldTime?: string; newTime?: string }>;
+  suggestedActions: SuggestedAction[];
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
@@ -367,6 +382,7 @@ export interface ChatMessage {
     }>;
     placeRecommendations?: PlaceRecommendation[];
     suggestedActions?: SuggestedAction[];
+    revisionProposal?: RevisionProposalCard;
   };
 }
 

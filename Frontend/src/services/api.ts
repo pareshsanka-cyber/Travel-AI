@@ -2461,10 +2461,30 @@ export async function sendChatMessage(
       body: JSON.stringify(requestBody),
     });
 
-    const richContent = (res.data?.places || res.data?.suggested_actions)
+    const isProposal = res.data?.type === 'revision_proposal' && Boolean(res.data?.proposal_id);
+    const revisionProposal = isProposal ? {
+      proposalId: res.data!.proposal_id!,
+      tripId: res.data!.trip_id || res.travel_context?.current_trip_id || '',
+      destination: (res.data as any)?.destination || res.travel_context?.destination || 'Destination',
+      days: (res.data as any)?.days || res.travel_context?.days || 3,
+      expectedRevision: res.data!.expected_revision ?? 1,
+      focusDescription: (res.data as any)?.focus_description || '',
+      explanation: (res.data as any)?.explanation || '',
+      added: res.data?.changes_summary?.added || [],
+      removed: res.data?.changes_summary?.removed || [],
+      kept: res.data?.changes_summary?.kept || [],
+      rescheduled: res.data?.changes_summary?.rescheduled || [],
+      suggestedActions: res.data?.suggested_actions || [
+        { label: 'Apply Changes', action: 'apply' },
+        { label: 'Keep Current Itinerary', action: 'cancel' }
+      ]
+    } : undefined;
+
+    const richContent = (res.data?.places || res.data?.suggested_actions || revisionProposal)
       ? {
-          placeRecommendations: res.data.places,
-          suggestedActions: res.data.suggested_actions,
+          placeRecommendations: res.data?.places,
+          suggestedActions: res.data?.suggested_actions,
+          revisionProposal,
         }
       : undefined;
 

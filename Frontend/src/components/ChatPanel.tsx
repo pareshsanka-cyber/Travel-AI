@@ -354,8 +354,143 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Suggested Follow-up Actions */}
-                  {msg.richContent?.suggestedActions && msg.richContent.suggestedActions.length > 0 && (
+                  {/* Proposed Itinerary Update Card */}
+                  {msg.richContent?.revisionProposal && (
+                    <div className="rounded-xl bg-surface-container/90 border border-primary/20 shadow-md p-4 space-y-3.5 mt-2">
+                      {/* Card Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-container-highest/60 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-primary uppercase tracking-wider">
+                              Proposed Itinerary Update
+                            </h4>
+                            <p className="text-[11px] text-on-surface-variant font-medium">
+                              {msg.richContent.revisionProposal.destination} · {msg.richContent.revisionProposal.days} Days
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold border border-primary/20">
+                          Revision {msg.richContent.revisionProposal.expectedRevision} → {msg.richContent.revisionProposal.expectedRevision + 1}
+                        </span>
+                      </div>
+
+                      {/* Explanation */}
+                      {msg.richContent.revisionProposal.explanation && (
+                        <p className="text-xs text-on-surface leading-relaxed bg-surface-container-highest/40 p-2.5 rounded-lg border border-surface-container-highest/50">
+                          {msg.richContent.revisionProposal.explanation}
+                        </p>
+                      )}
+
+                      {/* Diff Categories */}
+                      <div className="space-y-2 text-xs">
+                        {/* Added Activities */}
+                        {msg.richContent.revisionProposal.added && msg.richContent.revisionProposal.added.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold text-[11px]">
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Added Activities ({msg.richContent.revisionProposal.added.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pl-5">
+                              {msg.richContent.revisionProposal.added.map((item, idx) => (
+                                <span
+                                  key={`prop-add-${idx}-${item}`}
+                                  className="px-2 py-0.5 rounded-md text-[11px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-medium"
+                                >
+                                  + {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Removed Activities */}
+                        {msg.richContent.revisionProposal.removed && msg.richContent.revisionProposal.removed.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-rose-500 dark:text-rose-400 font-semibold text-[11px]">
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Removed Activities ({msg.richContent.revisionProposal.removed.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pl-5">
+                              {msg.richContent.revisionProposal.removed.map((item, idx) => (
+                                <span
+                                  key={`prop-rem-${idx}-${item}`}
+                                  className="px-2 py-0.5 rounded-md text-[11px] bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 font-medium line-through opacity-85"
+                                >
+                                  - {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Preserved Stops */}
+                        {msg.richContent.revisionProposal.kept && msg.richContent.revisionProposal.kept.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-primary font-semibold text-[11px]">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Preserved Stops ({msg.richContent.revisionProposal.kept.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 pl-5">
+                              {msg.richContent.revisionProposal.kept.map((item, idx) => (
+                                <span
+                                  key={`prop-kept-${idx}-${item}`}
+                                  className="px-2 py-0.5 rounded-md text-[11px] bg-surface-container-highest text-on-surface-variant font-medium"
+                                >
+                                  ✓ {item}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Rescheduled Stops */}
+                        {msg.richContent.revisionProposal.rescheduled && msg.richContent.revisionProposal.rescheduled.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-amber-500 font-semibold text-[11px]">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Rescheduled ({msg.richContent.revisionProposal.rescheduled.length})</span>
+                            </div>
+                            <div className="space-y-1 pl-5">
+                              {msg.richContent.revisionProposal.rescheduled.map((r, idx) => (
+                                <div key={`prop-resched-${idx}`} className="text-[11px] text-on-surface-variant">
+                                  <span className="font-medium text-on-surface">{r.name}</span>: {r.oldTime} → <span className="font-semibold text-primary">{r.newTime}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Proposal Action Buttons */}
+                      <div className="pt-2 border-t border-surface-container-highest/60 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isSending}
+                          onClick={() => onSendMessage("Apply Changes")}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-on-primary hover:bg-primary/90 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Apply Changes</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isSending}
+                          onClick={() => onSendMessage("Keep Current Itinerary")}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-surface-container-highest hover:bg-surface-bright text-on-surface border border-surface-container-highest transition-all disabled:opacity-50 cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Keep Current Itinerary</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Suggested Follow-up Actions (Only when not a proposal card) */}
+                  {!msg.richContent?.revisionProposal && msg.richContent?.suggestedActions && msg.richContent.suggestedActions.length > 0 && (
                     <div className="pt-2 flex flex-wrap gap-1.5">
                       {msg.richContent.suggestedActions.map((action, aIdx) => (
                         <button

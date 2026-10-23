@@ -597,31 +597,57 @@ def process_chat_message(
         dest = trip_doc.get("destination", "Destination")
 
         # 4. Check for Trip-Wide Preference Focus Change
-        is_pref_revision = bool(
-            re.search(
-                r'\b(?:'
-                r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
-                r'now\s+change\s+it\s+to|'
-                r'change\s+it\s+to|'
-                r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
-                r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
-                r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
-                r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)'
-                r')\b',
-                user_message,
-                re.IGNORECASE
-            )
-            or (slots.get("interests") and any(w in clean_msg for w in ("change", "replace", "switch", "focus", "more", "instead")))
+        has_day_spec = bool(re.search(r'\bday\s*\d+\b', user_message, re.IGNORECASE))
+        has_edit_verbs = bool(re.search(r'\b(remove|delete|drop|swap|replace)\b', clean_msg))
+        is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
+        day_match = re.search(r'\bday\s*(\d+)\b', user_message, re.IGNORECASE)
+        last_recs = current_context.get("last_recommendations") or []
+        resolved_place_for_add = resolve_place_from_reference(user_message, last_recs) if is_add_request else None
+
+        from app.utils.place_deduplication import clean_place_name
+        all_trip_stop_names = [
+            (s.get("name") or s.get("title") or "").lower()
+            for d in trip_doc.get("route_details", {}).get("day_by_day_route", [])
+            for s in (d.get("stops") or [])
+            if s.get("type") in {"attraction", "restaurant"}
+        ]
+        has_named_stop = any(clean_place_name(sname) in clean_msg for sname in all_trip_stop_names if sname and len(clean_place_name(sname)) > 3)
+
+        multi_interest_pattern = bool(re.search(
+            r'\b(?:'
+            r'(?:i\s+)?want\s+both|'
+            r'both\s+[a-z\s]+\s+and\s+[a-z\s]+|'
+            r'mix\s+[a-z\s]+\s+(?:with|and)|'
+            r'combine\s+[a-z\s]+\s+(?:with|and)|'
+            r'as\s+well\s+as|'
+            r'include\s+[a-z\s]+(?:\s+and\s+[a-z\s]+)?\s*(?:too|also|as\s+well)|'
+            r'include\s+both|'
+            r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
+            r'now\s+change\s+it\s+to|'
+            r'change\s+it\s+to|'
+            r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+            r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+            r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+            r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)'
+            r')\b',
+            clean_msg
+        ))
+
+        extracted_interests = slots.get("interests") or slots.get("preferences") or []
+        if not extracted_interests:
+            kws = [kw for kw in ("temples", "history", "heritage", "beaches", "nature", "waterfalls", "luxury", "food", "adventure") if kw in clean_msg]
+            if kws:
+                extracted_interests = kws
+
+        is_pref_revision = (
+            multi_interest_pattern
+            or (extracted_interests and not has_named_stop and not has_day_spec and not (has_edit_verbs and has_named_stop))
             or ("luxury" in clean_msg and "more" in clean_msg)
         )
 
-        if is_pref_revision and not re.search(r'\bday\s*\d+\b', user_message, re.IGNORECASE):
-            new_interests = slots.get("interests") or slots.get("preferences") or []
+        if is_pref_revision and not has_day_spec:
+            new_interests = extracted_interests
             new_travel_style = slots.get("travel_style")
-            if not new_interests and not new_travel_style:
-                kws = [kw for kw in ("temples", "history", "beaches", "nature", "waterfalls", "luxury", "food", "adventure") if kw in clean_msg]
-                if kws:
-                    new_interests = kws
 
             try:
                 proposal = generate_preference_revision_proposal(
@@ -653,18 +679,11 @@ def process_chat_message(
                 update_travel_context(conv_id, current_context)
 
                 changes = proposal["changes_summary"]
-                added_str = ", ".join(changes["added"]) if changes["added"] else "None"
-                removed_str = ", ".join(changes["removed"]) if changes["removed"] else "None"
-                kept_str = ", ".join(changes["kept"]) if changes["kept"] else "None"
-                focus_desc = ", ".join(new_interests) if new_interests else (new_travel_style or "your requested focus")
+                clean_dest = dest.split(',')[0].strip()
+                focus_desc = proposal.get("focus_description") or (" and ".join(new_interests) if new_interests else (new_travel_style or "your requested focus"))
+                explanation = proposal.get("explanation") or f"Balanced schedule reflecting your updated interest in {focus_desc}."
 
-                reply = (
-                    f"I've prepared a revision proposal for your {trip_doc.get('days', 3)}-day {dest} itinerary to focus on {focus_desc}:\n\n"
-                    f"• **Added Activities:** {added_str}\n"
-                    f"• **Removed Activities:** {removed_str}\n"
-                    f"• **Preserved Stops:** {kept_str}\n\n"
-                    f"Would you like to apply these changes or keep your current itinerary?"
-                )
+                reply = f"I've prepared a revision proposal for your {trip_doc.get('days', 3)}-day {clean_dest} itinerary to focus on {focus_desc}. Please review the proposed changes below."
 
                 suggested_actions = [
                     {"label": "Apply Changes", "action": "apply"},
@@ -685,7 +704,11 @@ def process_chat_message(
                         "type": "revision_proposal",
                         "proposal_id": proposal["proposal_id"],
                         "trip_id": current_trip_id,
+                        "destination": clean_dest,
+                        "days": trip_doc.get("days", 3),
                         "expected_revision": proposal["expected_revision"],
+                        "focus_description": focus_desc,
+                        "explanation": explanation,
                         "changes_summary": changes,
                         "suggested_actions": suggested_actions
                     }
@@ -697,10 +720,16 @@ def process_chat_message(
                         "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
 
         # 5. Single-Stop Edits
-        is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
-        day_match = re.search(r'\bday\s*(\d+)\b', user_message, re.IGNORECASE)
-        last_recs = current_context.get("last_recommendations") or []
-        resolved_place_for_add = resolve_place_from_reference(user_message, last_recs) if is_add_request else None
+        if not (is_add_request and resolved_place_for_add) and not has_named_stop and not has_day_spec and not has_edit_verbs:
+            reply = f"I'd be glad to adjust your {dest} itinerary! Could you please let me know which attraction, restaurant, or day you'd like to update, or what new interests you want to include?"
+            add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+            return {
+                "conversation_id": conv_id,
+                "message": {"role": "assistant", "content": reply},
+                "intent": "MODIFY_ITINERARY",
+                "travel_context": current_context,
+                "data": None
+            }
 
         try:
             if is_add_request and resolved_place_for_add:

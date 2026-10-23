@@ -19,7 +19,7 @@ ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
         "1. UPDATE_CONTEXT: User is sharing, updating, or specifying preferences, interests, budget, or trip parameters (e.g. 'I love beaches and temples', 'My budget is 50k', 'We are 4 people', 'I prefer luxury travel', 'I like temples') WITHOUT explicitly commanding you to revise an active trip or build a new one.\n"
         "2. TRAVEL_QA: User is asking informational, factual, or recommendation questions about a destination, landmark, monument, weather, food, attractions, or travel tips (e.g. 'What is famous in Jaipur?', 'Why is Hawa Mahal famous?', 'Best food in Goa', 'How is the weather in Munnar?', 'What about places near the second attraction you suggested?').\n"
         "3. GENERATE_ITINERARY: User explicitly commands you to plan, create, generate, or build the trip or itinerary (e.g. 'Plan a five-day trip to Goa', 'Generate my itinerary', 'Build the trip for 3 days'). This SUPERSEDES UPDATE_CONTEXT if both apply!\n"
-        "4. MODIFY_ITINERARY: User asks to change, edit, or adjust an existing itinerary, its focus, or a day (e.g. 'Change this trip to temples and history', 'Now change it to temples and history', 'Make the current itinerary more focused on beaches', 'Replace the sightseeing with nature and waterfalls', 'Make my current trip more luxurious', 'Change day 2 to focus on watersports', 'Remove that restaurant', 'Apply Changes', 'Keep Current Itinerary').\n"
+        "4. MODIFY_ITINERARY: User asks to change, edit, adjust, or blend focus in an existing itinerary, its focus, or a day (e.g. 'Change this trip to temples and history', 'Now change it to temples and history', 'I want both temples and beaches', 'Both beaches and temples', 'Mix temples with beaches', 'Beaches as well as history', 'Include nature and local food too', 'Make the current itinerary more focused on beaches', 'Replace the sightseeing with nature and waterfalls', 'Make my current trip more luxurious', 'Change day 2 to focus on watersports', 'Remove that restaurant', 'Apply Changes', 'Keep Current Itinerary').\n"
         "5. GENERAL_CHAT: User is greeting ('Hi', 'Hello'), engaging in small talk ('How are you?'), asking general knowledge or non-travel questions ('Can you explain something unrelated to travel?', 'What is quantum computing?', 'Who are you?', 'Tell me a joke'), or seeking conversational assistance.\n\n"
         "Q&A Categories (only for TRAVEL_QA):\n"
         "- 'WEATHER': Questions about climate, temperature, weather.\n"
@@ -446,6 +446,11 @@ def analyze_user_message(
         analysis["slots"]["travel_style"] = "LUXURY"
 
     # Explicit itinerary modification check
+    is_casual_preference = bool(re.search(
+        r'^\s*(?:i\s+(?:like|love|enjoy|prefer)|my\s+favorite|my\s+interests?\s+(?:are|is))\b',
+        clean_msg
+    ))
+
     explicit_trip_mod = bool(re.search(
         r'\b(?:'
         r'day\s*\d+|'
@@ -456,14 +461,24 @@ def analyze_user_message(
         r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
         r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
         r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'(?:i\s+)?want\s+both|'
+        r'both\s+[a-z\s]+\s+and\s+[a-z\s]+|'
+        r'mix\s+[a-z\s]+\s+(?:with|and)|'
+        r'combine\s+[a-z\s]+\s+(?:with|and)|'
+        r'as\s+well\s+as|'
+        r'include\s+[a-z\s]+(?:\s+and\s+[a-z\s]+)?\s*(?:too|also|as\s+well)|'
+        r'include\s+both|'
         r'instead of'
         r')\b',
         clean_msg
-    ))
+    )) and not is_casual_preference
 
     # 2. Deterministic detection for explicit itinerary creation commands
     if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', clean_msg):
         analysis['intent'] = 'GENERATE_ITINERARY'
+
+    elif is_casual_preference:
+        analysis["intent"] = "UPDATE_CONTEXT"
 
     # 3. Deterministic override for itinerary modifications when trip exists
     elif explicit_trip_mod:

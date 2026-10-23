@@ -138,6 +138,39 @@ def clean_place_name(name: str) -> str:
             
     return ' '.join(tokens)
 
+def clean_display_name(name: str) -> str:
+    """
+    Cleans a venue name for human display:
+    - Strips parentheticals like (Goa), [North Goa]
+    - Strips trailing commas and periods (e.g. 'Shri Nageshi Temple,')
+    - Strips trailing city, district, state, country suffixes (e.g. ', Goa', ' Goa', ', Tambdisurla', ', Rajasthan', ', India')
+    - Trims excess whitespace while preserving natural capitalization.
+    """
+    if not name:
+        return ""
+    s = str(name).strip()
+    s = re.sub(r'[\(\[\{].*?[\)\]\}]', '', s).strip()
+    s = re.sub(r'[,.\s]+$', '', s).strip()
+    suffixes_to_remove = [
+        ", goa", " goa", ", north goa", ", south goa",
+        ", jaipur", " jaipur", ", rajasthan", " rajasthan",
+        ", hyderabad", " hyderabad", ", telangana", " telangana",
+        ", delhi", " delhi", ", new delhi", ", mumbai", " mumbai",
+        ", tambdisurla", " tambdisurla", ", old goa", " old goa",
+        ", agra", ", amritsar", ", india"
+    ]
+    changed = True
+    while changed:
+        changed = False
+        s_lower = s.lower()
+        for suffix in suffixes_to_remove:
+            if s_lower.endswith(suffix):
+                s = s[:len(s) - len(suffix)].strip()
+                s = re.sub(r'[,.\s]+$', '', s).strip()
+                changed = True
+                break
+    return s
+
 def get_canonical_place_id(place: Any) -> str:
     """
     Returns a deterministic canonical identifier for a venue based on
