@@ -1,5 +1,6 @@
 import re
 import json
+import copy
 from datetime import datetime
 from typing import Dict, Any, Optional
 from bson import ObjectId
@@ -554,6 +555,9 @@ def process_chat_message(
             curr_rev = (active_trip_doc or {}).get("revision", 1)
             reply = f"Your existing itinerary remains unchanged (Revision {curr_rev}). Let me know if you would like any other adjustments!"
             add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+            clean_trip = copy.deepcopy(active_trip_doc) if active_trip_doc else None
+            if clean_trip and "_id" in clean_trip:
+                clean_trip["id"] = str(clean_trip.pop("_id"))
             return {
                 "conversation_id": conv_id,
                 "message": {"role": "assistant", "content": reply},
@@ -562,8 +566,8 @@ def process_chat_message(
                 "data": {
                     "type": "itinerary",
                     "trip_id": current_trip_id,
-                    "itinerary": active_trip_doc
-                } if active_trip_doc else None
+                    "itinerary": clean_trip
+                } if clean_trip else None
             }
 
         # 3. No active trip guard
