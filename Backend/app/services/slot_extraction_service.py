@@ -148,12 +148,23 @@ def extract_context_tags(text: str) -> Dict[str, Any]:
             if computed_days:
                 result["days"] = computed_days
 
-    # 3. Parse explicit duration e.g. "5 days", "3-day trip"
-    days_text_match = re.search(r'(\d+)\s*(?:days?|day)\b', lower)
+    # 3. Parse explicit duration e.g. "5 days", "five days", "3-day trip"
+    word_to_num = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+    }
+    days_text_match = re.search(r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:-|\s*)days?\b', lower)
     if days_text_match and "days" not in result:
-        result["days"] = int(days_text_match.group(1))
+        val = days_text_match.group(1)
+        result["days"] = int(val) if val.isdigit() else word_to_num.get(val, 5)
 
-    # 4. Parse explicit travelers
+    # 4. Infer destination if not in tags
+    if "destination" not in result:
+        dest_val = resolve_destination_from_query(text)
+        if dest_val:
+            result["destination"] = dest_val
+
+    # 5. Parse explicit travelers
     pax_m = re.search(r'(\d+)\s*(?:adults?|travelers?|travellers?|members?|people|pax)', lower)
     if pax_m and "travelers" not in result:
         result["travelers"] = int(pax_m.group(1))
@@ -307,6 +318,12 @@ def deterministic_fallback_analysis(
     if "luxury" in clean_msg or "luxurious" in clean_msg:
         slots["travel_style"] = "LUXURY"
 
+    # Distinguish casual inquiries/questions
+    is_question = bool(
+        clean_msg.endswith("?")
+        or re.search(r'^(?:are\s+there|is\s+there|can\s+you\s+tell\s+me|tell\s+me\s+more|what\s+(?:can|is|are)|how\s+(?:is|far)|why\s+is|where\s+is)\b', clean_msg)
+    ) and not re.search(r'\b(replace|swap|remove|delete|add|move|shift|reschedule)\b', clean_msg)
+
     # Explicit trip modification pattern
     explicit_trip_mod = bool(re.search(
         r'\b(?:'
@@ -315,13 +332,30 @@ def deterministic_fallback_analysis(
         r'now\s+change\s+it\s+to|'
         r'change\s+it\s+to|'
         r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
-        r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+        r'replace\s+.+|'
+        r'swap\s+.+|'
+        r'remove\s+.+|'
+        r'delete\s+.+|'
+        r'drop\s+.+|'
+        r'take\s+(?:out|away)\s+.+|'
+        r'don\'t\s+want\s+.+|'
+        r'do\s+not\s+want\s+.+|'
+        r'add\s+.+|'
+        r'include\s+.+|'
+        r'move\s+.+|'
+        r'shift\s+.+|'
+        r'reschedule\s+.+|'
         r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
         r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'(?:i\s+)?want\s+both|'
+        r'both\s+[a-z\s]+\s+and\s+[a-z\s]+|'
+        r'mix\s+[a-z\s]+\s+(?:with|and)|'
+        r'combine\s+[a-z\s]+\s+(?:with|and)|'
+        r'as\s+well\s+as|'
         r'instead of'
         r')\b',
         clean_msg
-    ))
+    )) and not is_question
     
     # 1. GENERATE_ITINERARY
     if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation|days?)\b', clean_msg):
@@ -357,6 +391,12 @@ def deterministic_fallback_analysis(
     python_slots = normalize_currency_and_numbers(user_message)
     if python_slots:
         slots.update(python_slots)
+
+    # Inherit destination and days from current_context if missing
+    if "destination" not in slots and current_context.get("destination"):
+        slots["destination"] = current_context["destination"]
+    if "days" not in slots and current_context.get("days"):
+        slots["days"] = current_context["days"]
 
     return {
         "intent": intent,
@@ -445,11 +485,17 @@ def analyze_user_message(
     if "luxury" in clean_msg or "luxurious" in clean_msg:
         analysis["slots"]["travel_style"] = "LUXURY"
 
+    # Distinguish casual inquiries/questions
+    is_question = bool(
+        clean_msg.endswith("?")
+        or re.search(r'^(?:are\s+there|is\s+there|can\s+you\s+tell\s+me|tell\s+me\s+more|what\s+(?:can|is|are)|how\s+(?:is|far)|why\s+is|where\s+is)\b', clean_msg)
+    ) and not re.search(r'\b(replace|swap|remove|delete|add|move|shift|reschedule)\b', clean_msg)
+
     # Explicit itinerary modification check
     is_casual_preference = bool(re.search(
         r'^\s*(?:i\s+(?:like|love|enjoy|prefer)|my\s+favorite|my\s+interests?\s+(?:are|is))\b',
         clean_msg
-    ))
+    )) and not re.search(r'\b(replace|swap|remove|delete|add|move|shift|reschedule|change\s+this|change\s+it)\b', clean_msg)
 
     explicit_trip_mod = bool(re.search(
         r'\b(?:'
@@ -458,7 +504,19 @@ def analyze_user_message(
         r'now\s+change\s+it\s+to|'
         r'change\s+it\s+to|'
         r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
-        r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+        r'replace\s+.+|'
+        r'swap\s+.+|'
+        r'remove\s+.+|'
+        r'delete\s+.+|'
+        r'drop\s+.+|'
+        r'take\s+(?:out|away)\s+.+|'
+        r'don\'t\s+want\s+.+|'
+        r'do\s+not\s+want\s+.+|'
+        r'add\s+.+|'
+        r'include\s+.+|'
+        r'move\s+.+|'
+        r'shift\s+.+|'
+        r'reschedule\s+.+|'
         r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
         r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
         r'(?:i\s+)?want\s+both|'
@@ -466,12 +524,10 @@ def analyze_user_message(
         r'mix\s+[a-z\s]+\s+(?:with|and)|'
         r'combine\s+[a-z\s]+\s+(?:with|and)|'
         r'as\s+well\s+as|'
-        r'include\s+[a-z\s]+(?:\s+and\s+[a-z\s]+)?\s*(?:too|also|as\s+well)|'
-        r'include\s+both|'
         r'instead of'
         r')\b',
         clean_msg
-    )) and not is_casual_preference
+    )) and not is_casual_preference and not is_question
 
     # 2. Deterministic detection for explicit itinerary creation commands
     if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', clean_msg):
@@ -490,7 +546,7 @@ def analyze_user_message(
     # 4. Known landmark recognition: Map to destination and route to TRAVEL_QA
     for landmark, dest_name in LANDMARK_DESTINATIONS.items():
         if re.search(r'\b' + re.escape(landmark) + r'\b', clean_msg):
-            if analysis.get('intent') != 'GENERATE_ITINERARY':
+            if analysis.get('intent') not in {'GENERATE_ITINERARY', 'MODIFY_ITINERARY'}:
                 analysis['intent'] = 'TRAVEL_QA'
                 if not analysis.get('qa_category'):
                     analysis['qa_category'] = 'ATTRACTION'

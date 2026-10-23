@@ -26,9 +26,11 @@ from app.services.itinerary_edit_service import (
     modify_itinerary,
     add_activity_to_day,
     generate_preference_revision_proposal,
+    generate_single_activity_revision_proposal,
     apply_preference_revision,
     cancel_preference_revision
 )
+from app.services.activity_reference_service import resolve_target_in_itinerary
 from app.services.trip_consistency import revision_filter
 
 GENERAL_CHAT_PROMPT = ChatPromptTemplate.from_messages([
@@ -600,22 +602,32 @@ def process_chat_message(
         trip_doc = active_trip_doc
         dest = trip_doc.get("destination", "Destination")
 
-        # 4. Check for Trip-Wide Preference Focus Change
+        # 4. Resolve Itinerary Modification Target & Action
+        last_recs = current_context.get("last_recommendations") or []
+        resolution = resolve_target_in_itinerary(
+            trip_doc=trip_doc,
+            user_message=user_message,
+            previous_assistant_message=prev_assistant_msg,
+            last_recommendations=last_recs
+        )
+
+        # 4A. If Ambiguity Detected: Ask Focused Clarification
+        if resolution.get("is_ambiguous"):
+            clarification = resolution.get("clarification_prompt") or f"Could you please clarify which activity in your {dest} itinerary you'd like to update?"
+            add_message(conv_id, "assistant", clarification, intent="MODIFY_ITINERARY")
+            return {
+                "conversation_id": conv_id,
+                "message": {"role": "assistant", "content": clarification},
+                "intent": "MODIFY_ITINERARY",
+                "travel_context": current_context,
+                "data": None
+            }
+
+        # 4B. Check if Trip-Wide Focus Change
         has_day_spec = bool(re.search(r'\bday\s*\d+\b', user_message, re.IGNORECASE))
         has_edit_verbs = bool(re.search(r'\b(remove|delete|drop|swap|replace)\b', clean_msg))
         is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
-        day_match = re.search(r'\bday\s*(\d+)\b', user_message, re.IGNORECASE)
-        last_recs = current_context.get("last_recommendations") or []
-        resolved_place_for_add = resolve_place_from_reference(user_message, last_recs) if is_add_request else None
-
-        from app.utils.place_deduplication import clean_place_name
-        all_trip_stop_names = [
-            (s.get("name") or s.get("title") or "").lower()
-            for d in trip_doc.get("route_details", {}).get("day_by_day_route", [])
-            for s in (d.get("stops") or [])
-            if s.get("type") in {"attraction", "restaurant"}
-        ]
-        has_named_stop = any(clean_place_name(sname) in clean_msg for sname in all_trip_stop_names if sname and len(clean_place_name(sname)) > 3)
+        has_named_stop = bool(resolution.get("target_stop"))
 
         multi_interest_pattern = bool(re.search(
             r'\b(?:'
@@ -644,7 +656,8 @@ def process_chat_message(
                 extracted_interests = kws
 
         is_pref_revision = (
-            multi_interest_pattern
+            resolution.get("action") == "focus"
+            or multi_interest_pattern
             or (extracted_interests and not has_named_stop and not has_day_spec and not (has_edit_verbs and has_named_stop))
             or ("luxury" in clean_msg and "more" in clean_msg)
         )
@@ -723,61 +736,80 @@ def process_chat_message(
                 return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
                         "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
 
-        # 5. Single-Stop Edits
-        if not (is_add_request and resolved_place_for_add) and not has_named_stop and not has_day_spec and not has_edit_verbs:
-            reply = f"I'd be glad to adjust your {dest} itinerary! Could you please let me know which attraction, restaurant, or day you'd like to update, or what new interests you want to include?"
-            add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
-            return {
-                "conversation_id": conv_id,
-                "message": {"role": "assistant", "content": reply},
-                "intent": "MODIFY_ITINERARY",
-                "travel_context": current_context,
-                "data": None
-            }
+        # 4C. Single-Activity Edits (replace, add, remove, move)
+        action_type = resolution.get("action")
+        if action_type in {"replace", "add", "remove", "move"}:
+            try:
+                proposal = generate_single_activity_revision_proposal(
+                    trip_doc=trip_doc,
+                    resolution=resolution,
+                    active_segment_id=active_segment_id
+                )
 
-        try:
-            if is_add_request and resolved_place_for_add:
-                target_day = int(day_match.group(1)) if day_match else 1
-                updated_trip = add_activity_to_day(trip_doc, resolved_place_for_add, target_day)
-                reply = f"I've added {resolved_place_for_add.get('name', 'the place')} to Day {target_day} of your itinerary!"
-            else:
-                updated_trip = modify_itinerary(trip_doc, user_message)
-                reply = f"I've updated your itinerary for {dest} according to your request!"
-        except Exception as e:
-            reply = f"I could not safely apply that change: {e}. Try removing or replacing a named attraction or restaurant, or changing its visit duration. Your schedule is unchanged."
-            add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
-            return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
-                    "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+                # Persist proposal to db.reroute_proposals
+                db.reroute_proposals.insert_one({
+                    "proposal_id": proposal["proposal_id"],
+                    "trip_id": current_trip_id,
+                    "user_id": user_id,
+                    "version": 1,
+                    "revision": trip_doc.get("revision", 1),
+                    "expected_revision": proposal["expected_revision"],
+                    "proposal": proposal,
+                    "status": "pending",
+                    "expires_at": proposal["expires_at"]
+                })
 
-        changes = {k: updated_trip[k] for k in ('route_details', 'planner_draft', 'budget_breakdown', 'final_itinerary')}
-        changes.update(revision=int(trip_doc.get('revision', 1)) + 1, updated_at=datetime.utcnow().isoformat())
-        write = db.trips.update_one(revision_filter({"_id": ObjectId(current_trip_id), "user_id": user_id}, trip_doc), {"$set": changes})
-        if write.matched_count != 1:
-            raise HTTPException(status_code=409, detail="The itinerary changed while editing. Refresh and try again.")
-        trip_doc.update(changes)
-        trip_doc["id"] = str(trip_doc.pop("_id"))
-        from app.services.payment_service import plus_source
-        trip_doc["plus_access_source"] = plus_source(db, trip_doc["id"], user_id)
-        trip_doc["plus_access"] = trip_doc["plus_access_source"] is not None
-        
-        # Ensure datetimes are serializable
-        if "created_at" in trip_doc and hasattr(trip_doc["created_at"], "isoformat"):
-            trip_doc["created_at"] = trip_doc["created_at"].isoformat()
-        if "updated_at" in trip_doc and hasattr(trip_doc["updated_at"], "isoformat"):
-            trip_doc["updated_at"] = trip_doc["updated_at"].isoformat()
+                current_context["pending_proposal"] = proposal["proposal_id"]
+                update_travel_context(conv_id, current_context)
 
+                changes = proposal["changes_summary"]
+                clean_dest = dest.split(',')[0].strip()
+                explanation = proposal.get("explanation") or f"Proposed adjustment to your {clean_dest} itinerary."
+                reply = f"I've prepared a revision proposal for your {trip_doc.get('days', 3)}-day {clean_dest} itinerary: {explanation} Please review the proposed changes below."
+
+                suggested_actions = [
+                    {"label": "Apply Changes", "action": "apply"},
+                    {"label": "Keep Current Itinerary", "action": "cancel"}
+                ]
+
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY", structured_data={
+                    "proposal_id": proposal["proposal_id"],
+                    "changes_summary": changes
+                })
+
+                return {
+                    "conversation_id": conv_id,
+                    "message": {"role": "assistant", "content": reply},
+                    "intent": "MODIFY_ITINERARY",
+                    "travel_context": current_context,
+                    "data": {
+                        "type": "revision_proposal",
+                        "proposal_id": proposal["proposal_id"],
+                        "trip_id": current_trip_id,
+                        "destination": clean_dest,
+                        "days": trip_doc.get("days", 3),
+                        "expected_revision": proposal["expected_revision"],
+                        "focus_description": proposal.get("focus_description", explanation),
+                        "explanation": explanation,
+                        "changes_summary": changes,
+                        "suggested_actions": suggested_actions
+                    }
+                }
+            except Exception as e:
+                reply = f"I could not safely generate a revision proposal: {e}. Your schedule is unchanged."
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                        "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
+        # 4D. Fallback for unrecognized or unsupported schedule changes
+        reply = f"I'd be glad to adjust your {dest} itinerary! Could you please let me know which attraction, restaurant, or day you'd like to update, or what new interests you want to include?"
         add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
-
         return {
             "conversation_id": conv_id,
             "message": {"role": "assistant", "content": reply},
             "intent": "MODIFY_ITINERARY",
             "travel_context": current_context,
-            "data": {
-                "type": "itinerary",
-                "trip_id": current_trip_id,
-                "itinerary": trip_doc
-            }
+            "data": None
         }
 
     # Default fallback

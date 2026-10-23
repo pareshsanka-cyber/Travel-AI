@@ -1266,7 +1266,11 @@ def route_node(state: TravelState) -> dict:
                 best_dinner = r
 
         if not best_dinner and raw_restaurants:
-            best_dinner = raw_restaurants[(day_idx + 1) % len(raw_restaurants)]
+            diff_from_lunch = [r for r in raw_restaurants if not best_lunch or (r.get("name") != best_lunch.get("name") and not is_same_physical_place(r, best_lunch))]
+            if diff_from_lunch:
+                best_dinner = diff_from_lunch[(day_idx + 1) % len(diff_from_lunch)]
+            else:
+                best_dinner = raw_restaurants[(day_idx + 1) % len(raw_restaurants)]
 
         if best_dinner:
             raw_lat = best_dinner.get("lat")
