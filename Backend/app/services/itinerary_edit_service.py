@@ -1,12 +1,25 @@
 """Constrained edits to the structured schedule, shared by maps and itinerary text."""
 import copy
 import json
+import secrets
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from bson import ObjectId
+from fastapi import HTTPException
 from app.ai.llm import llm
-from app.ai.agents.route_agent import parse_hhmm_to_minutes, minutes_to_hhmm, format_time_range, estimate_transit
+from app.ai.agents.route_agent import (
+    route_node,
+    parse_hhmm_to_minutes,
+    minutes_to_hhmm,
+    format_time_range,
+    estimate_transit
+)
+from app.ai.agents.attraction_agent import attraction_node
 from app.ai.agents.budget_agent import budget_node
 from app.ai.agents.synthesis_agent import synthesis_node
 from app.utils.activity_identity import generate_persistent_activity_id
 from app.utils.place_deduplication import is_same_physical_place, is_place_already_scheduled
+from app.services.trip_consistency import revision_filter
 
 
 def render_schedule(routes):
@@ -175,3 +188,286 @@ def modify_itinerary(trip, instruction):
     except Exception as error:
         raise ValueError('Unable to parse schedule edits.') from error
     return apply_schedule_edits(trip, edits)
+
+
+def generate_preference_revision_proposal(
+    trip_doc: Dict[str, Any],
+    new_interests: List[str],
+    new_travel_style: Optional[str] = None,
+    active_segment_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generates a proposed revision for an existing trip based on updated preferences or travel style.
+    Preserves:
+    - Destination, origin, days, start_date, end_date, budget, currency
+    - Completed activities, active stops, and protected travel commitments (airport, hotel, breakfast)
+    - Stable activity identities wherever applicable
+    Produces a diff comparing current vs proposed activities and creates an optimistically locked proposal.
+    """
+    dest = trip_doc.get("destination", "Goa")
+    days = int(trip_doc.get("days", 3))
+    origin = trip_doc.get("origin", "Hyderabad")
+    start_date = trip_doc.get("start_date")
+    end_date = trip_doc.get("end_date")
+    hotels = trip_doc.get("hotels", [])
+    flights = trip_doc.get("flights", [])
+    restaurants = trip_doc.get("restaurants", [])
+    weather = trip_doc.get("weather", {})
+    travelers = int(trip_doc.get("travelers", 2))
+    budget = float(trip_doc.get("budget", 50000.0))
+    currency = trip_doc.get("currency", "INR")
+    travel_style = new_travel_style or trip_doc.get("travel_style", "STANDARD")
+    pace = trip_doc.get("pace", "balanced")
+    bedtime = trip_doc.get("bedtime", "22:00")
+    wake_up_time = trip_doc.get("wake_up_time", "08:00")
+
+    execution_state = copy.deepcopy(trip_doc.get("execution_state") or {
+        "is_active": False,
+        "current_day_number": 1,
+        "activity_log": {},
+        "reroute_history": []
+    })
+    activity_log = execution_state.get("activity_log") or {}
+
+    # 1. Identify completed and in-progress activity IDs that MUST be preserved
+    completed_ids = {aid for aid, entry in activity_log.items() if entry.get("status") in {"completed", "in_progress"}}
+    if active_segment_id:
+        completed_ids.add(active_segment_id)
+
+    # 2. Discover new candidate attractions ranked by new_interests
+    discovery_state = {
+        "destination": dest,
+        "interests": new_interests,
+        "preferences": new_interests,
+        "travel_style": travel_style,
+        "pace": pace,
+        "candidate_count": max(15, days * 3)
+    }
+    try:
+        attr_out = attraction_node(discovery_state)
+        new_attractions = attr_out.get("attractions") or []
+    except Exception as e:
+        print(f"Warning: Discovery in proposal failed ({e}), falling back to existing attractions")
+        new_attractions = trip_doc.get("attractions") or []
+
+    # 3. Schedule revised itinerary using route_node
+    route_state = {
+        "destination": dest,
+        "origin": origin,
+        "days": days,
+        "start_date": start_date,
+        "end_date": end_date,
+        "travelers": travelers,
+        "budget": budget,
+        "currency": currency,
+        "travel_style": travel_style,
+        "interests": new_interests,
+        "preferences": new_interests,
+        "pace": pace,
+        "bedtime": bedtime,
+        "wake_up_time": wake_up_time,
+        "hotels": hotels,
+        "flights": flights,
+        "attractions": new_attractions,
+        "restaurants": restaurants,
+        "weather": weather,
+        "execution_state": execution_state
+    }
+    route_out = route_node(route_state)
+    revised_routes = route_out.get("route_details") or {}
+
+    # 4. Strict preservation of completed stops from original schedule
+    orig_days = trip_doc.get("route_details", {}).get("day_by_day_route", [])
+    rev_days = revised_routes.get("day_by_day_route", [])
+
+    if completed_ids:
+        for idx, orig_day in enumerate(orig_days):
+            if idx < len(rev_days):
+                rev_day = rev_days[idx]
+                rev_stops = rev_day.get("stops") or []
+                orig_stops = orig_day.get("stops") or []
+
+                for ost in orig_stops:
+                    if ost.get("id") in completed_ids:
+                        existing_in_rev = next((s for s in rev_stops if s.get("id") == ost.get("id")), None)
+                        if not existing_in_rev:
+                            replaced = False
+                            for s_idx, s in enumerate(rev_stops):
+                                if s.get("type") == "attraction" and s.get("id") not in completed_ids:
+                                    rev_stops[s_idx] = copy.deepcopy(ost)
+                                    replaced = True
+                                    break
+                            if not replaced:
+                                rev_stops.append(copy.deepcopy(ost))
+                        else:
+                            existing_in_rev.update(ost)
+                rev_day["stops"] = rev_stops
+                rev_day["activities"] = rev_stops
+
+    # 5. Build revised trip structure
+    revised_trip = copy.deepcopy(trip_doc)
+    revised_trip["route_details"] = revised_routes
+    revised_trip["attractions"] = new_attractions
+    revised_trip["interests"] = new_interests
+    revised_trip["preferences"] = new_interests
+    revised_trip["travel_style"] = travel_style
+    revised_trip["planner_draft"] = render_schedule(revised_routes)
+    revised_trip.update(budget_node(revised_trip))
+    revised_trip.update(synthesis_node(revised_trip))
+
+    # 6. Diff comparison between original and proposed attractions
+    curr_stops = [s for d in orig_days for s in (d.get("stops") or []) if s.get("type") == "attraction"]
+    prop_stops = [s for d in rev_days for s in (d.get("stops") or []) if s.get("type") == "attraction"]
+
+    added = []
+    for p in prop_stops:
+        if not any(is_same_physical_place(p, c) for c in curr_stops):
+            p_name = p.get("name") or p.get("title")
+            if p_name and p_name not in added:
+                added.append(p_name)
+
+    removed = []
+    for c in curr_stops:
+        if c.get("id") in completed_ids:
+            continue
+        if not any(is_same_physical_place(c, p) for p in prop_stops):
+            c_name = c.get("name") or c.get("title")
+            if c_name and c_name not in removed:
+                removed.append(c_name)
+
+    kept = []
+    for p in prop_stops:
+        if any(is_same_physical_place(p, c) for c in curr_stops):
+            p_name = p.get("name") or p.get("title")
+            if p_name and p_name not in kept:
+                kept.append(p_name)
+
+    rescheduled = []
+    for p in prop_stops:
+        matching = next((c for c in curr_stops if is_same_physical_place(p, c)), None)
+        if matching and matching.get("start_time") != p.get("start_time"):
+            rescheduled.append({
+                "name": p.get("name") or p.get("title"),
+                "old_time": matching.get("start_time"),
+                "new_time": p.get("start_time")
+            })
+
+    proposal_id = f"prop_{secrets.token_urlsafe(16)}"
+    trip_id = str(trip_doc.get("_id") or trip_doc.get("id"))
+    curr_rev = int(trip_doc.get("revision", 1))
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+    return {
+        "proposal_id": proposal_id,
+        "trip_id": trip_id,
+        "expected_revision": curr_rev,
+        "new_preferences": new_interests,
+        "new_travel_style": new_travel_style,
+        "changes_summary": {
+            "added": added,
+            "removed": removed,
+            "kept": kept,
+            "rescheduled": rescheduled
+        },
+        "proposed_trip": revised_trip,
+        "expires_at": expires_at
+    }
+
+
+def apply_preference_revision(
+    db,
+    trip_id: str,
+    proposal_id: str,
+    expected_revision: Optional[int] = None,
+    x_user_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Applies an approved preference revision proposal to the trip.
+    Verifies optimistic concurrency revision.
+    Increments revision counter and saves updated schedule.
+    """
+    query: Dict[str, Any] = {"proposal_id": proposal_id, "status": "pending"}
+    try:
+        saved = db.reroute_proposals.find_one(query)
+    except Exception:
+        saved = None
+
+    if not saved:
+        raise HTTPException(
+            status_code=409,
+            detail="Revision proposal expired or already applied. Please generate a fresh proposal."
+        )
+
+    # Expiry check
+    if saved.get("expires_at") and saved["expires_at"] < datetime.utcnow():
+        raise HTTPException(
+            status_code=409,
+            detail="Revision proposal expired. Please generate a fresh proposal."
+        )
+
+    # Concurrency Revision Check
+    try:
+        trip = db.trips.find_one({"_id": ObjectId(trip_id)})
+    except Exception:
+        trip = db.trips.find_one({"id": trip_id})
+
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found.")
+
+    current_rev = int(trip.get("revision", 1))
+    exp_rev = expected_revision if expected_revision is not None else saved.get("expected_revision")
+    if exp_rev is not None and int(exp_rev) != current_rev:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Concurrent modification detected. Current revision is {current_rev}, expected {exp_rev}. Refresh and try again."
+        )
+
+    proposal_data = saved.get("proposal", {})
+    revised_trip = proposal_data.get("proposed_trip")
+    if not revised_trip:
+        raise HTTPException(status_code=422, detail="Proposal does not contain valid revised trip data.")
+
+    new_rev = current_rev + 1
+    changes = {
+        "route_details": revised_trip.get("route_details") or {},
+        "planner_draft": revised_trip.get("planner_draft") or "",
+        "budget_breakdown": revised_trip.get("budget_breakdown") or {},
+        "final_itinerary": revised_trip.get("final_itinerary"),
+        "attractions": revised_trip.get("attractions") or [],
+        "revision": new_rev,
+        "updated_at": datetime.utcnow().isoformat()
+    }
+    if proposal_data.get("new_preferences"):
+        changes["interests"] = proposal_data["new_preferences"]
+        changes["preferences"] = proposal_data["new_preferences"]
+    if proposal_data.get("new_travel_style"):
+        changes["travel_style"] = proposal_data["new_travel_style"]
+
+    write = db.trips.update_one(revision_filter({"_id": trip["_id"]}, trip), {"$set": changes})
+    if write.matched_count != 1:
+        raise HTTPException(status_code=409, detail="The itinerary changed while editing. Refresh and try again.")
+
+    db.reroute_proposals.update_one(
+        {"_id": saved["_id"]},
+        {"$set": {"status": "applied", "applied_at": datetime.utcnow().isoformat()}}
+    )
+
+    trip.update(changes)
+    trip["id"] = str(trip.pop("_id"))
+    from app.services.payment_service import plus_source
+    trip["plus_access_source"] = plus_source(db, trip["id"], x_user_id)
+    trip["plus_access"] = trip["plus_access_source"] is not None
+
+    return trip
+
+
+def cancel_preference_revision(
+    db,
+    trip_id: str,
+    proposal_id: str
+) -> None:
+    """Marks a pending preference revision proposal as cancelled."""
+    db.reroute_proposals.update_one(
+        {"proposal_id": proposal_id},
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow().isoformat()}}
+    )

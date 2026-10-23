@@ -21,7 +21,13 @@ from app.services.slot_extraction_service import (
     calculate_days_from_dates
 )
 from app.services.travel_guide_agent import handle_travel_guide_query, resolve_place_from_reference
-from app.services.itinerary_edit_service import modify_itinerary, add_activity_to_day
+from app.services.itinerary_edit_service import (
+    modify_itinerary,
+    add_activity_to_day,
+    generate_preference_revision_proposal,
+    apply_preference_revision,
+    cancel_preference_revision
+)
 from app.services.trip_consistency import revision_filter
 
 GENERAL_CHAT_PROMPT = ChatPromptTemplate.from_messages([
@@ -142,14 +148,28 @@ def process_chat_message(
     if progress:
         progress('conversation', conversation_id=conv_id)
     current_context = conv.travel_context.model_dump()
-    has_trip = bool(conv.current_trip_id or current_context.get("current_trip_id"))
 
+    # Determine active trip
+    current_trip_id = conv.current_trip_id or current_context.get("current_trip_id")
+    if not current_trip_id and user_id:
+        try:
+            recent = db.trips.find_one({"user_id": user_id}, sort=[("updated_at", -1)])
+            if recent:
+                current_trip_id = str(recent["_id"])
+                conv.current_trip_id = current_trip_id
+                current_context["current_trip_id"] = current_trip_id
+                update_travel_context(conv_id, current_context, current_trip_id=current_trip_id)
+        except Exception:
+            pass
+
+    has_trip = bool(current_trip_id)
     active_trip_doc = None
     if has_trip:
-        trip_id = conv.current_trip_id or current_context.get("current_trip_id")
-        if trip_id:
+        try:
+            active_trip_doc = db.trips.find_one({"_id": ObjectId(current_trip_id)})
+        except Exception:
             try:
-                active_trip_doc = db.trips.find_one({"_id": ObjectId(trip_id)})
+                active_trip_doc = db.trips.find_one({"id": current_trip_id})
             except Exception:
                 active_trip_doc = None
 
@@ -224,17 +244,24 @@ def process_chat_message(
     elif intent == "UPDATE_CONTEXT":
         updated_context = current_context
 
-        # Generate conversational acknowledgment
-        prompt_val = ACKNOWLEDGEMENT_PROMPT.format_messages(
-            destination=updated_context.get("destination") or "Not set",
-            days=updated_context.get("days") or "Not set",
-            context=json.dumps(updated_context),
-            user_message=user_message
-        )
-        try:
-            ack_resp = llm.invoke(prompt_val).content.strip()
-        except Exception as e:
-            ack_resp = "I've saved your travel preferences. The AI acknowledgement is temporarily unavailable; you can continue planning."
+        # Check if user mentioned an interest/preference without modifying active trip
+        pref_str = ", ".join(updated_context.get("interests") or updated_context.get("preferences") or [])
+        if pref_str and has_trip:
+            ack_resp = f"I've saved your preference for {pref_str}. Your active itinerary has not been changed. If you would like to revise your itinerary to focus on {pref_str}, simply say 'Change this trip to {pref_str}'!"
+        elif pref_str and not has_trip:
+            ack_resp = f"I've saved your travel preferences ({pref_str}). You haven't created an itinerary yet—would you like me to build one for you?"
+        else:
+            # Generate conversational acknowledgment
+            prompt_val = ACKNOWLEDGEMENT_PROMPT.format_messages(
+                destination=updated_context.get("destination") or "Not set",
+                days=updated_context.get("days") or "Not set",
+                context=json.dumps(updated_context),
+                user_message=user_message
+            )
+            try:
+                ack_resp = llm.invoke(prompt_val).content.strip()
+            except Exception as e:
+                ack_resp = "I've saved your travel preferences. Let me know when you're ready to create an itinerary!"
 
         add_message(conv_id, "assistant", ack_resp, intent="UPDATE_CONTEXT", structured_data={"slots": slots})
 
@@ -258,63 +285,52 @@ def process_chat_message(
             destination=destination,
             user_id=user_id,
             conversation_id=conv_id,
-            has_current_trip=has_trip,
-            active_trip=active_trip_doc
+            active_trip_doc=active_trip_doc
         )
-
-        answer = guide_res.get("answer") or "Here is what I found for your trip."
-        places = guide_res.get("places") or []
-        suggested_actions = guide_res.get("suggested_actions") or []
-
-        # Cache recommendations in travel_context for follow-up references
-        if places:
-            current_context["last_recommendations"] = places
+        
+        # Save last recommendations in travel_context for follow-up resolution
+        if guide_res.get("places"):
+            current_context["last_recommendations"] = guide_res["places"]
             update_travel_context(conv_id, current_context)
 
-        add_message(conv_id, "assistant", answer, intent="TRAVEL_QA", structured_data={"places": places} if places else None)
-
-        guide_data = None
-        if places or suggested_actions or guide_res.get("rag_meta"):
-            guide_data = {
-                "type": "place_recommendations",
-                "category": guide_res.get("category", "ATTRACTIONS"),
-                "destination": guide_res.get("destination", ""),
-                "user_location_used": guide_res.get("user_location_used", False),
-                "places": places,
-                "suggested_actions": suggested_actions,
+        add_message(
+            conv_id,
+            "assistant",
+            guide_res["reply_text"],
+            intent="TRAVEL_QA",
+            structured_data={
+                "places": guide_res.get("places"),
                 "rag_meta": guide_res.get("rag_meta")
             }
+        )
 
         return {
             "conversation_id": conv_id,
-            "message": {"role": "assistant", "content": answer},
+            "message": {"role": "assistant", "content": guide_res["reply_text"]},
             "intent": "TRAVEL_QA",
             "travel_context": current_context,
-            "data": guide_data
+            "data": {
+                "type": "place_recommendations",
+                "places": guide_res.get("places"),
+                "suggested_actions": guide_res.get("suggested_actions"),
+                "rag_meta": guide_res.get("rag_meta")
+            }
         }
 
     elif intent == "GENERATE_ITINERARY":
-        if progress:
-            progress('kind', kind='planning')
         dest = current_context.get("destination")
         days = current_context.get("days")
 
-        # Fallback calculation if days is missing but start_date and end_date are available
-        if not days and current_context.get("start_date") and current_context.get("end_date"):
-            computed_days = calculate_days_from_dates(current_context["start_date"], current_context["end_date"])
-            if computed_days:
-                days = computed_days
-                current_context["days"] = days
-                update_travel_context(conv_id, current_context)
-
-        # Check required slots
+        # Conversational fallback for missing essentials
         if not dest or not days:
             missing = []
-            if not dest: missing.append("destination")
-            if not days: missing.append("duration (number of days)")
-            prompt_msg = f"I'd love to generate your itinerary! Could you please let me know your {' and '.join(missing)} first?"
+            if not dest:
+                missing.append("where you want to go")
+            if not days:
+                missing.append("how many days you want to travel")
             
-            add_message(conv_id, "assistant", prompt_msg, intent="UPDATE_CONTEXT")
+            prompt_msg = f"I'd love to generate your itinerary! Please let me know {' and '.join(missing)}."
+            add_message(conv_id, "assistant", prompt_msg)
             return {
                 "conversation_id": conv_id,
                 "message": {"role": "assistant", "content": prompt_msg},
@@ -461,8 +477,109 @@ def process_chat_message(
         }
 
     elif intent == "MODIFY_ITINERARY":
-        current_trip_id = conv.current_trip_id or current_context.get("current_trip_id")
-        if not current_trip_id:
+        clean_msg = user_message.strip().lower()
+        action = slots.get("action")
+        if not action:
+            if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept'}:
+                action = "apply"
+            elif re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep)\s*$', clean_msg) or clean_msg in {'keep', 'cancel', 'discard'}:
+                action = "cancel"
+
+        pending_proposal_id = current_context.get("pending_proposal")
+        if not pending_proposal_id and current_trip_id:
+            pending_rec = db.reroute_proposals.find_one({
+                "trip_id": current_trip_id,
+                "status": "pending",
+                "expires_at": {"$gt": datetime.utcnow()}
+            })
+            if pending_rec:
+                pending_proposal_id = pending_rec.get("proposal_id")
+
+        # 1. Action: Apply Proposal
+        if action == "apply":
+            if not current_trip_id:
+                reply = "You haven't generated an itinerary yet! Let's build one first."
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                        "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
+            if not pending_proposal_id:
+                reply = "There is no active revision proposal waiting for approval. You can request changes to your itinerary anytime!"
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                        "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
+            try:
+                updated_trip = apply_preference_revision(db, current_trip_id, pending_proposal_id, x_user_id=user_id)
+                current_context["pending_proposal"] = None
+                update_travel_context(conv_id, current_context)
+                new_rev = updated_trip.get("revision", 1)
+                reply = f"I've applied the changes to your itinerary! Your schedule has been updated with the new focus (Revision {new_rev})."
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {
+                    "conversation_id": conv_id,
+                    "message": {"role": "assistant", "content": reply},
+                    "intent": "MODIFY_ITINERARY",
+                    "travel_context": current_context,
+                    "data": {
+                        "type": "itinerary",
+                        "trip_id": current_trip_id,
+                        "itinerary": updated_trip
+                    }
+                }
+            except HTTPException as he:
+                if he.status_code == 409:
+                    current_context["pending_proposal"] = None
+                    update_travel_context(conv_id, current_context)
+                    reply = f"Could not apply changes: {he.detail}"
+                    add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                    return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                            "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+                raise he
+            except Exception as e:
+                reply = f"Could not apply the revision: {str(e)}"
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                        "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
+        # 2. Action: Cancel Proposal
+        elif action == "cancel":
+            if pending_proposal_id:
+                cancel_preference_revision(db, current_trip_id, pending_proposal_id)
+                current_context["pending_proposal"] = None
+                update_travel_context(conv_id, current_context)
+            curr_rev = (active_trip_doc or {}).get("revision", 1)
+            reply = f"Your existing itinerary remains unchanged (Revision {curr_rev}). Let me know if you would like any other adjustments!"
+            add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+            return {
+                "conversation_id": conv_id,
+                "message": {"role": "assistant", "content": reply},
+                "intent": "MODIFY_ITINERARY",
+                "travel_context": current_context,
+                "data": {
+                    "type": "itinerary",
+                    "trip_id": current_trip_id,
+                    "itinerary": active_trip_doc
+                } if active_trip_doc else None
+            }
+
+        # 3. No active trip guard
+        if not current_trip_id or not active_trip_doc:
+            new_prefs = slots.get("interests") or slots.get("preferences") or []
+            if new_prefs:
+                current_context["interests"] = new_prefs
+                current_context["preferences"] = new_prefs
+                update_travel_context(conv_id, current_context)
+                pref_str = ", ".join(new_prefs)
+                reply = f"I've saved your travel preferences ({pref_str}). You haven't created an itinerary yet—would you like me to generate a trip for you?"
+                add_message(conv_id, "assistant", reply, intent="UPDATE_CONTEXT")
+                return {
+                    "conversation_id": conv_id,
+                    "message": {"role": "assistant", "content": reply},
+                    "intent": "UPDATE_CONTEXT",
+                    "travel_context": current_context,
+                    "data": None
+                }
             reply = "You haven't generated an itinerary yet! Let's build one first."
             add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
             return {
@@ -473,24 +590,110 @@ def process_chat_message(
                 "data": None
             }
 
-        # Fetch trip from database
-        try:
-            trip_doc = db.trips.find_one({"_id": ObjectId(current_trip_id), "user_id": user_id})
-        except Exception:
-            trip_doc = None
-
-        if not trip_doc:
-            reply = "Could not find your existing itinerary to modify. Let's create a new one!"
-            add_message(conv_id, "assistant", reply)
-            return {
-                "conversation_id": conv_id,
-                "message": {"role": "assistant", "content": reply},
-                "intent": "MODIFY_ITINERARY",
-                "travel_context": current_context,
-                "data": None
-            }
-
+        trip_doc = active_trip_doc
         dest = trip_doc.get("destination", "Destination")
+
+        # 4. Check for Trip-Wide Preference Focus Change
+        is_pref_revision = bool(
+            re.search(
+                r'\b(?:'
+                r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
+                r'now\s+change\s+it\s+to|'
+                r'change\s+it\s+to|'
+                r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+                r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+                r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+                r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)'
+                r')\b',
+                user_message,
+                re.IGNORECASE
+            )
+            or (slots.get("interests") and any(w in clean_msg for w in ("change", "replace", "switch", "focus", "more", "instead")))
+            or ("luxury" in clean_msg and "more" in clean_msg)
+        )
+
+        if is_pref_revision and not re.search(r'\bday\s*\d+\b', user_message, re.IGNORECASE):
+            new_interests = slots.get("interests") or slots.get("preferences") or []
+            new_travel_style = slots.get("travel_style")
+            if not new_interests and not new_travel_style:
+                kws = [kw for kw in ("temples", "history", "beaches", "nature", "waterfalls", "luxury", "food", "adventure") if kw in clean_msg]
+                if kws:
+                    new_interests = kws
+
+            try:
+                proposal = generate_preference_revision_proposal(
+                    trip_doc=trip_doc,
+                    new_interests=new_interests,
+                    new_travel_style=new_travel_style,
+                    active_segment_id=active_segment_id
+                )
+
+                # Persist proposal to db.reroute_proposals
+                db.reroute_proposals.insert_one({
+                    "proposal_id": proposal["proposal_id"],
+                    "trip_id": current_trip_id,
+                    "user_id": user_id,
+                    "version": 1,
+                    "revision": trip_doc.get("revision", 1),
+                    "expected_revision": proposal["expected_revision"],
+                    "proposal": proposal,
+                    "status": "pending",
+                    "expires_at": proposal["expires_at"]
+                })
+
+                current_context["pending_proposal"] = proposal["proposal_id"]
+                if new_interests:
+                    current_context["interests"] = new_interests
+                    current_context["preferences"] = new_interests
+                if new_travel_style:
+                    current_context["travel_style"] = new_travel_style
+                update_travel_context(conv_id, current_context)
+
+                changes = proposal["changes_summary"]
+                added_str = ", ".join(changes["added"]) if changes["added"] else "None"
+                removed_str = ", ".join(changes["removed"]) if changes["removed"] else "None"
+                kept_str = ", ".join(changes["kept"]) if changes["kept"] else "None"
+                focus_desc = ", ".join(new_interests) if new_interests else (new_travel_style or "your requested focus")
+
+                reply = (
+                    f"I've prepared a revision proposal for your {trip_doc.get('days', 3)}-day {dest} itinerary to focus on {focus_desc}:\n\n"
+                    f"• **Added Activities:** {added_str}\n"
+                    f"• **Removed Activities:** {removed_str}\n"
+                    f"• **Preserved Stops:** {kept_str}\n\n"
+                    f"Would you like to apply these changes or keep your current itinerary?"
+                )
+
+                suggested_actions = [
+                    {"label": "Apply Changes", "action": "apply"},
+                    {"label": "Keep Current Itinerary", "action": "cancel"}
+                ]
+
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY", structured_data={
+                    "proposal_id": proposal["proposal_id"],
+                    "changes_summary": changes
+                })
+
+                return {
+                    "conversation_id": conv_id,
+                    "message": {"role": "assistant", "content": reply},
+                    "intent": "MODIFY_ITINERARY",
+                    "travel_context": current_context,
+                    "data": {
+                        "type": "revision_proposal",
+                        "proposal_id": proposal["proposal_id"],
+                        "trip_id": current_trip_id,
+                        "expected_revision": proposal["expected_revision"],
+                        "changes_summary": changes,
+                        "suggested_actions": suggested_actions
+                    }
+                }
+            except Exception as e:
+                reply = f"I could not safely generate a revision proposal: {e}. Your schedule is unchanged."
+                add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY")
+                return {"conversation_id": conv_id, "message": {"role": "assistant", "content": reply},
+                        "intent": "MODIFY_ITINERARY", "travel_context": current_context, "data": None}
+
+        # 5. Single-Stop Edits
         is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
         day_match = re.search(r'\bday\s*(\d+)\b', user_message, re.IGNORECASE)
         last_recs = current_context.get("last_recommendations") or []

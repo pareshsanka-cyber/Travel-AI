@@ -16,10 +16,10 @@ ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
         "- Previous Assistant Message: {previous_assistant_message}\n"
         "- Has Generated Itinerary: {has_current_trip}\n\n"
         "Supported Intents:\n"
-        "1. UPDATE_CONTEXT: User is sharing, updating, or specifying preferences, interests, budget, or trip parameters (e.g. 'I love beaches and temples', 'My budget is 50k', 'We are 4 people', 'I prefer luxury travel') WITHOUT explicitly commanding you to plan or generate an itinerary right now.\n"
+        "1. UPDATE_CONTEXT: User is sharing, updating, or specifying preferences, interests, budget, or trip parameters (e.g. 'I love beaches and temples', 'My budget is 50k', 'We are 4 people', 'I prefer luxury travel', 'I like temples') WITHOUT explicitly commanding you to revise an active trip or build a new one.\n"
         "2. TRAVEL_QA: User is asking informational, factual, or recommendation questions about a destination, landmark, monument, weather, food, attractions, or travel tips (e.g. 'What is famous in Jaipur?', 'Why is Hawa Mahal famous?', 'Best food in Goa', 'How is the weather in Munnar?', 'What about places near the second attraction you suggested?').\n"
         "3. GENERATE_ITINERARY: User explicitly commands you to plan, create, generate, or build the trip or itinerary (e.g. 'Plan a five-day trip to Goa', 'Generate my itinerary', 'Build the trip for 3 days'). This SUPERSEDES UPDATE_CONTEXT if both apply!\n"
-        "4. MODIFY_ITINERARY: When Has Generated Itinerary is True and the user asks to change, edit, or adjust the existing trip or a day (e.g. 'Change day 2 to focus on watersports', 'Make day 2 more relaxed', 'Remove that restaurant'), intent MUST be MODIFY_ITINERARY.\n"
+        "4. MODIFY_ITINERARY: User asks to change, edit, or adjust an existing itinerary, its focus, or a day (e.g. 'Change this trip to temples and history', 'Now change it to temples and history', 'Make the current itinerary more focused on beaches', 'Replace the sightseeing with nature and waterfalls', 'Make my current trip more luxurious', 'Change day 2 to focus on watersports', 'Remove that restaurant', 'Apply Changes', 'Keep Current Itinerary').\n"
         "5. GENERAL_CHAT: User is greeting ('Hi', 'Hello'), engaging in small talk ('How are you?'), asking general knowledge or non-travel questions ('Can you explain something unrelated to travel?', 'What is quantum computing?', 'Who are you?', 'Tell me a joke'), or seeking conversational assistance.\n\n"
         "Q&A Categories (only for TRAVEL_QA):\n"
         "- 'WEATHER': Questions about climate, temperature, weather.\n"
@@ -267,15 +267,72 @@ def deterministic_fallback_analysis(
     
     intent = "GENERAL_CHAT"
     qa_category = None
+
+    # Proposal approval / cancellation
+    if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept'}:
+        return {
+            "intent": "MODIFY_ITINERARY",
+            "slots": {"action": "apply"},
+            "qa_category": None,
+            "confidence": 0.95,
+            "needs_clarification": False,
+            "clarification_prompt": None
+        }
+
+    if re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep)\s*$', clean_msg) or clean_msg in {'keep', 'cancel', 'discard'}:
+        return {
+            "intent": "MODIFY_ITINERARY",
+            "slots": {"action": "cancel"},
+            "qa_category": None,
+            "confidence": 0.95,
+            "needs_clarification": False,
+            "clarification_prompt": None
+        }
+
+    # Extract interests keywords
+    found_interests = []
+    interest_keywords = [
+        "beaches", "beach", "temples", "temple", "history", "heritage", "luxury",
+        "nature", "waterfalls", "waterfall", "food", "cuisine", "adventure", "nightlife",
+        "wildlife", "shopping", "culture", "relaxation", "museums"
+    ]
+    for kw in interest_keywords:
+        if re.search(r'\b' + kw + r'\b', clean_msg):
+            norm_kw = kw + "s" if kw in {"beach", "temple", "waterfall"} else kw
+            if norm_kw not in found_interests:
+                found_interests.append(norm_kw)
+    if found_interests:
+        slots["interests"] = found_interests
+        slots["preferences"] = found_interests
+    if "luxury" in clean_msg or "luxurious" in clean_msg:
+        slots["travel_style"] = "LUXURY"
+
+    # Explicit trip modification pattern
+    explicit_trip_mod = bool(re.search(
+        r'\b(?:'
+        r'day\s*\d+|'
+        r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
+        r'now\s+change\s+it\s+to|'
+        r'change\s+it\s+to|'
+        r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+        r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'instead of'
+        r')\b',
+        clean_msg
+    ))
     
     # 1. GENERATE_ITINERARY
     if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation|days?)\b', clean_msg):
         intent = "GENERATE_ITINERARY"
     # 2. MODIFY_ITINERARY
-    elif has_current_trip and re.search(r'\b(?:day\s*\d+|change|modify|replace|remove|swap|adjust|update day|instead of)\b', clean_msg):
+    elif explicit_trip_mod and has_current_trip:
         intent = "MODIFY_ITINERARY"
     # 3. UPDATE_CONTEXT
-    elif re.search(r'\b(change it to|prefer|interests?|focus on|switch to|update to|i want|love|like)\b', clean_msg):
+    elif explicit_trip_mod and not has_current_trip:
+        intent = "UPDATE_CONTEXT"
+    elif re.search(r'\b(prefer|interests?|focus on|switch to|update to|i want|love|like)\b', clean_msg) or found_interests:
         intent = "UPDATE_CONTEXT"
     # 4. TRAVEL_QA
     elif (
@@ -300,23 +357,6 @@ def deterministic_fallback_analysis(
     python_slots = normalize_currency_and_numbers(user_message)
     if python_slots:
         slots.update(python_slots)
-
-    # Extract interests keywords
-    found_interests = []
-    interest_keywords = [
-        "beaches", "beach", "temples", "temple", "history", "heritage", "luxury",
-        "food", "cuisine", "adventure", "nature", "nightlife", "wildlife", "shopping", "culture"
-    ]
-    for kw in interest_keywords:
-        if re.search(r'\b' + kw + r'\b', clean_msg):
-            norm_kw = kw + "s" if kw in {"beach", "temple"} else kw
-            if norm_kw not in found_interests:
-                found_interests.append(norm_kw)
-    if found_interests:
-        slots["interests"] = found_interests
-        slots["preferences"] = found_interests
-        if intent == "GENERAL_CHAT":
-            intent = "UPDATE_CONTEXT"
 
     return {
         "intent": intent,
@@ -376,17 +416,63 @@ def analyze_user_message(
     # Intent refinement and overrides
     clean_msg = user_message.strip().lower()
 
-    # 1. Deterministic detection for explicit itinerary creation commands
+    # 1. Proposal approval / cancellation overrides
+    if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept'}:
+        analysis['intent'] = 'MODIFY_ITINERARY'
+        analysis['slots']['action'] = 'apply'
+        return analysis
+
+    if re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep)\s*$', clean_msg) or clean_msg in {'keep', 'cancel', 'discard'}:
+        analysis['intent'] = 'MODIFY_ITINERARY'
+        analysis['slots']['action'] = 'cancel'
+        return analysis
+
+    # Extract interests / preferences
+    found_interests = []
+    interest_keywords = [
+        "beaches", "beach", "temples", "temple", "history", "heritage", "luxury",
+        "nature", "waterfalls", "waterfall", "food", "cuisine", "adventure", "nightlife",
+        "wildlife", "shopping", "culture", "relaxation", "museums"
+    ]
+    for kw in interest_keywords:
+        if re.search(r'\b' + kw + r'\b', clean_msg):
+            norm_kw = kw + "s" if kw in {"beach", "temple", "waterfall"} else kw
+            if norm_kw not in found_interests:
+                found_interests.append(norm_kw)
+    if found_interests:
+        analysis["slots"]["interests"] = found_interests
+        analysis["slots"]["preferences"] = found_interests
+    if "luxury" in clean_msg or "luxurious" in clean_msg:
+        analysis["slots"]["travel_style"] = "LUXURY"
+
+    # Explicit itinerary modification check
+    explicit_trip_mod = bool(re.search(
+        r'\b(?:'
+        r'day\s*\d+|'
+        r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
+        r'now\s+change\s+it\s+to|'
+        r'change\s+it\s+to|'
+        r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
+        r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+        r'instead of'
+        r')\b',
+        clean_msg
+    ))
+
+    # 2. Deterministic detection for explicit itinerary creation commands
     if re.search(r'\b(plan|create|generate|build|make)\b.*\b(trip|itinerary|holiday|vacation)\b', clean_msg):
         analysis['intent'] = 'GENERATE_ITINERARY'
 
-    # 2. Deterministic override for itinerary modifications when trip exists
-    if has_current_trip:
-        mod_pattern = r'\b(?:day\s*\d+|change|modify|replace|remove|swap|adjust|update day|instead of)\b'
-        if re.search(mod_pattern, clean_msg):
+    # 3. Deterministic override for itinerary modifications when trip exists
+    elif explicit_trip_mod:
+        if has_current_trip:
             analysis["intent"] = "MODIFY_ITINERARY"
+        else:
+            analysis["intent"] = "UPDATE_CONTEXT"
 
-    # 3. Known landmark recognition: Map to destination and route to TRAVEL_QA
+    # 4. Known landmark recognition: Map to destination and route to TRAVEL_QA
     for landmark, dest_name in LANDMARK_DESTINATIONS.items():
         if re.search(r'\b' + re.escape(landmark) + r'\b', clean_msg):
             if analysis.get('intent') != 'GENERATE_ITINERARY':
@@ -397,8 +483,7 @@ def analyze_user_message(
                     analysis['slots']['destination'] = dest_name
             break
 
-    # 4. General conversational chat detection
-    # Common greetings, philosophical or non-travel inquiries without planning commands
+    # 5. General conversational chat detection
     general_greetings = r'^(hi|hello|hey|good\s*(?:morning|afternoon|evening)|howdy|hola|greetings)\b'
     general_non_travel = r'\b(can you explain something unrelated|unrelated to travel|who are you|what is your name|tell me a joke|what can you do|how are you|quantum computing|artificial intelligence)\b'
     has_planning_terms = bool(re.search(r'\b(trip|itinerary|destination|budget|flight|hotel|visiting|travel|places|attraction)\b', clean_msg))

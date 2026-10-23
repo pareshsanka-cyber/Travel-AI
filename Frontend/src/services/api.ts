@@ -2420,6 +2420,11 @@ export interface ChatMessageResponsePayload {
     type?: string;
     trip_id?: string;
     itinerary?: any;
+    places?: any[];
+    suggested_actions?: any[];
+    proposal_id?: string;
+    expected_revision?: number;
+    changes_summary?: any;
   } | null;
 }
 
@@ -2456,7 +2461,7 @@ export async function sendChatMessage(
       body: JSON.stringify(requestBody),
     });
 
-    const richContent = res.data?.type === 'place_recommendations'
+    const richContent = (res.data?.places || res.data?.suggested_actions)
       ? {
           placeRecommendations: res.data.places,
           suggestedActions: res.data.suggested_actions,
