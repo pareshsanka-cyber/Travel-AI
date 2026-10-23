@@ -139,3 +139,161 @@ test('sendChatMessage sends GPS coordinates when available without fabricating m
     globalThis.fetch = originalFetch;
   }
 });
+
+test('preference revision proposal delivers Apply Changes and Keep Current Itinerary buttons to chat UI', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        conversation_id: 'conv_rev_ui',
+        intent: 'MODIFY_ITINERARY',
+        message: {
+          role: 'assistant',
+          content: "I've prepared a revision proposal for your Goa trip focusing on temples and history:\n\n*Added (6):*\n- Basilica of Bom Jesus\n\n*Removed (6):*\n- Calangute Beach\n\nWould you like to apply these changes?"
+        },
+        travel_context: {
+          destination: 'Goa',
+          current_trip_id: 'trip_123',
+          pending_proposal: 'prop_123_456'
+        },
+        data: {
+          type: 'reroute_proposal',
+          proposal_id: 'prop_123_456',
+          suggested_actions: [
+            { label: 'Apply Changes', action: 'apply_proposal', payload: { proposal_id: 'prop_123_456' } },
+            { label: 'Keep Current Itinerary', action: 'cancel_proposal', payload: { proposal_id: 'prop_123_456' } }
+          ]
+        }
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    const { replyMessage, rawResponse } = await sendChatMessage(
+      'Now change it to temples and history.',
+      'conv_rev_ui',
+      { destination: 'Goa' }
+    );
+
+    assert.equal(replyMessage.sender, 'assistant');
+    assert.ok(replyMessage.text.includes("prepared a revision proposal"));
+    assert.ok(replyMessage.richContent, 'richContent should be present for actions');
+    
+    const actions = replyMessage.richContent?.suggestedActions;
+    assert.ok(Array.isArray(actions));
+    assert.equal(actions?.length, 2);
+    assert.equal(actions?.[0].label, 'Apply Changes');
+    assert.equal(actions?.[1].label, 'Keep Current Itinerary');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('applying preference proposal returns updated itinerary with bumped revision for persistence', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, options) => {
+      const body = JSON.parse(String(options?.body || '{}'));
+      assert.equal(body.message, 'Apply Changes');
+
+      return new Response(JSON.stringify({
+        conversation_id: 'conv_rev_ui',
+        intent: 'MODIFY_ITINERARY',
+        message: {
+          role: 'assistant',
+          content: "I've applied the changes to your itinerary! Your schedule has been updated with the new focus (Revision 2)."
+        },
+        travel_context: {
+          destination: 'Goa',
+          current_trip_id: 'trip_123',
+          pending_proposal: null
+        },
+        data: {
+          type: 'itinerary',
+          trip_id: 'trip_123',
+          itinerary: {
+            id: 'trip_123',
+            destination: 'Goa',
+            days: 5,
+            revision: 2,
+            route_details: {
+              day_by_day_route: [
+                {
+                  day: 1,
+                  date: '2026-10-30',
+                  stops: [{ id: 'act_1', name: 'Basilica of Bom Jesus', type: 'attraction' }]
+                }
+              ]
+            }
+          }
+        }
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    const { replyMessage, rawResponse } = await sendChatMessage(
+      'Apply Changes',
+      'conv_rev_ui',
+      { destination: 'Goa' }
+    );
+
+    assert.equal(replyMessage.sender, 'assistant');
+    assert.ok(replyMessage.text.includes("applied the changes"));
+    assert.equal(rawResponse?.data?.itinerary?.revision, 2);
+    assert.equal(rawResponse?.data?.itinerary?.route_details?.day_by_day_route?.[0]?.stops?.[0]?.name, 'Basilica of Bom Jesus');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('cancelling preference proposal preserves current itinerary without bump or modifications', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url, options) => {
+      const body = JSON.parse(String(options?.body || '{}'));
+      assert.equal(body.message, 'Keep Current Itinerary');
+
+      return new Response(JSON.stringify({
+        conversation_id: 'conv_rev_ui',
+        intent: 'MODIFY_ITINERARY',
+        message: {
+          role: 'assistant',
+          content: "No problem! I've kept your current itinerary exactly as is."
+        },
+        travel_context: {
+          destination: 'Goa',
+          current_trip_id: 'trip_123',
+          pending_proposal: null
+        },
+        data: null
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    const { replyMessage, rawResponse } = await sendChatMessage(
+      'Keep Current Itinerary',
+      'conv_rev_ui',
+      { destination: 'Goa' }
+    );
+
+    assert.equal(replyMessage.sender, 'assistant');
+    assert.ok(replyMessage.text.includes("kept your current itinerary"));
+    assert.equal(rawResponse?.data, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stale or conflicted proposal rejection surfaces error gracefully in chat', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        detail: 'Concurrent modification detected. Current revision is 3, expected 2. Refresh and try again.'
+      }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      sendChatMessage('Apply Changes', 'conv_rev_ui', {}),
+      (err: any) => err.status === 409 && err.message.includes('Concurrent modification')
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
