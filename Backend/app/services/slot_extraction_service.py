@@ -321,6 +321,7 @@ def deterministic_fallback_analysis(
     # Distinguish casual inquiries/questions
     is_question = bool(
         clean_msg.endswith("?")
+        or re.search(r'\b(what\s+to\s+(?:do|visit|see|eat)|what\s+can\s+(?:i|we)\s+(?:do|visit|see|eat)|where\s+can\s+(?:i|we)\s+go|any\s+(?:suggestions|recommendations)|tell\s+me\s+about)\b', clean_msg)
         or re.search(r'^(?:are\s+there|is\s+there|can\s+you\s+tell\s+me|tell\s+me\s+more|what\s+(?:can|is|are)|how\s+(?:is|far)|why\s+is|where\s+is)\b', clean_msg)
     ) and not re.search(r'\b(replace|swap|remove|delete|add|move|shift|reschedule)\b', clean_msg)
 
@@ -488,6 +489,7 @@ def analyze_user_message(
     # Distinguish casual inquiries/questions
     is_question = bool(
         clean_msg.endswith("?")
+        or re.search(r'\b(what\s+to\s+(?:do|visit|see|eat)|what\s+can\s+(?:i|we)\s+(?:do|visit|see|eat)|where\s+can\s+(?:i|we)\s+go|any\s+(?:suggestions|recommendations)|tell\s+me\s+about)\b', clean_msg)
         or re.search(r'^(?:are\s+there|is\s+there|can\s+you\s+tell\s+me|tell\s+me\s+more|what\s+(?:can|is|are)|how\s+(?:is|far)|why\s+is|where\s+is)\b', clean_msg)
     ) and not re.search(r'\b(replace|swap|remove|delete|add|move|shift|reschedule)\b', clean_msg)
 

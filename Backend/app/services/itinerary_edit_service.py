@@ -1,6 +1,7 @@
 """Constrained edits to the structured schedule, shared by maps and itinerary text."""
 import copy
 import json
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -652,45 +653,79 @@ KNOWN_DESTINATION_CANDIDATES = {
         "history": [
             {"name": "Golconda Fort", "category": "monument", "lat": 17.3833, "lon": 78.4011, "opening_hours": "09:00-17:30", "description": "Historic fortified citadel and early capital of the Qutb Shahi dynasty.", "duration_minutes": 120},
             {"name": "Charminar", "category": "monument", "lat": 17.3616, "lon": 78.4747, "opening_hours": "09:30-17:30", "description": "16th-century mosque with four grand minarets, a symbol of Hyderabad.", "duration_minutes": 60},
-            {"name": "Chowmahalla Palace", "category": "monument", "lat": 17.3578, "lon": 78.4717, "opening_hours": "10:00-17:00", "description": "Opulent 18th-century palace of the Nizams of Hyderabad.", "duration_minutes": 90}
+            {"name": "Chowmahalla Palace", "category": "monument", "lat": 17.3578, "lon": 78.4717, "opening_hours": "10:00-17:00", "description": "Opulent 18th-century palace of the Nizams of Hyderabad.", "duration_minutes": 90},
+            {"name": "Qutb Shahi Tombs", "category": "monument", "lat": 17.3917, "lon": 78.3961, "opening_hours": "09:30-16:30", "description": "Grand domed mausoleums of the seven Qutb Shahi rulers in Ibrahim Bagh.", "duration_minutes": 75},
+            {"name": "Salar Jung Museum", "category": "museum", "lat": 17.3713, "lon": 78.4804, "opening_hours": "10:00-17:00", "description": "Major art museum with one of the largest one-man collections in the world.", "duration_minutes": 120},
+            {"name": "Mecca Masjid", "category": "monument", "lat": 17.3606, "lon": 78.4735, "opening_hours": "04:00-21:30", "description": "One of the oldest and largest mosques in India commissioned by Muhammad Quli Qutb Shah.", "duration_minutes": 45}
+        ],
+        "attraction": [
+            {"name": "Hussain Sagar Lake & Buddha Statue", "category": "nature", "lat": 17.4239, "lon": 78.4738, "opening_hours": "08:00-22:00", "description": "Scenic heart-shaped lake featuring the giant monolithic Buddha statue in the center.", "duration_minutes": 90},
+            {"name": "Birla Mandir Hyderabad", "category": "temple", "lat": 17.4062, "lon": 78.4691, "opening_hours": "07:00-21:00", "description": "Spectacular white Rajasthani marble temple built atop the Naubat Pahad hill.", "duration_minutes": 60},
+            {"name": "Lumbini Park", "category": "nature", "lat": 17.4156, "lon": 78.4750, "opening_hours": "09:00-21:00", "description": "Waterfront urban park adjacent to Hussain Sagar with laser shows and boat rides.", "duration_minutes": 60},
+            {"name": "Ramoji Film City", "category": "entertainment", "lat": 17.2543, "lon": 78.6808, "opening_hours": "09:00-17:30", "description": "World's largest integrated film studio complex and thematic amusement park.", "duration_minutes": 180},
+            {"name": "Nehru Zoological Park", "category": "nature", "lat": 17.3512, "lon": 78.4503, "opening_hours": "08:30-17:00", "description": "Expansive 380-acre wildlife sanctuary housing rare species and safari park.", "duration_minutes": 120},
+            {"name": "Shilparamam", "category": "culture", "lat": 17.4526, "lon": 78.3776, "opening_hours": "10:30-20:00", "description": "Traditional arts, crafts, and cultural village showcasing Indian heritage and performances.", "duration_minutes": 90}
+        ],
+        "restaurant": [
+            {"name": "Bawarchi Restaurant", "category": "restaurant", "lat": 17.4024, "lon": 78.4988, "opening_hours": "11:30-23:30", "description": "Iconic culinary institution at RTC X Roads renowned for authentic Dum Biryani.", "duration_minutes": 75},
+            {"name": "Paradise Biryani", "category": "restaurant", "lat": 17.4416, "lon": 78.4872, "opening_hours": "11:00-23:00", "description": "Historic dining brand in Secunderabad serving traditional Hyderabadi cuisine.", "duration_minutes": 75},
+            {"name": "Jewel of Nizam - The Minar", "category": "restaurant", "lat": 17.3484, "lon": 78.3683, "opening_hours": "12:30-23:30", "description": "Fine-dining tower restaurant serving royal Nizami cuisine with Osman Sagar views.", "duration_minutes": 90},
+            {"name": "The Water Front", "category": "restaurant", "lat": 17.4267, "lon": 78.4683, "opening_hours": "12:00-23:30", "description": "Lakeside dining pavilion overlooking Hussain Sagar with North Indian and Mughlai dishes.", "duration_minutes": 75}
         ]
     }
 }
 
 
-def resolve_candidate_place(
+def resolve_candidate_places(
     destination: str,
     replacement_name: Optional[str],
     replacement_category: Optional[str],
     current_stops: List[Dict[str, Any]],
     trip_catalog: Optional[List[Dict[str, Any]]] = None
-) -> Optional[Dict[str, Any]]:
-    """Resolves or discovers a realistic candidate attraction or restaurant for itinerary replacement/addition."""
+) -> List[Dict[str, Any]]:
+    """Resolves or discovers realistic candidate attractions or restaurants for itinerary replacement/addition, ensuring multi-day uniqueness."""
     dest_clean = destination.lower().split(',')[0].strip()
     catalog = trip_catalog or []
 
+    # Check if replacement_name is a generic placeholder rather than a specific venue
+    if replacement_name:
+        clean_repl = re.sub(r'[^\w\s]', '', replacement_name.lower().strip())
+        generic_placeholders = {
+            "any attraction", "an attraction", "attraction", "attractions", "something",
+            "a place", "any place", "sightseeing", "dinner", "an attraction or dinner",
+            "attraction or dinner", "a restaurant", "restaurant", "food", "dinner spot",
+            "lunch", "meal", "somewhere", "any spot", "a spot", "another attraction",
+            "new attraction", "some attraction", "another place", "some place"
+        }
+        if clean_repl in generic_placeholders:
+            if any(w in clean_repl for w in ("dinner", "restaurant", "lunch", "food", "meal")):
+                replacement_category = "restaurant"
+            else:
+                replacement_category = "attraction"
+            replacement_name = None
+
     # 1. If explicit replacement name is provided:
     if replacement_name:
-        # Check if already in current itinerary
+        # Check if already in current multi-day itinerary
         if is_place_already_scheduled({"name": replacement_name}, current_stops):
             raise ValueError(f"'{replacement_name}' is already included in this itinerary.")
 
         # Check trip catalog
         for item in catalog:
             if clean_place_name(item.get("name") or "") == clean_place_name(replacement_name):
-                return copy.deepcopy(item)
+                return [copy.deepcopy(item)]
 
         # Check known destination candidates
         dest_dict = KNOWN_DESTINATION_CANDIDATES.get(dest_clean, {})
         for cat_list in dest_dict.values():
             for c in cat_list:
                 if clean_place_name(c.get("name") or "") == clean_place_name(replacement_name):
-                    return copy.deepcopy(c)
+                    return [copy.deepcopy(c)]
 
         # Live / Nominatim enrichment
         enriched = verify_and_enrich_place(replacement_name, destination)
         if enriched and enriched.get("lat") and enriched.get("lon"):
-            return {
+            return [{
                 "name": replacement_name,
                 "title": replacement_name,
                 "category": replacement_category or "attraction",
@@ -701,7 +736,7 @@ def resolve_candidate_place(
                 "image_url": enriched.get("image_url"),
                 "opening_hours": enriched.get("opening_hours") or "09:00-18:00",
                 "duration_minutes": 90
-            }
+            }]
 
         # Fallback with destination anchor coordinates if enrichment was network-restricted
         dest_coords = {
@@ -710,7 +745,7 @@ def resolve_candidate_place(
             "hyderabad": (17.3850, 78.4867)
         }
         fallback_coord = dest_coords.get(dest_clean, (15.4989, 73.8278))
-        return {
+        return [{
             "name": replacement_name,
             "title": replacement_name,
             "category": replacement_category or "attraction",
@@ -719,30 +754,63 @@ def resolve_candidate_place(
             "description": f"Visit {replacement_name}.",
             "opening_hours": "09:00-18:00",
             "duration_minutes": 90
-        }
+        }]
 
-    # 2. If replacement category is provided:
+    # 2. If replacement category is provided (or generic):
     cat = (replacement_category or "attraction").lower()
-    
-    # Check known candidates for destination
-    dest_dict = KNOWN_DESTINATION_CANDIDATES.get(dest_clean, {})
-    cat_candidates = dest_dict.get(cat) or []
-    if not cat_candidates:
-        # Check synonyms
-        for k, v in dest_dict.items():
-            if k in cat or cat in k:
-                cat_candidates = v
-                break
+    is_restaurant = any(w in cat for w in ("restaurant", "food", "dining", "dinner", "lunch", "cafe", "meal"))
 
-    for cand in cat_candidates:
-        if not is_place_already_scheduled(cand, current_stops):
-            return copy.deepcopy(cand)
+    candidates = []
+    dest_dict = KNOWN_DESTINATION_CANDIDATES.get(dest_clean, {})
+
+    if is_restaurant:
+        cat_candidates = dest_dict.get("restaurant") or []
+        for cand in cat_candidates:
+            if not is_place_already_scheduled(cand, current_stops):
+                candidates.append(cand)
+    elif cat in dest_dict:
+        # User specified a specific known category like "temple", "beach", "history"
+        for cand in dest_dict[cat]:
+            if not is_place_already_scheduled(cand, current_stops):
+                candidates.append(cand)
+        # Also include other attraction categories as fallbacks
+        for k, v in dest_dict.items():
+            if k != cat and k not in {"restaurant", "cafe", "food", "dining"}:
+                for cand in v:
+                    if not is_place_already_scheduled(cand, current_stops):
+                        candidates.append(cand)
+    else:
+        # Generic attraction request ("attraction", "sightseeing", "nature", etc.)
+        # Check matching keys first
+        for k, v in dest_dict.items():
+            if k not in {"restaurant", "cafe", "food", "dining"} and (k in cat or cat in k):
+                for cand in v:
+                    if not is_place_already_scheduled(cand, current_stops):
+                        candidates.append(cand)
+        # Then all other non-restaurant categories
+        for k, v in dest_dict.items():
+            if k not in {"restaurant", "cafe", "food", "dining"} and not (k in cat or cat in k):
+                for cand in v:
+                    if not is_place_already_scheduled(cand, current_stops):
+                        candidates.append(cand)
 
     # Check trip catalog matching category
     for item in catalog:
-        if cat in (item.get("category") or "").lower() or cat in (item.get("type") or "").lower():
-            if not is_place_already_scheduled(item, current_stops):
-                return copy.deepcopy(item)
+        item_cat = (item.get("category") or "").lower()
+        item_type = (item.get("type") or "").lower()
+        if is_restaurant:
+            if any(w in item_cat or w in item_type for w in ("restaurant", "food", "dining", "dinner", "lunch", "cafe")):
+                if not is_place_already_scheduled(item, current_stops):
+                    candidates.append(item)
+        else:
+            if not any(w in item_cat or w in item_type for w in ("restaurant", "food", "dining", "cafe")):
+                if not is_place_already_scheduled(item, current_stops):
+                    candidates.append(item)
+
+    # Deduplicate candidates by physical place
+    unique_candidates = deduplicate_place_list(candidates)
+    if unique_candidates:
+        return [copy.deepcopy(c) for c in unique_candidates]
 
     # Fallback to attraction discovery node
     try:
@@ -754,13 +822,28 @@ def resolve_candidate_place(
             "pace": "balanced",
             "candidate_count": 6
         })
+        disc_candidates = []
         for disc in (discovery_out.get("attractions") or []):
             if not is_place_already_scheduled(disc, current_stops):
-                return copy.deepcopy(disc)
+                disc_candidates.append(copy.deepcopy(disc))
+        if disc_candidates:
+            return disc_candidates
     except Exception:
         pass
 
-    return None
+    return []
+
+
+def resolve_candidate_place(
+    destination: str,
+    replacement_name: Optional[str],
+    replacement_category: Optional[str],
+    current_stops: List[Dict[str, Any]],
+    trip_catalog: Optional[List[Dict[str, Any]]] = None
+) -> Optional[Dict[str, Any]]:
+    """Resolves a single realistic candidate attraction or restaurant for itinerary replacement/addition."""
+    places = resolve_candidate_places(destination, replacement_name, replacement_category, current_stops, trip_catalog)
+    return places[0] if places else None
 
 
 def generate_single_activity_revision_proposal(
@@ -827,46 +910,70 @@ def generate_single_activity_revision_proposal(
         if stop_idx is None:
             raise ValueError(f"'{target_stop.get('name')}' was not found on Day {day_number}.")
 
-        new_place = resolve_candidate_place(dest, replacement_name, replacement_cat, all_current_stops, trip_catalog)
-        if not new_place:
+        other_stops = [s for s in all_current_stops if s.get("id") != target_stop.get("id")]
+        candidate_places = resolve_candidate_places(dest, replacement_name, replacement_cat, other_stops, trip_catalog)
+        if target_stop:
+            candidate_places = [c for c in candidate_places if not is_same_physical_place(c, target_stop)]
+        if not candidate_places:
             raise ValueError(f"Could not find a suitable replacement {replacement_name or replacement_cat or 'place'}.")
 
-        cat = str(new_place.get("category") or "").lower()
-        place_type = new_place.get("type") or ("restaurant" if any(w in cat for w in ("restaurant", "food", "cafe", "dining")) else "attraction")
-        duration = int(new_place.get("duration_minutes") or target_stop.get("duration_minutes") or 90)
+        best_stops = None
+        best_new_stop = None
+        best_place_name = None
+        best_place_type = None
+        best_error = None
 
-        start_time_val = target_stop.get("start_time", "10:00")
-        start_min = parse_hhmm_to_minutes(start_time_val, 600)
-        end_min = start_min + duration
+        for new_place in candidate_places:
+            cat = str(new_place.get("category") or "").lower()
+            place_type = new_place.get("type") or ("restaurant" if any(w in cat for w in ("restaurant", "food", "cafe", "dining")) else "attraction")
+            duration = int(new_place.get("duration_minutes") or target_stop.get("duration_minutes") or 90)
 
-        new_stop = {
-            "id": generate_persistent_activity_id(place_type, new_place["name"], new_place.get("place_id")),
-            "title": new_place["name"],
-            "name": new_place["name"],
-            "type": place_type,
-            "category": new_place.get("category") or place_type,
-            "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
-            "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
-            "address": new_place.get("address"),
-            "description": new_place.get("description") or f"Visit {new_place['name']}.",
-            "image_url": new_place.get("image_url"),
-            "opening_hours": new_place.get("opening_hours") or "09:00-18:00",
-            "duration_minutes": duration,
-            "start_time": minutes_to_hhmm(start_min),
-            "end_time": minutes_to_hhmm(end_min),
-            "time": format_time_range(start_min, end_min),
-            "travel_mode": "driving"
-        }
+            start_time_val = target_stop.get("start_time", "10:00")
+            start_min = parse_hhmm_to_minutes(start_time_val, 600)
+            end_min = start_min + duration
 
-        stops[stop_idx] = new_stop
-        reflow_day(revised_trip, target_day, stops, allow_hotel_shift=True)
+            trial_stops = [dict(s) for s in stops]
+            new_stop = {
+                "id": generate_persistent_activity_id(place_type, new_place["name"], new_place.get("place_id")),
+                "title": new_place["name"],
+                "name": new_place["name"],
+                "type": place_type,
+                "category": new_place.get("category") or place_type,
+                "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
+                "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
+                "address": new_place.get("address"),
+                "description": new_place.get("description") or f"Visit {new_place['name']}.",
+                "image_url": new_place.get("image_url"),
+                "opening_hours": new_place.get("opening_hours") or "09:00-18:00",
+                "duration_minutes": duration,
+                "start_time": minutes_to_hhmm(start_min),
+                "end_time": minutes_to_hhmm(end_min),
+                "time": format_time_range(start_min, end_min),
+                "travel_mode": "driving"
+            }
+            trial_stops[stop_idx] = new_stop
+            try:
+                reflow_day(revised_trip, target_day, trial_stops, allow_hotel_shift=True)
+                best_stops = trial_stops
+                best_new_stop = new_stop
+                best_place_name = new_stop["name"]
+                best_place_type = place_type
+                break
+            except Exception as e:
+                best_error = e
+
+        if not best_stops:
+            raise best_error or ValueError(f"Could not fit a suitable replacement into Day {day_number}.")
+
+        stops = best_stops
+        new_stop = best_new_stop
         target_day["stops"] = stops
         target_day["activities"] = stops
 
         # Update catalog
-        catalog_key = "restaurants" if place_type == "restaurant" else "attractions"
+        catalog_key = "restaurants" if best_place_type == "restaurant" else "attractions"
         cat_list = revised_trip.setdefault(catalog_key, [])
-        if not any(c.get("name") == new_stop["name"] for c in cat_list):
+        if not any(c.get("name") == best_place_name for c in cat_list):
             cat_list.append(new_stop)
 
         explanation = f"Replaced {old_place_name} with {new_stop['name']} on Day {day_number}."
@@ -878,86 +985,130 @@ def generate_single_activity_revision_proposal(
         if not target_day:
             raise ValueError(f"Day {target_day_num} does not exist in this itinerary.")
 
-        new_place = resolve_candidate_place(dest, replacement_name, replacement_cat, all_current_stops, trip_catalog)
-        if not new_place:
+        candidate_places = resolve_candidate_places(dest, replacement_name, replacement_cat, all_current_stops, trip_catalog)
+        if not candidate_places:
             raise ValueError(f"Could not find a suitable attraction or restaurant to add to Day {target_day_num}.")
 
-        place_name = new_place.get("name") or replacement_name or "Sightseeing Spot"
-        if is_place_already_scheduled({"name": place_name, **new_place}, all_current_stops):
-            raise ValueError(f"'{place_name}' is already included in this itinerary.")
-
-        cat = str(new_place.get("category") or "").lower()
-        place_type = new_place.get("type") or ("restaurant" if any(w in cat for w in ("restaurant", "food", "cafe", "dining")) else "attraction")
-        duration = int(new_place.get("duration_minutes") or 90)
-
         stops = target_day.get("stops") or target_day.get("activities") or []
-        if target_slot == "morning":
-            insert_idx = 0 if not stops or stops[0].get("type") != "breakfast" else 1
-            init_start = 600
-        elif target_slot == "before_lunch":
-            lunch_idx = next((i for i, s in enumerate(stops) if s.get("type") == "restaurant"), len(stops))
-            insert_idx = max(0, lunch_idx)
-            init_start = 600
-        elif place_type == "attraction":
-            insert_idx = len(stops)
-            for i, s in enumerate(stops):
-                st = parse_hhmm_to_minutes(s.get('start_time', '12:00'), 720)
-                stype = s.get('type')
-                if i > 0 and (
-                    (stype in {'hotel', 'hotel_checkout'} and st >= 960)
-                    or (stype == 'airport' and i == len(stops) - 1)
-                    or (stype == 'restaurant' and st >= 1020)
-                ):
-                    insert_idx = i
+        best_stops = None
+        best_new_stop = None
+        best_place_name = None
+        best_place_type = None
+        best_error = None
+
+        for new_place in candidate_places:
+            place_name = new_place.get("name") or replacement_name or "Sightseeing Spot"
+            if is_place_already_scheduled({"name": place_name, **new_place}, all_current_stops):
+                continue
+
+            cat = str(new_place.get("category") or "").lower()
+            place_type = new_place.get("type") or ("restaurant" if any(w in cat for w in ("restaurant", "food", "cafe", "dining")) else "attraction")
+            duration = int(new_place.get("duration_minutes") or 90)
+
+            candidate_indices = []
+            if target_slot == "morning":
+                m_idx = 0 if not stops or stops[0].get("type") != "breakfast" else 1
+                candidate_indices.append((m_idx, 570))
+            elif target_slot == "before_lunch":
+                lunch_idx = next((i for i, s in enumerate(stops) if s.get("type") == "restaurant"), len(stops))
+                candidate_indices.append((max(0, lunch_idx), 660))
+            elif target_slot == "evening":
+                ins_idx = len(stops)
+                for i, s in enumerate(stops):
+                    st = parse_hhmm_to_minutes(s.get('start_time', '12:00'), 720)
+                    stype = s.get('type')
+                    if i > 0 and (
+                        (stype in {'hotel', 'hotel_checkout'} and st >= 1140)
+                        or (stype == 'airport' and i == len(stops) - 1 and st >= 1140)
+                    ):
+                        ins_idx = i
+                        break
+                init_s = 1080
+                if ins_idx > 0:
+                    prev_e = parse_hhmm_to_minutes(stops[ins_idx - 1].get("end_time", "17:00"), 1020)
+                    init_s = max(1020, prev_e + 20)
+                candidate_indices.append((ins_idx, init_s))
+            elif place_type == "attraction":
+                ins_idx = len(stops)
+                for i, s in enumerate(stops):
+                    st = parse_hhmm_to_minutes(s.get('start_time', '12:00'), 720)
+                    stype = s.get('type')
+                    if i > 0 and (
+                        (stype in {'hotel', 'hotel_checkout'} and st >= 960)
+                        or (stype == 'airport' and i == len(stops) - 1 and st >= 960)
+                        or (stype == 'restaurant' and st >= 1020)
+                    ):
+                        ins_idx = i
+                        break
+                init_s = 600
+                if ins_idx > 0:
+                    prev_e = parse_hhmm_to_minutes(stops[ins_idx - 1].get("end_time", "12:00"), 720)
+                    init_s = max(600, prev_e + 20)
+                candidate_indices.append((ins_idx, init_s))
+                m_idx = 0 if not stops or stops[0].get("type") != "breakfast" else 1
+                if m_idx != ins_idx:
+                    candidate_indices.append((m_idx, 570))
+                l_idx = next((i for i, s in enumerate(stops) if s.get("type") == "restaurant"), len(stops))
+                if l_idx not in {ins_idx, m_idx}:
+                    candidate_indices.append((l_idx, 660))
+            else:
+                ins_idx = len(stops)
+                if stops and stops[-1].get("type") in {"hotel", "airport"} and len(stops) > 1:
+                    ins_idx = len(stops) - 1
+                init_s = 600
+                if ins_idx > 0:
+                    prev_e = parse_hhmm_to_minutes(stops[ins_idx - 1].get("end_time", "10:00"), 600)
+                    init_s = prev_e + 30
+                candidate_indices.append((ins_idx, init_s))
+
+            for c_idx, c_start in candidate_indices:
+                trial_stops = [dict(s) for s in stops]
+                new_stop = {
+                    "id": generate_persistent_activity_id(place_type, place_name, new_place.get("place_id")),
+                    "title": place_name,
+                    "name": place_name,
+                    "type": place_type,
+                    "category": new_place.get("category") or place_type,
+                    "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
+                    "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
+                    "address": new_place.get("address"),
+                    "description": new_place.get("description") or f"Visit {place_name}.",
+                    "image_url": new_place.get("image_url"),
+                    "opening_hours": new_place.get("opening_hours") or "09:00-18:00",
+                    "duration_minutes": duration,
+                    "start_time": minutes_to_hhmm(c_start),
+                    "end_time": minutes_to_hhmm(c_start + duration),
+                    "time": format_time_range(c_start, c_start + duration),
+                    "travel_mode": "driving"
+                }
+                trial_stops.insert(c_idx, new_stop)
+                try:
+                    reflow_day(revised_trip, target_day, trial_stops, allow_hotel_shift=True)
+                    best_stops = trial_stops
+                    best_new_stop = new_stop
+                    best_place_name = place_name
+                    best_place_type = place_type
                     break
-            if insert_idx > 0:
-                prev = stops[insert_idx - 1]
-                prev_end = parse_hhmm_to_minutes(prev.get("end_time", "12:00"), 720)
-                init_start = max(600, prev_end + 20)
-            else:
-                init_start = 600
-        else:
-            insert_idx = len(stops)
-            if stops and stops[-1].get("type") in {"hotel", "airport"} and len(stops) > 1:
-                insert_idx = len(stops) - 1
-            if insert_idx > 0:
-                prev = stops[insert_idx - 1]
-                prev_end = parse_hhmm_to_minutes(prev.get("end_time", "10:00"), 600)
-                init_start = prev_end + 30
-            else:
-                init_start = 600
-        init_end = init_start + duration
+                except Exception as e:
+                    best_error = e
 
-        new_stop = {
-            "id": generate_persistent_activity_id(place_type, place_name, new_place.get("place_id")),
-            "title": place_name,
-            "name": place_name,
-            "type": place_type,
-            "category": new_place.get("category") or place_type,
-            "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
-            "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
-            "address": new_place.get("address"),
-            "description": new_place.get("description") or f"Visit {place_name}.",
-            "image_url": new_place.get("image_url"),
-            "opening_hours": new_place.get("opening_hours") or "09:00-18:00",
-            "duration_minutes": duration,
-            "start_time": minutes_to_hhmm(init_start),
-            "end_time": minutes_to_hhmm(init_end),
-            "time": format_time_range(init_start, init_end),
-            "travel_mode": "driving"
-        }
+            if best_stops:
+                break
 
-        stops.insert(insert_idx, new_stop)
-        reflow_day(revised_trip, target_day, stops, allow_hotel_shift=True)
+        if not best_stops:
+            raise best_error or ValueError(f"Could not fit a suitable new attraction into Day {target_day_num} opening hours.")
+
+        stops = best_stops
+        new_stop = best_new_stop
         target_day["stops"] = stops
         target_day["activities"] = stops
 
-        catalog_key = "restaurants" if place_type == "restaurant" else "attractions"
+        catalog_key = "restaurants" if best_place_type == "restaurant" else "attractions"
         cat_list = revised_trip.setdefault(catalog_key, [])
-        if not any(c.get("name") == place_name for c in cat_list):
+        if not any(c.get("name") == best_place_name for c in cat_list):
             cat_list.append(new_stop)
 
-        explanation = f"Added {place_name} to Day {target_day_num}."
+        explanation = f"Added {best_place_name} to Day {target_day_num}."
 
     # --- ACTION: REMOVE ---
     elif action == "remove":
@@ -1054,6 +1205,11 @@ def generate_single_activity_revision_proposal(
                 added.append(p_name)
 
     removed = []
+    if action in {"remove", "replace"} and old_place_name:
+        clean_old = clean_display_name(old_place_name)
+        if clean_old:
+            removed.append(clean_old)
+
     for o in orig_stops:
         if not any(is_same_physical_place(o, p) for p in prop_stops):
             o_name = clean_display_name(o.get("name") or o.get("title") or "")

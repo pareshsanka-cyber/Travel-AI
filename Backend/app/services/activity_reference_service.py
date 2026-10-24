@@ -184,15 +184,6 @@ def resolve_target_in_itinerary(
 
     # 3. Detect Action Type
     action = None
-    if re.search(r'\b(replace|swap|substitute)\b', clean_msg) or re.search(r'\bchange\s+.+?\s+to\b', clean_msg):
-        action = "replace"
-    elif re.search(r'\b(add|put|insert|include|schedule)\b', clean_msg):
-        action = "add"
-    elif re.search(r'\b(remove|delete|drop|take\s+out|take\s+away|don\'t\s+want|do\s+not\s+want)\b', clean_msg):
-        action = "remove"
-    elif re.search(r'\b(move|shift|reschedule)\b', clean_msg) or re.search(r'\bkeep\s+.+?\s+but\s+shift\b', clean_msg) or re.search(r'\bvisit\s+.+?\s+before\s+lunch\b', clean_msg):
-        action = "move"
-    
     # Check for overall focus changes (e.g. "both temples and beaches", "make it more focused on beaches")
     multi_focus_pattern = bool(re.search(
         r'\b(?:'
@@ -203,15 +194,23 @@ def resolve_target_in_itinerary(
         r'as\s+well\s+as|'
         r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)\s+to|'
         r'now\s+change\s+it\s+to|'
+        r'change\s+it\s+to|'
         r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)\s+(?:more|a\s+mixture)|'
         r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with'
         r')\b',
         clean_msg
     ))
-    if multi_focus_pattern and not action:
+    if multi_focus_pattern:
         action = "focus"
-    elif multi_focus_pattern and action == "replace" and not any(k in clean_msg for k in ("beach", "temple", "fort", "museum", "church", "restaurant")) and not re.search(r'\bday\s*\d+\b', clean_msg):
-        action = "focus"
+    elif not action:
+        if re.search(r'\b(replace|swap|substitute)\b', clean_msg) or re.search(r'\bchange\s+.+?\s+to\b', clean_msg):
+            action = "replace"
+        elif re.search(r'\b(add|put|insert|include|schedule)\b', clean_msg):
+            action = "add"
+        elif re.search(r'\b(remove|delete|drop|take\s+out|take\s+away|don\'t\s+want|do\s+not\s+want)\b', clean_msg):
+            action = "remove"
+        elif re.search(r'\b(move|shift|reschedule)\b', clean_msg) or re.search(r'\bkeep\s+.+?\s+but\s+shift\b', clean_msg) or re.search(r'\bvisit\s+.+?\s+before\s+lunch\b', clean_msg):
+            action = "move"
 
     days_route = trip_doc.get("route_details", {}).get("day_by_day_route", [])
     exec_state = trip_doc.get("execution_state") or {}
@@ -416,9 +415,10 @@ def resolve_target_in_itinerary(
         if raw_repl:
             # Clean trailing punctuation and modifiers
             raw_repl = re.sub(r'[\?\.\!\,\;]+$', '', raw_repl).strip()
-            raw_repl = re.sub(r'\s+(?:on|to|into)\s+day\s*\d+.*$', '', raw_repl).strip()
-            raw_repl = re.sub(r'\s+instead.*$', '', raw_repl).strip()
-            raw_repl = re.sub(r'^(?:another|a|an|the|some|good|famous|local)\s+', '', raw_repl, flags=re.IGNORECASE).strip()
+            raw_repl = re.sub(r'\s+(?:on|to|into)\s+day\s*\d+.*$', '', raw_repl, flags=re.IGNORECASE).strip()
+            raw_repl = re.sub(r'\b(?:at|on|for|in)\s+(?:day\s*\d+|evening|morning|afternoon|night)\b.*$', '', raw_repl, flags=re.IGNORECASE).strip()
+            raw_repl = re.sub(r'\s+instead.*$', '', raw_repl, flags=re.IGNORECASE).strip()
+            raw_repl = re.sub(r'^(?:another|a|an|the|some|good|famous|local|any)\s+', '', raw_repl, flags=re.IGNORECASE).strip()
             
             repl_cat_hint = detect_category_hint(raw_repl)
             if repl_cat_hint:
@@ -427,10 +427,12 @@ def resolve_target_in_itinerary(
             # If it's more than pure generic words, treat as specific replacement name
             words = [re.sub(r'[^\w]', '', w) for w in raw_repl.split() if w]
             generic_words = {
+                "any", "some", "a", "an", "the", "one", "new", "another",
                 "temple", "temples", "beach", "beaches", "fort", "museum", "restaurant", "church",
                 "nature", "waterfall", "waterfalls", "historical", "historic", "heritage", "place",
-                "spot", "activity", "attraction", "seafood", "food", "dining", "culture", "monument",
-                "good", "famous", "local", "another"
+                "spot", "activity", "attraction", "attractions", "seafood", "food", "dining", "culture", "monument",
+                "good", "famous", "local", "dinner", "lunch", "breakfast", "cafe", "meal", "sightseeing",
+                "visit", "something", "things", "to", "do", "see", "at", "in", "for", "or", "and"
             }
             if words and not all(w.lower() in generic_words for w in words):
                 replacement_name = raw_repl.title()
