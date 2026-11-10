@@ -10,7 +10,8 @@ import {
   ChatMessage,
   ApiStatusState,
   SavedTripSnippet,
-  ConversationHistoryItem
+  ConversationHistoryItem,
+  ItinerarySnapshot
 } from '../types';
 import {
   checkFastApiHealth,
@@ -38,6 +39,8 @@ import {
   deleteTrip,
   fetchTrip,
   saveTripSelections,
+  fetchTripRevisions,
+  restoreTripRevision,
   ApiError,
   apiFetch,
 } from '../services/api';
@@ -442,15 +445,27 @@ export function useTravelApi() {
   // Handler: Send Chat message with return result for trip creation verification
   const handleSendMessage = async (
     textToSend?: string,
-    recovery?: PendingPlanningRequest,
+    recovery?: PendingPlanningRequest | Record<string, any>,
+    contextOverride?: Record<string, any>,
   ): Promise<{ success: boolean; trip: any | null; error?: string }> => {
     const text = (typeof textToSend === 'string' && textToSend.trim() !== '' ? textToSend : promptInput).trim();
     if (!text) {
       return { success: false, trip: null, error: 'Message cannot be empty.' };
     }
+    if (planningProgress?.status === 'succeeded') {
+      setPlanningProgress(null);
+    }
     if (sendInFlight.current || (pendingPlanning.current && !recovery)) {
       return { success: false, trip: null, error: 'A request is currently in progress. Please wait.' };
     }
+
+    const isRecoveryRequest = Boolean(
+      recovery && typeof recovery === 'object' && ('id' in recovery || 'stages' in recovery || 'kind' in recovery)
+    );
+    const effectiveRecovery = isRecoveryRequest ? (recovery as PendingPlanningRequest) : undefined;
+    const effectiveContextOverride = !isRecoveryRequest && recovery
+      ? (recovery as Record<string, any>)
+      : contextOverride;
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -460,12 +475,19 @@ export function useTravelApi() {
     };
 
     sendInFlight.current = true;
-    if (!recovery) { setMessages((prev) => [...prev, userMsg]); setPromptInput(''); }
+    if (!effectiveRecovery) { setMessages((prev) => [...prev, userMsg]); setPromptInput(''); }
     setIsSendingMessage(true);
 
     // Evaluate trip planning constraints
-    const checkResult = checkTripPlanningConstraints(text, recovery?.context || travelContext);
-    if (recovery) checkResult.mergedContext = recovery.context;
+    const activeContext = effectiveContextOverride
+      ? { ...(travelContext || {}), ...effectiveContextOverride }
+      : (effectiveRecovery?.context || travelContext);
+    const checkResult = checkTripPlanningConstraints(text, activeContext);
+    if (effectiveContextOverride) {
+      checkResult.mergedContext = { ...activeContext, ...(checkResult.mergedContext || {}) };
+    } else if (effectiveRecovery) {
+      checkResult.mergedContext = effectiveRecovery.context;
+    }
     
     // Always immediately update travelContext with any extracted slots (e.g. destination & dates)
     // so preference bar updates instantly in real time
@@ -589,7 +611,15 @@ export function useTravelApi() {
       fetchConversationsList().then(setConversations).catch(() => {});
 
       if (tracked) {
-        clearPendingPlanning(tracked.id); pendingPlanning.current = null; setPlanningProgress(null);
+        clearPendingPlanning(tracked.id);
+        pendingPlanning.current = null;
+        setPlanningProgress({
+          request_id: tracked.id,
+          status: 'succeeded',
+          kind: 'planning',
+          stages: {},
+          trip_id: generatedTrip?.id,
+        });
       }
 
       return { success: true, trip: generatedTrip };
@@ -646,7 +676,7 @@ export function useTravelApi() {
     return () => { window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', reconnect); };
   }, [planningProgress?.status]);
   const handleDismissPlanning = async () => {
-    if (!planningProgress || !['failed', 'interrupted'].includes(planningProgress.status) || sendInFlight.current) return;
+    if (!planningProgress || !['failed', 'interrupted', 'succeeded'].includes(planningProgress.status) || sendInFlight.current) return;
     if (planningProgress.trip_id) {
       try { syncTripState(await fetchTrip(planningProgress.trip_id)); setPlannerView('trip'); }
       catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open the saved trip.'); return; }
@@ -664,7 +694,7 @@ export function useTravelApi() {
   }, [isLoadingConversations, isLoadingTrips]);
 
   // Handler: Select a conversation from Sidebar
-  const handleSelectConversation = async (conversationId: string, expectedTripId?: string) => {
+  const handleSelectConversation = async (conversationId: string, expectedTripId?: string, switchView = true) => {
     if (isSendingMessage || pendingPlanning.current) { setErrorMessage('Check the current request before switching conversations.'); return false; }
     const request = ++conversationLoad.current;
     try {
@@ -675,14 +705,42 @@ export function useTravelApi() {
       if (request !== conversationLoad.current) return false;
       setCurrentConversationId(conversationId);
       localStorage.setItem('TRAVELAI_CONVERSATION_ID', conversationId);
-      setMessages(detail.messages?.length ? detail.messages.map((m: any, index: number) => ({
-        id: `msg-${conversationId}-${index}`, sender: m.role === 'user' ? 'user' : 'assistant', text: m.content || '',
-        timestamp: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
-      })) : [{ ...createNewChatWelcomeMessage(), text: expectedTripId ? `What would you like to change about your ${detail.travel_context?.destination || 'saved'} trip?` : 'Tell me about the trip you would like to plan.' }]);
+      setMessages(detail.messages?.length ? detail.messages.map((m: any, index: number) => {
+        let richContent = undefined;
+        if (m.structured_data?.proposal_id) {
+          const sd = m.structured_data;
+          richContent = {
+            revisionProposal: {
+              proposalId: sd.proposal_id,
+              tripId: sd.trip_id || detail.current_trip_id || '',
+              destination: sd.destination || detail.travel_context?.destination || 'Destination',
+              days: sd.days || detail.travel_context?.days || 3,
+              expectedRevision: sd.expected_revision ?? 1,
+              focusDescription: sd.focus_description || '',
+              explanation: sd.explanation || '',
+              added: sd.changes_summary?.added || [],
+              removed: sd.changes_summary?.removed || [],
+              kept: sd.changes_summary?.kept || [],
+              rescheduled: sd.changes_summary?.rescheduled || [],
+              suggestedActions: sd.suggested_actions || [
+                { label: 'Apply Changes', action: 'apply' },
+                { label: 'Keep Current Itinerary', action: 'cancel' }
+              ]
+            }
+          };
+        }
+        return {
+          id: `msg-${conversationId}-${index}`,
+          sender: m.role === 'user' ? 'user' : 'assistant',
+          text: m.content || '',
+          richContent,
+          timestamp: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+        };
+      }) : [{ ...createNewChatWelcomeMessage(), text: "Hi! I'm your TravelAI assistant. What would you like to explore or change in your trip?" }]);
       setTravelContext(detail.travel_context || null);
       setCurrentIntent(detail.current_trip_id ? 'MODIFY_ITINERARY' : 'GENERATE_ITINERARY');
       setPromptInput(sessionStorage.getItem(draftKey(conversationId)) || '');
-      setPlannerView('plan'); setActivePage('planner-studio');
+      if (switchView) { setPlannerView('plan'); setActivePage('planner-studio'); }
       return true;
     } catch (error) {
       if (request === conversationLoad.current) setErrorMessage(error instanceof Error ? error.message : 'Unable to open this conversation.');
@@ -690,14 +748,14 @@ export function useTravelApi() {
     }
   };
 
-  const openTripEdit = async () => {
+  const openTripEdit = async (switchView = true) => {
     if (!trip || isOpeningEdit || isSendingMessage || pendingPlanning.current) return false;
     const id = trip.id;
     setIsOpeningEdit(true);
     try {
       const result = await apiFetch<{ conversation_id: string; current_trip_id: string }>(`/api/trips/${encodeURIComponent(id)}/edit-session`, { method: 'POST' });
       if (activeTripIdRef.current !== id) return false;
-      return await handleSelectConversation(result.conversation_id, id);
+      return await handleSelectConversation(result.conversation_id, id, switchView);
     } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open trip editing.'); return false; }
     finally { setIsOpeningEdit(false); }
   };
@@ -911,6 +969,48 @@ export function useTravelApi() {
     }
   }, [activeTripId, trip, activeTrip]);
 
+  // Revision history & restore
+  const [revisions, setRevisions] = useState<ItinerarySnapshot[]>([]);
+  const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
+
+  const loadRevisions = useCallback(async (tripId?: string) => {
+    const id = tripId || trip?.id;
+    if (!id) return;
+    setIsLoadingRevisions(true);
+    try {
+      const res = await fetchTripRevisions(id);
+      if (res?.revisions) {
+        setRevisions(res.revisions);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingRevisions(false);
+    }
+  }, [trip?.id]);
+
+  useEffect(() => {
+    if (trip?.id) {
+      loadRevisions(trip.id);
+    } else {
+      setRevisions([]);
+    }
+  }, [trip?.id, trip?.revision, loadRevisions]);
+
+  const handleRestoreRevision = async (targetRevision: number): Promise<boolean> => {
+    if (!trip?.id || isSendingMessage || sendInFlight.current) return false;
+    try {
+      const updated = await restoreTripRevision(trip.id, targetRevision, trip.revision || 1);
+      syncTripState(updated);
+      setPlannerView('trip');
+      await loadRevisions(trip.id);
+      return true;
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Unable to restore revision.');
+      return false;
+    }
+  };
+
   useEffect(() => {
     const url = new URL(window.location.href);
     url.searchParams.set('view', plannerView);
@@ -976,7 +1076,10 @@ export function useTravelApi() {
     handleApplyRerouteResult,
     currentIntent,
     setCurrentIntent,
+    revisions,
+    isLoadingRevisions,
+    loadRevisions,
+    handleRestoreRevision,
     refreshData: loadData,
   };
 }
-

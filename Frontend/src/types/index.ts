@@ -424,3 +424,70 @@ export interface PlaceMemoryItem {
   isScheduled?: boolean;
 }
 
+export interface ItinerarySnapshotActivity {
+  id: string;
+  title: string;
+  time?: string;
+  startTime?: string;
+  endTime?: string;
+  duration?: string;
+  location?: string;
+  lat?: number;
+  lon?: number;
+  type?: string;
+  description?: string;
+  category?: string;
+}
+
+export interface ItinerarySnapshotDay {
+  dayNumber: number;
+  date?: string;
+  title?: string;
+  activities: ItinerarySnapshotActivity[];
+}
+
+export interface ItinerarySnapshot {
+  revision: number;
+  timestamp: string;
+  summary: string;
+  trigger: 'initial' | 'ai_edit' | 'reroute' | 'restore';
+  daysCount: number;
+  budgetEstimate?: string;
+  travelersCount?: number;
+  days: ItinerarySnapshotDay[];
+}
+
+export type DiffChangeType = 'added' | 'removed' | 'rescheduled' | 'unchanged';
+
+export interface DiffActivityItem {
+  id: string;
+  title: string;
+  changeType: DiffChangeType;
+  currentTime?: string;
+  previousTime?: string;
+  currentDuration?: string;
+  previousDuration?: string;
+  location?: string;
+  type?: string;
+  description?: string;
+}
+
+export interface DayDiff {
+  dayNumber: number;
+  date?: string;
+  title?: string;
+  items: DiffActivityItem[];
+  addedCount: number;
+  removedCount: number;
+  rescheduledCount: number;
+}
+
+export interface ItineraryDiffResult {
+  fromRevision: number;
+  toRevision: number;
+  dayDiffs: DayDiff[];
+  totalAdded: number;
+  totalRemoved: number;
+  totalRescheduled: number;
+  totalChanges: number;
+}

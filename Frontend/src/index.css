@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *));
 
 :root {
   /* Default (Dark Mode) System Palette */
@@ -238,4 +239,9 @@
 @media (max-height: 700px) {
   .chat-panel > div:first-child { max-height: 44dvh; overflow-y: auto; flex-shrink: 0; }
   .chat-panel > div:nth-last-child(2) { max-height: 48px; }
+}
+
+/* Remove Leaflet attribution control captions */
+.leaflet-control-attribution {
+  display: none !important;
 }

@@ -24,7 +24,7 @@ test('the themed calendar selects a range, disables past dates and only saves on
   await expect(calendar.getByLabel('Calendar month', { exact: true })).toBeInViewport({ ratio: 1 });
   await expect(dialog.getByLabel('End date', { exact: true })).toHaveValue('2030-06-25');
   await expect(calendar.getByRole('button', { name: /20 June 2030/ })).toBeDisabled();
-  await expect(dialog.getByRole('button', { name: 'Apply trip details' })).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: /Apply (?:& generate )?trip details/ })).toBeInViewport();
   await calendar.getByRole('button', { name: /24 June 2030/ }).hover();
   await expect(calendar.getByRole('button', { name: 'Clear dates', exact: true })).toBeInViewport({ ratio: 1 });
   await mkdir('../.cache/travel-calendar', { recursive: true });
@@ -35,7 +35,7 @@ test('the themed calendar selects a range, disables past dates and only saves on
   await expect(dialog.getByLabel('End date', { exact: true })).toHaveValue('2030-06-24');
   await expect(dialog.getByRole('button', { name: 'Open end date calendar' })).toBeFocused();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}'))).toEqual(context);
-  await dialog.getByRole('button', { name: 'Apply trip details' }).click();
+  await dialog.getByRole('button', { name: /Apply (?:& generate )?trip details/ }).click();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}'))).toMatchObject({ start_date: '2030-06-21', end_date: '2030-06-24', days: 4 });
   expect(writes).toBe(0);
 });
@@ -81,7 +81,7 @@ test('month/year selection, clear dates and same-day trips preserve quick shortc
   await expect(dialog.getByLabel('End date', { exact: true })).toHaveValue('2030-06-18');
   await dialog.getByLabel('Start date', { exact: true }).fill('2030-02-30');
   await expect(dialog.getByRole('button', { name: '3 days', exact: true })).toBeDisabled();
-  await dialog.getByRole('button', { name: 'Apply trip details' }).click();
+  await dialog.getByRole('button', { name: /Apply (?:& generate )?trip details/ }).click();
   await expect(dialog.getByRole('alert')).toContainText('Enter valid dates');
 });
 
@@ -98,7 +98,7 @@ test('calendar fits narrow screens and light theme, with reduced motion and fixe
     const grids = calendar.getByRole('grid');
     await expect(grids).toHaveCount(width < 640 ? 1 : 2);
     await expect(calendar.getByLabel('Calendar month', { exact: true })).toBeInViewport({ ratio: 1 });
-    await expect(dialog.getByRole('button', { name: 'Apply trip details' })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: /Apply (?:& generate )?trip details/ })).toBeInViewport();
     await expect(dialog.getByRole('button', { name: 'Close trip details' })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const bounds = (await calendar.boundingBox())!;

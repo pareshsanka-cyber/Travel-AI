@@ -1,11 +1,11 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Minus, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, Minus, Plus, X } from 'lucide-react';
 import { useModalFocus } from '../../hooks/useModalFocus';
 import { useTheme } from '../../context/ThemeContext';
 import { TripDatePicker } from './TripDatePicker';
 import { POPULAR_ORIGINS, DESTINATIONS, destinationKey, matchingDestinations, BUDGET_PRESETS, INTERESTS, createDraft, localDate, addDays,
-  inclusiveDays, interestKey, uniqueInterests, validateDraft, draftUpdates, formatBudget, isoDate, type PlanningContext } from './tripDetailsModel';
+  inclusiveDays, interestKey, uniqueInterests, validateDraft, validateTripPlanningConstraints, draftUpdates, formatBudget, isoDate, type PlanningContext } from './tripDetailsModel';
 
 const input = 'mt-1 w-full min-w-0 rounded-xl border border-surface-container-highest bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant px-3 py-2.5 text-sm focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2';
 function Choice({ selected, children, onClick, disabled, label }: {
@@ -16,8 +16,11 @@ function Choice({ selected, children, onClick, disabled, label }: {
     <span className="w-3 shrink-0">{selected && <Check className="w-3 h-3" aria-hidden="true" />}</span>{children}
   </button>;
 }
-export function TripDetailsDialog({ context, onApply, onClose }: {
-  context: PlanningContext; onApply: (updates: Record<string, any>) => void; onClose: () => void;
+export function TripDetailsDialog({ context, onApply, onClose, onGenerate }: {
+  context: PlanningContext;
+  onApply: (updates: Record<string, any>) => void;
+  onClose: () => void;
+  onGenerate?: (updates: Record<string, any>) => void;
 }) {
   const { theme } = useTheme();
   const panel = useRef<HTMLDivElement>(null), interestInput = useRef<HTMLInputElement>(null);
@@ -58,9 +61,14 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const draft = { ...fields, interests: uniqueInterests([...fields.interests, ...customInterest.split(',')]) };
-    const issue = validateDraft(draft, context);
+    const issue = validateTripPlanningConstraints(draft, context, today);
     if (issue) { setError(issue); return; }
-    onApply(draftUpdates(draft)); onClose();
+    const updates = draftUpdates(draft);
+    onApply(updates);
+    if (onGenerate) {
+      onGenerate(updates);
+    }
+    onClose();
   };
   return createPortal(<div data-travelai-overlay className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6">
     <div className="motion-backdrop absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
@@ -69,7 +77,7 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
       <form onSubmit={submit} noValidate className="flex flex-col min-h-0">
         <header className="shrink-0 p-4 sm:px-6 border-b border-surface-container-highest">
           <div className="flex items-center justify-between gap-3"><h2 id="trip-details-title" className="text-xl font-semibold">Trip details</h2><button type="button" aria-label="Close trip details" onClick={onClose} className="p-2 rounded-lg hover:bg-surface-container-highest"><X className="w-5 h-5" /></button></div>
-          <p id="trip-details-description" className="text-sm text-on-surface-variant mt-1">Choose quick options or enter your own. Applying details updates planning preferences; your saved itinerary stays unchanged.</p>
+          <p id="trip-details-description" className="text-sm text-on-surface-variant mt-1">Configure your trip details. Applying validates required constraints (destination, dates, budget) and generates your itinerary.</p>
         </header>
         <div className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-6" data-trip-details-scroll data-testid="trip-details-body">
           <fieldset className="min-w-0 space-y-3"><legend className="font-semibold mb-2">Route</legend>
@@ -116,8 +124,16 @@ export function TripDetailsDialog({ context, onApply, onClose }: {
           </fieldset>
         </div>
         <footer className="shrink-0 border-t border-surface-container-highest p-4 sm:px-6">
-          {error && <p role="alert" className="text-error text-sm mb-3">{error}</p>}
-          <div className="flex justify-end gap-3"><button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl hover:bg-surface-container-highest">Cancel</button><button type="submit" className="rounded-xl bg-primary text-on-primary px-4 py-2.5 font-semibold">Apply trip details</button></div>
+          {error && (
+            <div role="alert" className="flex items-center gap-2 p-3 rounded-xl bg-error/10 border border-error/30 text-error text-sm mb-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl hover:bg-surface-container-highest transition-colors">Cancel</button>
+            <button type="submit" className="rounded-xl bg-primary text-on-primary px-4 py-2.5 font-semibold hover:bg-primary/90 transition-all cursor-pointer shadow-md active:scale-95">Apply & generate trip details</button>
+          </div>
         </footer>
       </form>
     </div>

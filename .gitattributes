@@ -1,0 +1,17 @@
+# Normalize line endings to LF in the repo for all text files
+# (prevents CRLF warnings on Windows)
+* text=auto eol=lf
+
+# Explicitly binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.docx binary
+*.pyc binary

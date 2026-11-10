@@ -79,8 +79,31 @@ export async function trackPlanning(request: PendingPlanningRequest, onProgress:
         error: current.error || current.result?.message?.content || 'The request stopped before a response was saved. Review saved trips before trying again.' });
       if (current.result) {
         if (current.status !== 'succeeded' || !current.result.conversation_id || !current.result.message?.content) throw new ProgressUnavailable({ ...current, status: 'connection_lost', error: 'The server response is incomplete. Check this request again before sending another one.' });
-        const richContent = current.result.data?.type === 'place_recommendations'
-          ? { placeRecommendations: current.result.data.places, suggestedActions: current.result.data.suggested_actions }
+        const isProposal = current.result.data?.type === 'revision_proposal' && Boolean(current.result.data?.proposal_id);
+        const revisionProposal = isProposal ? {
+          proposalId: current.result.data!.proposal_id!,
+          tripId: current.result.data!.trip_id || current.result.travel_context?.current_trip_id || '',
+          destination: (current.result.data as any)?.destination || current.result.travel_context?.destination || 'Destination',
+          days: (current.result.data as any)?.days || current.result.travel_context?.days || 3,
+          expectedRevision: current.result.data!.expected_revision ?? 1,
+          focusDescription: (current.result.data as any)?.focus_description || '',
+          explanation: (current.result.data as any)?.explanation || '',
+          added: current.result.data?.changes_summary?.added || [],
+          removed: current.result.data?.changes_summary?.removed || [],
+          kept: current.result.data?.changes_summary?.kept || [],
+          rescheduled: current.result.data?.changes_summary?.rescheduled || [],
+          suggestedActions: current.result.data?.suggested_actions || [
+            { label: 'Apply Changes', action: 'apply' },
+            { label: 'Keep Current Itinerary', action: 'cancel' }
+          ]
+        } : undefined;
+
+        const richContent = (current.result.data?.places || current.result.data?.suggested_actions || revisionProposal)
+          ? {
+              placeRecommendations: current.result.data?.places,
+              suggestedActions: current.result.data?.suggested_actions,
+              revisionProposal,
+            }
           : undefined;
         return { rawResponse: current.result, replyMessage: { id: 'assistant-request-' + request.id, sender: 'assistant', text: current.result.message.content, richContent,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } };

@@ -483,12 +483,19 @@ def process_chat_message(
         }
 
     elif intent == "MODIFY_ITINERARY":
-        clean_msg = user_message.strip().lower()
+        user_text_only = re.sub(r'\[context:.*?\]', '', user_message, flags=re.IGNORECASE).strip()
+        clean_msg = user_text_only.lower()
         action = slots.get("action")
         if not action:
-            if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept'}:
+            if (
+                re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply|ok\s*do\s*it|yes\s*do\s*it|do\s*it|go\s*ahead|proceed|sure|yes|ok)\s*$', clean_msg)
+                or clean_msg in {'apply', 'confirm', 'accept', 'ok do it', 'yes do it', 'do it', 'go ahead', 'proceed', 'sure', 'yes', 'ok'}
+            ):
                 action = "apply"
-            elif re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep)\s*$', clean_msg) or clean_msg in {'keep', 'cancel', 'discard'}:
+            elif (
+                re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep|no|keep|cancel)\s*$', clean_msg)
+                or clean_msg in {'keep', 'cancel', 'discard', 'no'}
+            ):
                 action = "cancel"
 
         pending_proposal_id = current_context.get("pending_proposal")
@@ -624,10 +631,11 @@ def process_chat_message(
             }
 
         # 4B. Check if Trip-Wide Focus Change
-        has_day_spec = bool(re.search(r'\bday\s*\d+\b', user_message, re.IGNORECASE))
+        has_day_spec = bool(re.search(r'\bday\s*\d+\b', user_text_only, re.IGNORECASE))
         has_edit_verbs = bool(re.search(r'\b(remove|delete|drop|swap|replace)\b', clean_msg))
-        is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_message, re.IGNORECASE))
+        is_add_request = bool(re.search(r'\b(add|put|insert|schedule)\b', user_text_only, re.IGNORECASE))
         has_named_stop = bool(resolution.get("target_stop"))
+        action_type = resolution.get("action")
 
         multi_interest_pattern = bool(re.search(
             r'\b(?:'
@@ -641,7 +649,7 @@ def process_chat_message(
             r'change\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary|focus|schedule)|'
             r'now\s+change\s+it\s+to|'
             r'change\s+it\s+to|'
-            r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
+            r'make\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)\s+(?:more|a\s+mixture)|'
             r'replace\s+(?:the\s+)?(?:sightseeing|activities|stops|attractions)?\s+with|'
             r'revise\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)|'
             r'update\s+(?:this|the|my|our|current)?\s*(?:trip|itinerary)'
@@ -649,17 +657,32 @@ def process_chat_message(
             clean_msg
         ))
 
-        extracted_interests = slots.get("interests") or slots.get("preferences") or []
-        if not extracted_interests:
-            kws = [kw for kw in ("temples", "history", "heritage", "beaches", "nature", "waterfalls", "luxury", "food", "adventure") if kw in clean_msg]
-            if kws:
-                extracted_interests = kws
+        explicit_focus_keywords = bool(re.search(
+            r'\b(?:focus\s+on|focused\s+on|more\s+(?:of\s+)?(?:beaches?|temples?|history|heritage|nature|waterfalls?|luxury|food|adventure|culture)|'
+            r'prefer\s+(?:beaches?|temples?|history|nature|adventure)|'
+            r'preference\s+for|'
+            r'itinerary\s+focus|'
+            r'interests?\s*:\s*\w+)\b',
+            clean_msg
+        ))
+
+        is_single_edit_request = (
+            has_day_spec
+            or is_add_request
+            or action_type in {"add", "replace", "remove", "move"}
+            or bool(re.search(r'\b(only\s+add|just\s+add|keep\s+(?:all\s+)?(?:as\s+)?same|keep\s+the\s+rest|dont\s+remove|do\s+not\s+remove)\b', clean_msg))
+        )
+
+        extracted_interests = [kw for kw in ("temples", "history", "heritage", "beaches", "nature", "waterfalls", "luxury", "food", "adventure") if kw in clean_msg]
 
         is_pref_revision = (
-            resolution.get("action") == "focus"
-            or multi_interest_pattern
-            or (extracted_interests and not has_named_stop and not has_day_spec and not (has_edit_verbs and has_named_stop))
-            or ("luxury" in clean_msg and "more" in clean_msg)
+            not is_single_edit_request
+            and (
+                action_type == "focus"
+                or multi_interest_pattern
+                or explicit_focus_keywords
+                or ("luxury" in clean_msg and "more" in clean_msg)
+            )
         )
 
         if is_pref_revision and not has_day_spec:
@@ -708,8 +731,15 @@ def process_chat_message(
                 ]
 
                 add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY", structured_data={
+                    "type": "revision_proposal",
                     "proposal_id": proposal["proposal_id"],
-                    "changes_summary": changes
+                    "changes_summary": changes,
+                    "expected_revision": proposal["expected_revision"],
+                    "focus_description": focus_desc,
+                    "explanation": explanation,
+                    "destination": clean_dest,
+                    "days": trip_doc.get("days", 3),
+                    "suggested_actions": suggested_actions
                 })
 
                 return {
@@ -773,8 +803,14 @@ def process_chat_message(
                 ]
 
                 add_message(conv_id, "assistant", reply, intent="MODIFY_ITINERARY", structured_data={
+                    "type": "revision_proposal",
                     "proposal_id": proposal["proposal_id"],
-                    "changes_summary": changes
+                    "changes_summary": changes,
+                    "expected_revision": proposal["expected_revision"],
+                    "explanation": explanation,
+                    "destination": clean_dest,
+                    "days": trip_doc.get("days", 3),
+                    "suggested_actions": suggested_actions
                 })
 
                 return {

@@ -16,7 +16,8 @@ import {
   CalendarCheck,
   Check,
   Compass,
-  LockKeyhole
+  LockKeyhole,
+  History
 } from 'lucide-react';
 import {
   TripSummary,
@@ -54,6 +55,7 @@ interface DashboardPanelProps {
   onSelectHotel: (id: string) => Promise<boolean>;
   onUpdateExecutionState?: (updates: Partial<ExecutionState>) => Promise<boolean>;
   onApplyRerouteResult?: (result: any) => void;
+  onOpenRevisionHistory?: () => void;
 }
 
 export const DashboardPanel: React.FC<DashboardPanelProps> = ({
@@ -74,6 +76,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
   onSelectHotel,
   onUpdateExecutionState,
   onApplyRerouteResult,
+  onOpenRevisionHistory,
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [checkedWeather, setCheckedWeather] = useState<{ tripId: string; revision?: number; data: WeatherData } | null>(null);
@@ -143,6 +146,17 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
             <span className="px-2 py-0.5 rounded-full bg-tertiary/10 text-tertiary text-[10px] font-semibold whitespace-nowrap border border-tertiary/20">
               {trip?.plusAccess ? 'Plus active ✓' : 'Free plan'}
             </span>
+            {trip?.revision && onOpenRevisionHistory && (
+              <button
+                type="button"
+                onClick={onOpenRevisionHistory}
+                className="px-2 py-0.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-semibold whitespace-nowrap border border-primary/25 flex items-center gap-1 transition-all cursor-pointer"
+                title="View Revision History & AI Diff"
+              >
+                <History className="w-3 h-3" />
+                <span>Rev {trip.revision} · History & Diff</span>
+              </button>
+            )}
           </div>
           <p className="text-xs text-on-surface-variant mt-0.5">
             {trip?.duration || '4 Days, 3 Nights'} • {trip?.travelersCount || 2} Travelers • {trip?.budgetEstimate || '₹50,000 Est. Budget'}
@@ -178,6 +192,18 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
           <details className="trip-more-actions relative" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
           <summary className="cursor-pointer list-none px-3 py-2 rounded-lg border border-surface-container-highest bg-surface-container-high text-xs font-semibold">More actions ▾</summary>
           <div className="trip-extra-actions">
+          {onOpenRevisionHistory && (
+            <button
+              type="button"
+              aria-label="View Revision History and Diff"
+              onClick={onOpenRevisionHistory}
+              title="View Revision History & AI Diff"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface text-xs font-medium transition-colors shadow-sm border border-surface-container-highest/60"
+            >
+              <History className="w-3.5 h-3.5 text-primary" />
+              <span className="trip-action-label">Revision History</span>
+            </button>
+          )}
           <button
             type="button"
             aria-label="Export itinerary as PDF"

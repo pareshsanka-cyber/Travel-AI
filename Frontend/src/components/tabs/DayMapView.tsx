@@ -19,21 +19,22 @@ interface DayMapViewProps {
 
 type MapLayerType = 'street' | 'satellite' | 'osm';
 
-const MAP_TILE_CONFIGS: Record<MapLayerType, { url: string; attribution: string; maxZoom: number }> = {
+const MAP_TILE_CONFIGS: Record<MapLayerType, { url: string; attribution: string; maxZoom: number; subdomains?: string }> = {
   street: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012',
+    attribution: '',
     maxZoom: 19,
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    attribution: '',
     maxZoom: 19,
   },
   osm: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    attribution: '',
     maxZoom: 19,
+    subdomains: 'abc',
   },
 };
 
@@ -73,6 +74,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     const newLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
+      subdomains: config.subdomains || 'abc',
     }).addTo(mapInstanceRef.current);
 
     tileLayerRef.current = newLayer;
@@ -191,10 +193,11 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
       ? [waypoints[0].lat, waypoints[0].lon]
       : defaultCenter!;
 
-    // Initialize Map
+    // Initialize Map without bottom attribution captions
     const map = L.map(mapContainerRef.current, {
       renderer: L.svg(),
       zoomControl: true,
+      attributionControl: false,
       scrollWheelZoom: false,
       zoomAnimation: false,
       fadeAnimation: false,
@@ -207,6 +210,7 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
     const initialTileLayer = L.tileLayer(config.url, {
       attribution: config.attribution,
       maxZoom: config.maxZoom,
+      subdomains: config.subdomains || 'abc',
     }).addTo(map);
 
     tileLayerRef.current = initialTileLayer;
@@ -430,11 +434,11 @@ export const DayMapView: React.FC<DayMapViewProps> = ({
 
 
   return (
-    <div className="relative w-full h-full min-h-0 rounded-2xl overflow-hidden shadow-lg border border-surface-container-highest/60">
+    <div className="relative w-full h-full min-h-0 rounded-2xl overflow-hidden shadow-lg border border-surface-container-highest/60 isolate">
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Floating Status & Map Style Switcher Controls */}
-      <div className="absolute top-3 left-14 right-3 z-[400] flex flex-wrap justify-end items-center gap-2">
+      <div className="absolute top-3 left-14 right-3 z-20 flex flex-wrap justify-end items-center gap-2">
         {/* Layer Selector Pill */}
         <div className="bg-surface-container-lowest/90 backdrop-blur-md p-1 rounded-xl border border-surface-container-highest/70 text-xs font-semibold shadow-md flex items-center gap-1">
           <button

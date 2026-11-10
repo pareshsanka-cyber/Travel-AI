@@ -20,10 +20,13 @@ import {
   Star,
   Sparkles,
   Bot,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react';
 import { ChatMessage, ApiStatusState, TripSummary } from '../types';
 import { TripDetailsDialog } from './preferences/TripDetailsDialog';
+import { FormattedChatMessage, cleanStrayMarkdown } from './FormattedChatMessage';
+import { inclusiveDays } from './preferences/tripDetailsModel';
 import { PlanningProgressCard } from './PlanningProgressCard';
 import type { PlanningProgress } from '../services/planningProgress';
 import { useMessageEntrances } from '../motion/useInteractionMotion';
@@ -37,7 +40,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   promptInput: string;
   onPromptChange: (val: string) => void;
-  onSendMessage: (textToSend?: string) => void;
+  onSendMessage: (textToSend?: string, contextOverride?: Record<string, any>) => void;
   isSending: boolean;
   planningProgress?: PlanningProgress | null;
   onCheckPlanning?: () => void;
@@ -47,6 +50,7 @@ interface ChatPanelProps {
   onSwitchTab: (tabId: 'route-tab' | 'flights-tab' | 'hotels-tab' | 'weather-tab' | 'budget-tab') => void;
   apiStatus: ApiStatusState;
   onClearContext: () => void;
+  onClose?: () => void;
 }
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
@@ -67,8 +71,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onSwitchTab,
   apiStatus,
   onClearContext,
+  onClose,
 }) => {
-  const isSending = isSendingRequest || Boolean(planningProgress);
+  const isSending = isSendingRequest || Boolean(planningProgress && ['queued', 'running', 'restoring'].includes(planningProgress.status));
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [moreSuggestions, setMoreSuggestions] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
@@ -85,18 +90,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (feed) feed.scrollTop = feed.scrollHeight;
   }, [messages, isSending]);
 
+  const rawDest = (
+    typeof travelContext?.destination === 'string'
+      ? travelContext.destination
+      : Array.isArray(travelContext?.destination)
+      ? travelContext.destination.join(', ')
+      : trip?.destination || ''
+  );
+  const dest = rawDest.split(',')[0].trim();
+
   // Dynamic context-aware suggestions based on current active trip or travel context
   const quickPrompts = useMemo(() => {
-    const rawDest = (
-      typeof travelContext?.destination === 'string'
-        ? travelContext.destination
-        : Array.isArray(travelContext?.destination)
-        ? travelContext.destination.join(', ')
-        : trip?.destination || ''
-    );
-    const dest = rawDest.split(',')[0].trim();
+    const basePrompts = [
+      { label: 'Add a place', text: dest ? `Add an attraction to ${dest}` : 'Add a place to my itinerary' },
+      { label: 'Replace an activity', text: dest ? `Replace an activity in ${dest}` : 'Replace an activity in my schedule' },
+      { label: 'Find nearby attractions', text: dest ? `Find nearby attractions in ${dest}` : 'Find nearby attractions' },
+      { label: 'Include more beaches or temples', text: dest ? `Include more beaches and temples in ${dest}` : 'Include more beaches or temples' },
+      { label: 'Change my travel interests', text: dest ? `Change my travel interests for this ${dest} trip` : 'Change my travel interests' },
+    ];
+
     if (!dest) {
       return [
+        ...basePrompts,
         { label: '✨ Plan a bespoke trip', text: 'Help me plan a personalized bespoke vacation itinerary' },
         { label: '💳 Plan under budget', text: 'Plan a 3-day weekend trip under ₹30,000' },
         { label: '🏨 Find luxury stays', text: 'Find 5-star luxury accommodations for a relaxing getaway' },
@@ -106,27 +121,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
     const isGoa = dest.toLowerCase().includes('goa');
 
-    if (isGoa) {
-      return [
+    return [
+      ...basePrompts,
+      ...(isGoa ? [
         { label: '🏖️ Add more beaches', text: `Add more scenic beaches into the ${dest} itinerary` },
         { label: '🛕 Add temples', text: `Add historic temples and cultural sights to the ${dest} itinerary` },
-        { label: '🍽️ Find restaurants', text: `Find top-rated local dining and seafood restaurants in ${dest}` },
-        { label: '🏨 Change hotel', text: `Show alternative luxury hotel and resort options in ${dest}` },
-        { label: '✈️ Change flights', text: 'Check alternative flight times and airline options' },
-        { label: '📅 Update travel dates', text: `Can we adjust the travel dates and duration for this ${dest} trip?` },
-        { label: '💰 Show budget breakdown', text: `Provide a granular budget breakdown for this ${dest} trip` },
-      ];
-    }
-
-    return [
-      { label: `🏛️ Add landmarks in ${dest}`, text: `Add more cultural sights and landmarks in ${dest} to the itinerary` },
-      { label: '🍽️ Find restaurants', text: `Find top-rated local dining and culinary experiences in ${dest}` },
-      { label: '🏨 Change hotel', text: `Show alternative luxury hotel accommodations in ${dest}` },
+      ] : [
+        { label: `🏛️ Add landmarks in ${dest}`, text: `Add more cultural sights and landmarks in ${dest} to the itinerary` },
+      ]),
+      { label: '🍽️ Find restaurants', text: `Find top-rated local dining and seafood restaurants in ${dest}` },
+      { label: '🏨 Change hotel', text: `Show alternative luxury hotel and resort options in ${dest}` },
       { label: '✈️ Change flights', text: 'Check alternative flight times and airline options' },
       { label: '📅 Update travel dates', text: `Can we adjust the travel dates and duration for this ${dest} trip?` },
       { label: '💰 Show budget breakdown', text: `Provide a granular budget breakdown for this ${dest} trip` },
     ];
-  }, [travelContext?.destination, trip?.destination]);
+  }, [dest]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -145,9 +154,37 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     >
       <div className="p-4 sm:p-5 border-b border-surface-container-high/60 flex flex-wrap justify-between items-center gap-3 shrink-0">
         <div className="min-w-0"><h2 className="font-semibold text-lg">{travelContext?.current_trip_id ? `Edit your ${travelContext.destination || 'saved'} trip` : 'Plan your next trip'}</h2><p className="text-sm text-on-surface-variant mt-1">{[travelContext?.destination || 'Choose a destination', travelContext?.days ? `${travelContext.days} days` : '', travelContext?.travelers ? `${travelContext.travelers} travelers` : ''].filter(Boolean).join(' · ')}</p></div>
-        <button type="button" onClick={() => setDetailsOpen(true)} className="rounded-xl border border-primary/30 px-4 py-2 text-primary text-sm font-semibold">Trip details</button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setDetailsOpen(true)} className="rounded-xl border border-primary/30 px-4 py-2 text-primary text-sm font-semibold">Trip details</button>
+          {onClose && (
+            <button
+              type="button"
+              aria-label="Close TravelAI Assistant"
+              onClick={onClose}
+              className="p-2 rounded-xl border border-surface-container-highest bg-surface-container-high hover:bg-surface-bright text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
-      {detailsOpen && <TripDetailsDialog context={travelContext} onApply={onUpdatePreference || (() => {})} onClose={() => setDetailsOpen(false)} />}
+      {detailsOpen && (
+        <TripDetailsDialog
+          context={travelContext}
+          onApply={onUpdatePreference || (() => {})}
+          onGenerate={(updates) => {
+            const days = updates.days || (updates.start_date && updates.end_date ? inclusiveDays(updates.start_date, updates.end_date) : null);
+            const dest = updates.destination || travelContext?.destination || '';
+            const origin = updates.origin || travelContext?.origin;
+            const daysStr = days ? `${days}-day ` : '';
+            const prompt = origin
+              ? `Plan a ${daysStr}trip from ${origin} to ${dest}`
+              : `Plan a ${daysStr}trip to ${dest}`;
+            onSendMessage(prompt, updates);
+          }}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
 
       {/* Message Feed */}
       <div ref={messageFeed} onScroll={event => { const feed = event.currentTarget; followingFeed.current = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 96; }} className="flex-1 min-h-0 overflow-y-auto p-space-md space-y-space-md" id="chatMessageFeed" aria-busy={planningProgress ? undefined : isSending}>
@@ -157,7 +194,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               <div key={msg.id} data-message-id={msg.id} className="flex justify-end">
                 <div className="max-w-[85%] sm:max-w-[75%] rounded-xl rounded-tr-xs bg-secondary-container p-space-md shadow-md text-on-surface border border-secondary/20">
                   <p className="text-sm leading-relaxed text-on-surface whitespace-pre-wrap">
-                    {msg.text}
+                    {cleanStrayMarkdown(msg.text)}
                   </p>
                   <div className="flex items-center justify-end gap-1 mt-1 text-on-secondary-container text-[11px]">
                     <span>{msg.timestamp}</span>
@@ -192,15 +229,40 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
                   {/* Body Text / Lead Paragraph */}
                   {msg.richContent?.leadParagraph ? (
-                    <p className="text-sm leading-relaxed text-on-surface">
-                      {msg.richContent.leadParagraph}
-                    </p>
+                    <FormattedChatMessage
+                      content={msg.richContent.leadParagraph}
+                      onActionClick={() => setDetailsOpen(true)}
+                    />
                   ) : (
                     msg.text && (
-                      <p className="text-sm leading-relaxed text-on-surface whitespace-pre-wrap">
-                        {msg.text}
-                      </p>
+                      <FormattedChatMessage
+                        content={msg.text}
+                        onActionClick={() => setDetailsOpen(true)}
+                      />
                     )
+                  )}
+
+                  {/* Quick suggestions when opened */}
+                  {msg.id.startsWith('welcome-') && (
+                    <div className="pt-2 flex flex-wrap gap-1.5 border-t border-surface-container-highest/40 mt-2">
+                      {[
+                        { label: 'Add a place', text: dest ? `Add an attraction in ${dest}` : 'Add a place to my itinerary' },
+                        { label: 'Replace an activity', text: dest ? `Replace an activity in ${dest}` : 'Replace an activity in my schedule' },
+                        { label: 'Find nearby attractions', text: dest ? `Find nearby attractions in ${dest}` : 'Find nearby attractions' },
+                        { label: 'Include more beaches or temples', text: dest ? `Include more beaches and temples in ${dest}` : 'Include more beaches or temples' },
+                        { label: 'Change my travel interests', text: dest ? `Change my travel interests for this ${dest} trip` : 'Change my travel interests' },
+                      ].map((s) => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          disabled={isSending}
+                          onClick={() => onSendMessage(s.text)}
+                          className="px-2.5 py-1 rounded-full text-xs font-medium bg-surface-container-highest/80 hover:bg-primary-container hover:text-on-primary text-on-surface border border-surface-container-highest transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <span>{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   )}
 
                   {/* Highlights list */}
@@ -585,7 +647,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           );
         })}
 
-        {isSending && (
+        {(isSending || Boolean(planningProgress)) && (
           <div className="flex gap-space-sm items-start text-xs text-on-surface-variant">
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
               <Bot className="w-4 h-4" />
@@ -693,7 +755,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 </>
               ) : (
                 <>
-                  <span>{planningProgress ? 'Review request above' : 'Send Message'}</span>
+                  <span>{planningProgress && ['failed', 'interrupted', 'connection_lost'].includes(planningProgress.status) ? 'Review request above' : 'Send Message'}</span>
                   <Send className="w-3.5 h-3.5" />
                 </>
               )}

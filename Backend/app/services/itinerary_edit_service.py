@@ -44,9 +44,21 @@ def reflow_day(trip, day, stops, allow_hotel_shift=False):
         if protected and proposed_start != start:
             raise ValueError('This edit would move a protected travel or completed activity.')
         end = proposed_start + duration
-        deadline = 1439 if item.get('type') == 'airport' else parse_hhmm_to_minutes(trip.get('bedtime'), 1439)
+        is_last_stop = (item == stops[-1])
+        if item.get('type') in {'airport', 'hotel', 'hotel_checkout'} and is_last_stop:
+            deadline = 1439
+        elif item.get('type') == 'airport':
+            deadline = 1439
+        else:
+            deadline = parse_hhmm_to_minutes(trip.get('bedtime'), 1439)
         if end > deadline:
-            raise ValueError('This edit would extend the schedule beyond the end of the day.')
+            if item.get('type') in {'hotel', 'hotel_checkout'} and is_last_stop:
+                end = min(1439, proposed_start + max(15, min(duration, 30)))
+            elif item.get('type') == 'restaurant' and allow_hotel_shift and proposed_start + 45 <= deadline:
+                duration = max(45, min(duration, deadline - proposed_start))
+                end = proposed_start + duration
+            else:
+                raise ValueError('This edit would extend the schedule beyond the end of the day.')
         item.update(start_time=minutes_to_hhmm(proposed_start), end_time=minutes_to_hhmm(end),
                     time=format_time_range(proposed_start, end), duration_minutes=duration,
                     travel_time_from_prev_minutes=transit)
@@ -114,6 +126,9 @@ def apply_schedule_edits(trip, edits):
                     init_start = prev_end + 30
                 else:
                     init_start = 600
+            bedtime_limit = parse_hhmm_to_minutes(trip.get('bedtime'), 1320)
+            if init_start + duration > bedtime_limit and duration > 30:
+                duration = max(30, min(duration, bedtime_limit - init_start - 30))
             init_end = init_start + duration
 
             new_stop = {
@@ -575,6 +590,17 @@ def apply_preference_revision(
     if revised_trip.get("restaurants"):
         changes["restaurants"] = revised_trip["restaurants"]
 
+    from app.services.revision_service import create_snapshot
+    history = list(trip.get('revision_history') or [])
+    if not history:
+        history.append(create_snapshot(trip, summary="Initial AI generated itinerary", trigger="initial"))
+    temp_trip = copy.deepcopy(trip)
+    temp_trip.update(changes)
+    temp_trip['revision'] = new_rev
+    edit_summary = proposal_data.get('summary') or proposal_data.get('rationale') or f"Revision {new_rev} modifications"
+    history.append(create_snapshot(temp_trip, summary=edit_summary, trigger="ai_edit"))
+    changes['revision_history'] = history
+
     write = db.trips.update_one(revision_filter({"_id": trip["_id"]}, trip), {"$set": changes})
     if write.matched_count != 1:
         raise HTTPException(status_code=409, detail="The itinerary changed while editing. Refresh and try again.")
@@ -725,7 +751,7 @@ def resolve_candidate_places(
         # Live / Nominatim enrichment
         enriched = verify_and_enrich_place(replacement_name, destination)
         if enriched and enriched.get("lat") and enriched.get("lon"):
-            return [{
+            cand = {
                 "name": replacement_name,
                 "title": replacement_name,
                 "category": replacement_category or "attraction",
@@ -736,25 +762,38 @@ def resolve_candidate_places(
                 "image_url": enriched.get("image_url"),
                 "opening_hours": enriched.get("opening_hours") or "09:00-18:00",
                 "duration_minutes": 90
-            }]
+            }
+        else:
+            dest_coords = {
+                "goa": (15.4989, 73.8278),
+                "jaipur": (26.9124, 75.7873),
+                "hyderabad": (17.3850, 78.4867),
+                "ladakh": (34.1526, 77.5771)
+            }
+            fallback_coord = dest_coords.get(dest_clean, (15.4989, 73.8278))
+            cand = {
+                "name": replacement_name,
+                "title": replacement_name,
+                "category": replacement_category or "attraction",
+                "lat": fallback_coord[0],
+                "lon": fallback_coord[1],
+                "description": f"Visit {replacement_name}.",
+                "opening_hours": "09:00-18:00",
+                "duration_minutes": 90
+            }
 
-        # Fallback with destination anchor coordinates if enrichment was network-restricted
-        dest_coords = {
-            "goa": (15.4989, 73.8278),
-            "jaipur": (26.9124, 75.7873),
-            "hyderabad": (17.3850, 78.4867)
-        }
-        fallback_coord = dest_coords.get(dest_clean, (15.4989, 73.8278))
-        return [{
-            "name": replacement_name,
-            "title": replacement_name,
-            "category": replacement_category or "attraction",
-            "lat": fallback_coord[0],
-            "lon": fallback_coord[1],
-            "description": f"Visit {replacement_name}.",
-            "opening_hours": "09:00-18:00",
-            "duration_minutes": 90
-        }]
+        # Include category fallbacks in case this specific venue is too far or cannot fit into the day
+        try:
+            fallbacks = resolve_candidate_places(
+                destination=destination,
+                replacement_name=None,
+                replacement_category=replacement_category or "attraction",
+                current_stops=current_stops,
+                trip_catalog=catalog
+            )
+            return [cand] + [f for f in fallbacks if clean_place_name(f.get("name") or "") != clean_place_name(replacement_name)]
+        except Exception:
+            return [cand]
 
     # 2. If replacement category is provided (or generic):
     cat = (replacement_category or "attraction").lower()
@@ -1012,22 +1051,29 @@ def generate_single_activity_revision_proposal(
             elif target_slot == "before_lunch":
                 lunch_idx = next((i for i, s in enumerate(stops) if s.get("type") == "restaurant"), len(stops))
                 candidate_indices.append((max(0, lunch_idx), 660))
-            elif target_slot == "evening":
+            elif target_slot == "evening" or "sunset" in (replacement_name or "").lower():
                 ins_idx = len(stops)
                 for i, s in enumerate(stops):
                     st = parse_hhmm_to_minutes(s.get('start_time', '12:00'), 720)
                     stype = s.get('type')
                     if i > 0 and (
-                        (stype in {'hotel', 'hotel_checkout'} and st >= 1140)
-                        or (stype == 'airport' and i == len(stops) - 1 and st >= 1140)
+                        (stype == 'restaurant' and st >= 1020)
+                        or (stype in {'hotel', 'hotel_checkout'} and st >= 1020)
+                        or (stype == 'airport' and i == len(stops) - 1 and st >= 1020)
                     ):
                         ins_idx = i
                         break
-                init_s = 1080
+                init_s = 1020
                 if ins_idx > 0:
-                    prev_e = parse_hhmm_to_minutes(stops[ins_idx - 1].get("end_time", "17:00"), 1020)
+                    prev_e = parse_hhmm_to_minutes(stops[ins_idx - 1].get("end_time", "16:00"), 960)
                     init_s = max(1020, prev_e + 20)
                 candidate_indices.append((ins_idx, init_s))
+                if ins_idx < len(stops):
+                    late_idx = len(stops)
+                    if stops[-1].get("type") in {"hotel", "airport"} and len(stops) > 1:
+                        late_idx = len(stops) - 1
+                    late_prev_e = parse_hhmm_to_minutes(stops[late_idx - 1].get("end_time", "20:00"), 1200)
+                    candidate_indices.append((late_idx, late_prev_e + 20))
             elif place_type == "attraction":
                 ins_idx = len(stops)
                 for i, s in enumerate(stops):
@@ -1061,36 +1107,47 @@ def generate_single_activity_revision_proposal(
                     init_s = prev_e + 30
                 candidate_indices.append((ins_idx, init_s))
 
+            durations_to_try = [duration]
+            if duration > 60:
+                durations_to_try.extend([60, 45, 30])
+            elif duration > 30:
+                durations_to_try.extend([45, 30])
+
+            fitted = False
             for c_idx, c_start in candidate_indices:
-                trial_stops = [dict(s) for s in stops]
-                new_stop = {
-                    "id": generate_persistent_activity_id(place_type, place_name, new_place.get("place_id")),
-                    "title": place_name,
-                    "name": place_name,
-                    "type": place_type,
-                    "category": new_place.get("category") or place_type,
-                    "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
-                    "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
-                    "address": new_place.get("address"),
-                    "description": new_place.get("description") or f"Visit {place_name}.",
-                    "image_url": new_place.get("image_url"),
-                    "opening_hours": new_place.get("opening_hours") or "09:00-18:00",
-                    "duration_minutes": duration,
-                    "start_time": minutes_to_hhmm(c_start),
-                    "end_time": minutes_to_hhmm(c_start + duration),
-                    "time": format_time_range(c_start, c_start + duration),
-                    "travel_mode": "driving"
-                }
-                trial_stops.insert(c_idx, new_stop)
-                try:
-                    reflow_day(revised_trip, target_day, trial_stops, allow_hotel_shift=True)
-                    best_stops = trial_stops
-                    best_new_stop = new_stop
-                    best_place_name = place_name
-                    best_place_type = place_type
+                if fitted:
                     break
-                except Exception as e:
-                    best_error = e
+                for cur_dur in durations_to_try:
+                    trial_stops = [dict(s) for s in stops]
+                    new_stop = {
+                        "id": generate_persistent_activity_id(place_type, place_name, new_place.get("place_id")),
+                        "title": place_name,
+                        "name": place_name,
+                        "type": place_type,
+                        "category": new_place.get("category") or place_type,
+                        "lat": new_place.get("lat") if new_place.get("lat") is not None else new_place.get("latitude"),
+                        "lon": new_place.get("lon") if new_place.get("lon") is not None else new_place.get("longitude"),
+                        "address": new_place.get("address"),
+                        "description": new_place.get("description") or f"Visit {place_name}.",
+                        "image_url": new_place.get("image_url"),
+                        "opening_hours": new_place.get("opening_hours") or "09:00-21:00",
+                        "duration_minutes": cur_dur,
+                        "start_time": minutes_to_hhmm(c_start),
+                        "end_time": minutes_to_hhmm(c_start + cur_dur),
+                        "time": format_time_range(c_start, c_start + cur_dur),
+                        "travel_mode": "driving"
+                    }
+                    trial_stops.insert(c_idx, new_stop)
+                    try:
+                        reflow_day(revised_trip, target_day, trial_stops, allow_hotel_shift=True)
+                        best_stops = trial_stops
+                        best_new_stop = new_stop
+                        best_place_name = place_name
+                        best_place_type = place_type
+                        fitted = True
+                        break
+                    except Exception as e:
+                        best_error = e
 
             if best_stops:
                 break

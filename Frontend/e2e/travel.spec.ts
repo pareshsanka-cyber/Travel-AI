@@ -129,10 +129,10 @@ test('Trip details allows future dates and rejects a newly entered past date', a
   const details = page.getByRole('dialog', { name: 'Trip details', exact: true });
   await expect(details.getByLabel('Start date', { exact: true })).toHaveAttribute('min', '2030-06-15');
   await details.getByLabel('Start date', { exact: true }).fill('2030-06-14');
-  await details.getByRole('button', { name: 'Apply trip details', exact: true }).click();
+  await details.getByRole('button', { name: /Apply (?:& generate )?trip details/ }).click();
   await expect(details.getByRole('alert')).toContainText('Choose today or future dates');
   await details.getByLabel('Start date', { exact: true }).fill('2030-06-15');
   await details.getByLabel('End date', { exact: true }).fill('2030-06-17');
-  await details.getByRole('button', { name: 'Apply trip details', exact: true }).click();
+  await details.getByRole('button', { name: /Apply (?:& generate )?trip details/ }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('TRAVELAI_TRAVEL_CONTEXT') || '{}').start_date)).toBe('2030-06-15');
 });

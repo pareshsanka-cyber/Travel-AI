@@ -517,12 +517,12 @@ export const INITIAL_BUDGET: BudgetOverview = {
     'Booking your departure flight via GOI Dabolim instead of GOX saved ₹2,880 on transfer surcharges. Total package aligns with luxury tier parameters without exceeding the ceiling.',
 };
 
-export function createNewChatWelcomeMessage(): ChatMessage {
+export function createNewChatWelcomeMessage(text?: string): ChatMessage {
   return {
     id: `welcome-${Date.now()}`,
     sender: 'assistant',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    text: "👋 Welcome to TravelAI! Where would you like to travel? Tell me your destination, duration, budget, or preferences, and I'll craft a bespoke itinerary for you.",
+    text: text || "Hi! I'm your TravelAI assistant. What would you like to explore or change in your trip?",
   };
 }
 
@@ -1533,8 +1533,7 @@ export function checkTripPlanningConstraints(
 - 📍 **Where**: Departure city & destination (e.g. *Hyderabad to Delhi*)
 - 📅 **When**: Travel dates or duration (e.g. *4 Days, 3 Nights*)
 - 💰 **Budget**: Estimated total budget (e.g. *₹50,000*)
-- 👥 **Travelers**: Number of adults & children (e.g. *2 Adults, 1 Child*)
-- ✨ **Interests**: Preferred travel style & activities (e.g. *Beaches, Heritage, Food*)`;
+- 👥 **Travelers**: Number of adults & children (e.g. *2 Adults, 1 Child*)`;
 
     return {
       isPlanRequest: true,
@@ -1549,7 +1548,7 @@ export function checkTripPlanningConstraints(
     };
   }
 
-  // Case 2: Where and When are present, but missing Budget, Travelers, or Interests
+  // Case 2: Where and When are present, but missing Budget or Travelers (Interests are optional)
   if (hasWhere && hasWhen) {
     const missingItems: string[] = [];
     if (!hasBudget) {
@@ -1557,9 +1556,6 @@ export function checkTripPlanningConstraints(
     }
     if (!hasTravelers) {
       missingItems.push('- 👥 **Travelers**: Number of travelers (e.g. *2 Adults, 1 Child* or click **Add Travelers** above)');
-    }
-    if (!hasInterests) {
-      missingItems.push('- ✨ **Interests**: Trip preferences (e.g. *Heritage, Food, Culture* or click **Add Interests** above)');
     }
 
     const destLabel = merged.origin ? `${merged.origin} → ${merged.destination}` : merged.destination;
@@ -1587,7 +1583,7 @@ export function checkTripPlanningConstraints(
     };
   }
 
-  // Case 3: Where is present, but When is missing (and possibly Budget/Travelers/Interests)
+  // Case 3: Where is present, but When is missing (and possibly Budget/Travelers)
   if (hasWhere && !hasWhen) {
     const missingItems: string[] = [
       '- 📅 **When**: Travel dates or duration (e.g. *4 Days, 3 Nights* or click **Select Dates** above)'
@@ -1597,9 +1593,6 @@ export function checkTripPlanningConstraints(
     }
     if (!hasTravelers) {
       missingItems.push('- 👥 **Travelers**: Number of travelers (e.g. *2 Adults, 1 Child* or click **Add Travelers** above)');
-    }
-    if (!hasInterests) {
-      missingItems.push('- ✨ **Interests**: Trip preferences (e.g. *Heritage, Food, Beaches* or click **Add Interests** above)');
     }
 
     const destLabel = merged.origin ? `${merged.origin} → ${merged.destination}` : merged.destination;
@@ -1627,9 +1620,6 @@ export function checkTripPlanningConstraints(
   }
   if (!hasTravelers) {
     missingItems.push('- 👥 **Travelers**: Number of travelers (e.g. *2 Adults, 1 Child*)');
-  }
-  if (!hasInterests) {
-    missingItems.push('- ✨ **Interests**: Trip preferences (e.g. *Heritage, Food, Beaches*)');
   }
 
   const guidanceMessage = `I see you are planning a **${merged.days} Day** trip! Where would you like to go?\n\nPlease provide your destination and other trip details:\n${missingItems.join('\n')}\n\nYou can reply directly here or configure them in the preference bar above!`;
@@ -2613,5 +2603,25 @@ export async function fetchTrip(tripId: string): Promise<any> {
 export async function saveTripSelections(tripId: string, expectedRevision: number, selections: { flight_id?: string; hotel_id?: string }): Promise<{ status: string; trip: any }> {
   return apiFetch(`/api/trips/${encodeURIComponent(tripId)}/selections`, {
     method: 'POST', body: JSON.stringify({ ...selections, expected_revision: expectedRevision }),
+  });
+}
+
+export async function fetchTripRevisions(
+  tripId: string
+): Promise<{ trip_id: string; current_revision: number; revisions: any[] }> {
+  return apiFetch(`/api/trips/${encodeURIComponent(tripId)}/revisions`);
+}
+
+export async function restoreTripRevision(
+  tripId: string,
+  targetRevision: number,
+  expectedRevision: number
+): Promise<any> {
+  return apiFetch(`/api/trips/${encodeURIComponent(tripId)}/restore-revision`, {
+    method: 'POST',
+    body: JSON.stringify({
+      target_revision: targetRevision,
+      expected_revision: expectedRevision,
+    }),
   });
 }

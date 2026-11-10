@@ -12,6 +12,9 @@ import { useTravelApi } from './hooks/useTravelApi';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ApiConfigModal } from './components/ApiConfigModal';
+import { FloatingChatButton } from './components/FloatingChatButton';
+import { ChatDrawer } from './components/ChatDrawer';
+import { RevisionHistoryDrawer } from './components/RevisionHistoryDrawer';
 const PlannerStudioPage = lazy(() => import('./pages/PlannerStudioPage').then(module => ({ default: module.PlannerStudioPage })));
 const ItineraryHubPage = lazy(() => import('./pages/ItineraryHubPage').then(module => ({ default: module.ItineraryHubPage })));
 const BookingsDeskPage = lazy(() => import('./pages/BookingsDeskPage').then(module => ({ default: module.BookingsDeskPage })));
@@ -76,7 +79,26 @@ function AppContent() {
     handleApplyRerouteResult,
     currentIntent,
     refreshTripAccess, acceptDiscoveryTrip,
+    revisions, isLoadingRevisions, handleRestoreRevision,
   } = useTravelApi();
+
+  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
+  const [isRevisionDrawerOpen, setIsRevisionDrawerOpen] = useState(false);
+
+  const handleToggleFloatingChat = useCallback(async () => {
+    if (isChatDrawerOpen) {
+      setIsChatDrawerOpen(false);
+      return;
+    }
+    setIsChatDrawerOpen(true);
+    if (trip && travelContext?.current_trip_id !== trip.id && !isOpeningEdit) {
+      try {
+        await openTripEdit(false);
+      } catch {
+        // gracefully handle fallback
+      }
+    }
+  }, [isChatDrawerOpen, trip, travelContext?.current_trip_id, isOpeningEdit, openTripEdit]);
 
   const bookings = useTripBookings(trip?.id, `${activePage}/${activeDashboardTab}/${trip?.revision || 1}`);
   const bookingInFlight = useRef(false);
@@ -364,6 +386,55 @@ function AppContent() {
         apiStatus={apiStatus}
         onUpdateApiUrl={updateApiUrl}
         isChecking={isCheckingApi}
+      />
+
+      {/* Floating AI Chatbot Shortcut Button */}
+      {trip && (
+        <RevisionHistoryDrawer
+          isOpen={isRevisionDrawerOpen}
+          onClose={() => setIsRevisionDrawerOpen(false)}
+          tripId={trip.id}
+          currentRevision={trip.revision || 1}
+          revisions={revisions}
+          isLoading={isLoadingRevisions}
+          onRestoreRevision={handleRestoreRevision}
+        />
+      )}
+
+      <FloatingChatButton
+        onClick={handleToggleFloatingChat}
+        isOpen={isChatDrawerOpen}
+      />
+
+      {/* Floating AI Chatbot Drawer */}
+      <ChatDrawer
+        isOpen={isChatDrawerOpen}
+        onClose={() => setIsChatDrawerOpen(false)}
+        trip={trip}
+        travelContext={travelContext}
+        currentIntent={currentIntent}
+        onUpdatePreference={updateTravelPreference}
+        messages={messages}
+        promptInput={promptInput}
+        onPromptChange={setPromptInput}
+        onSendMessage={handleSendMessage}
+        isSending={isSendingMessage}
+        planningProgress={planningProgress}
+        onCheckPlanning={handleCheckPlanning}
+        onDismissPlanning={handleDismissPlanning}
+        onRetryPlanning={handleRetryPlanning}
+        onApiSettings={() => setIsApiModalOpen(true)}
+        onSwitchTab={(tabId) => {
+          setActiveDashboardTab(tabId);
+          setActivePage('planner-studio');
+        }}
+        apiStatus={apiStatus}
+        onClearContext={handleClearContext}
+        onExpandToFull={() => {
+          setIsChatDrawerOpen(false);
+          setPlannerView('plan');
+          setActivePage('planner-studio');
+        }}
       />
     </div>
     </TripBookingsContext.Provider>

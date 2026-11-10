@@ -538,3 +538,21 @@ def get_discovery_status(id: str, user_id: str = Depends(require_user_id)):
 def refresh_travel_options(id: str, request: TravelOptionsRefreshRequest, user_id: str = Depends(require_user_id)):
     from app.services.travel_discovery import refresh
     return refresh(db, id, user_id, request.product, request.expected_revision)
+
+
+class RestoreRevisionRequest(BaseModel):
+    target_revision: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    model_config = {'extra': 'forbid'}
+
+
+@router.get('/{id}/revisions')
+def get_revisions(id: str, x_user_id: str = Depends(require_user_id)):
+    from app.services.revision_service import get_trip_revisions
+    return get_trip_revisions(db, id, x_user_id)
+
+
+@router.post('/{id}/restore-revision')
+def restore_revision(id: str, request: RestoreRevisionRequest, x_user_id: str = Depends(require_user_id)):
+    from app.services.revision_service import restore_trip_revision
+    return restore_trip_revision(db, id, x_user_id, request.target_revision, request.expected_revision)

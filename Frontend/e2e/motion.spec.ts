@@ -32,7 +32,7 @@ test('dialog entrances preserve Escape, focus containment and immediate focus re
     await expect(dialog.getByRole('button', { name: 'Close trip details' })).toBeFocused();
     await expect(dialog.getByRole('button', { name: 'Close trip details' })).toHaveCSS('transition-duration', '0.12s');
     await page.keyboard.press('Shift+Tab');
-    await expect(dialog.getByRole('button', { name: 'Apply trip details', exact: true })).toBeFocused();
+    await expect(dialog.getByRole('button', { name: /Apply (?:& generate )?trip details/ })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(dialog.getByRole('button', { name: 'Close trip details' })).toBeFocused();
     await page.keyboard.press('Escape');

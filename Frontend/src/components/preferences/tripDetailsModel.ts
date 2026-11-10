@@ -86,6 +86,25 @@ export function validateDraft(fields: TripDetailsDraft, context: PlanningContext
   if (fields.budget && (!Number.isFinite(Number(fields.budget)) || Number(fields.budget) <= 0)) return 'Enter a budget greater than zero.';
   return '';
 }
+export function validateTripPlanningConstraints(fields: TripDetailsDraft, context: PlanningContext, today = localDate()): string {
+  if (!fields.destination || !fields.destination.trim()) {
+    return 'Please select or enter a destination.';
+  }
+  if (!fields.start_date || !fields.end_date) {
+    return 'Please select your travel start and end dates.';
+  }
+  const duration = inclusiveDays(fields.start_date, fields.end_date);
+  if (duration === null || duration < 1) {
+    return 'The end date must be on or after the start date.';
+  }
+  if (duration > 30) {
+    return 'Trips are limited to a maximum duration of 30 days.';
+  }
+  if (!fields.budget || !Number.isFinite(Number(fields.budget)) || Number(fields.budget) <= 0) {
+    return 'Please enter a total budget greater than zero.';
+  }
+  return validateDraft(fields, context, today);
+}
 export function draftUpdates(fields: TripDetailsDraft) {
   const interests = uniqueInterests(fields.interests), days = inclusiveDays(fields.start_date, fields.end_date);
   return { origin: fields.origin.trim(), destination: fields.destination.trim(), start_date: fields.start_date || null,

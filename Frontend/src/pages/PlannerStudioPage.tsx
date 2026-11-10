@@ -36,7 +36,7 @@ interface PlannerStudioPageProps {
   messages: ChatMessage[];
   promptInput: string;
   onPromptChange: (val: string) => void;
-  onSendMessage: (textToSend?: string) => void;
+  onSendMessage: (textToSend?: string, contextOverride?: Record<string, any>) => void;
   isSending: boolean;
   planningProgress?: PlanningProgress | null;
   onCheckPlanning?: () => void;
@@ -53,6 +53,7 @@ interface PlannerStudioPageProps {
   onClearContext: () => void;
   onNavigateToItineraryHub?: () => void;
   onNewTrip?: () => void;
+  onOpenRevisionHistory?: () => void;
 }
 
 export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
@@ -87,6 +88,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
   onClearContext,
   onNavigateToItineraryHub,
   onNewTrip,
+  onOpenRevisionHistory,
 }) => {
   const showPlan = !trip || plannerView === 'plan';
   const planFade = useContentFade('plan', showPlan);
@@ -157,6 +159,7 @@ export const PlannerStudioPage: React.FC<PlannerStudioPageProps> = ({
           onSelectHotel={onSelectHotel}
           onUpdateExecutionState={onUpdateExecutionState}
           onApplyRerouteResult={onApplyRerouteResult}
+          onOpenRevisionHistory={onOpenRevisionHistory}
         />
       ) : null}
       </div>

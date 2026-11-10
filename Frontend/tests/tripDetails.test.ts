@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDraft, draftUpdates, validateDraft, uniqueInterests, addDays, inclusiveDays, isoDate, localDate, BUDGET_PRESETS } from '../src/components/preferences/tripDetailsModel';
+import { createDraft, draftUpdates, validateDraft, validateTripPlanningConstraints, uniqueInterests, addDays, inclusiveDays, isoDate, localDate, BUDGET_PRESETS } from '../src/components/preferences/tripDetailsModel';
 
 test('existing family breakdown and custom planning values survive applying unchanged details', () => {
   const context = { origin: 'Custom city', destination: 'Small village', travelers: 5, adults: 2, children: 2, infants: 1,
@@ -45,4 +45,32 @@ test('total travelers and budget validation enforce the existing limits', () => 
   assert.match(validateDraft({ ...draft, budget: '-5' }, {}), /greater than zero/);
   assert.equal(draftUpdates({ ...draft, budget: '50000', currency: 'USD' }).budget, 50000);
   assert.equal(BUDGET_PRESETS.INR[0], 30000); assert.equal(BUDGET_PRESETS.USD[0], 1000);
+});
+
+test('validateTripPlanningConstraints requires destination, dates, budget, and travelers to generate itinerary, excluding interests', () => {
+  const emptyDraft = createDraft({});
+  assert.equal(validateTripPlanningConstraints(emptyDraft, {}), 'Please select or enter a destination.');
+
+  const withDest = { ...emptyDraft, destination: 'Goa, India' };
+  assert.equal(validateTripPlanningConstraints(withDest, {}), 'Please select your travel start and end dates.');
+
+  const withDates = { ...withDest, start_date: '2026-11-10', end_date: '2026-11-15' };
+  assert.equal(validateTripPlanningConstraints(withDates, {}), 'Please enter a total budget greater than zero.');
+
+  const withZeroBudget = { ...withDates, budget: '0' };
+  assert.equal(validateTripPlanningConstraints(withZeroBudget, {}), 'Please enter a total budget greater than zero.');
+
+  const withNegativeBudget = { ...withDates, budget: '-500' };
+  assert.equal(validateTripPlanningConstraints(withNegativeBudget, {}), 'Please enter a total budget greater than zero.');
+
+  const withBudget = { ...withDates, budget: '50000' };
+  // Interests are excluded from required constraints: empty interests must pass!
+  assert.equal(validateTripPlanningConstraints({ ...withBudget, interests: [] }, {}, '2026-11-01'), '');
+
+  // With interests also passes
+  assert.equal(validateTripPlanningConstraints({ ...withBudget, interests: ['Beaches', 'Food'] }, {}, '2026-11-01'), '');
+
+  // Adults must be at least 1
+  const withZeroAdults = { ...withBudget, adults: 0 };
+  assert.equal(validateTripPlanningConstraints(withZeroAdults, {}, '2026-11-01'), 'Choose 1–20 travelers, including at least one adult.');
 });

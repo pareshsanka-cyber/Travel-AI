@@ -29,11 +29,11 @@ WORD_TO_DAY = {
 }
 
 CATEGORY_SYNONYMS = {
-    "beach": ["beach", "coast", "coastal", "cove", "bay", "sea", "ocean", "shore"],
+    "beach": ["beach", "coast", "coastal", "cove", "bay", "sea", "ocean", "shore", "sunset beach", "lake beach"],
     "temple": ["temple", "church", "cathedral", "shrine", "monastery", "basilica", "mandir", "spiritual", "mosque"],
     "history": ["fort", "palace", "monument", "historic", "historical", "heritage", "unesco", "history", "ruins"],
     "museum": ["museum", "gallery", "exhibit"],
-    "nature": ["nature", "waterfall", "park", "garden", "wildlife", "sanctuary", "scenic", "lake", "viewpoint"],
+    "nature": ["nature", "waterfall", "park", "garden", "wildlife", "sanctuary", "scenic", "lake", "viewpoint", "view point", "sunset point"],
     "restaurant": ["restaurant", "food", "dining", "cafe", "bistro", "shack", "seafood", "eatery", "cuisine", "lunch", "dinner"],
     "adventure": ["adventure", "trek", "trekking", "watersports", "dive", "diving", "snorkeling", "kayaking", "parasailing"],
     "shopping": ["shopping", "market", "bazaar", "flea market", "mall"]
@@ -158,7 +158,8 @@ def resolve_target_in_itinerary(
     Identifies action type (replace, add, remove, move, focus), target stop, day number,
     replacement specification, or ambiguity requiring clarification.
     """
-    clean_msg = user_message.strip().lower()
+    user_text_only = re.sub(r'\[context:.*?\]', '', user_message, flags=re.IGNORECASE).strip()
+    clean_msg = user_text_only.lower()
 
     # 1. Distinguish casual inquiry / question
     # e.g. "Are there good temples nearby?", "What can we do in Old Goa?", "Tell me more about Fort Aguada."
@@ -177,7 +178,7 @@ def resolve_target_in_itinerary(
         }
 
     # 2. Check for explicit proposal approval / cancellation
-    if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept'}:
+    if re.search(r'^\s*(apply\s*(changes|proposal|revision|itinerary)?|confirm\s*(changes)?|accept\s*(changes)?|yes,\s*apply|ok\s*do\s*it|yes\s*do\s*it|do\s*it|go\s*ahead|proceed|sure|yes\s*please|yes|ok)\s*$', clean_msg) or clean_msg in {'apply', 'confirm', 'accept', 'do it', 'yes', 'ok', 'ok do it', 'yes do it'}:
         return {"action": "apply", "is_ambiguous": False}
     if re.search(r'^\s*(keep\s*(current|existing)?\s*(itinerary|trip)?|cancel\s*(changes|proposal)?|discard\s*(changes|proposal)?|no,\s*keep)\s*$', clean_msg) or clean_msg in {'keep', 'cancel', 'discard'}:
         return {"action": "cancel", "is_ambiguous": False}
@@ -427,12 +428,14 @@ def resolve_target_in_itinerary(
             # If it's more than pure generic words, treat as specific replacement name
             words = [re.sub(r'[^\w]', '', w) for w in raw_repl.split() if w]
             generic_words = {
-                "any", "some", "a", "an", "the", "one", "new", "another",
+                "any", "some", "a", "an", "the", "thae", "one", "new", "another",
+                "sunset", "sunrise", "evening", "morning", "afternoon", "night", "day",
                 "temple", "temples", "beach", "beaches", "fort", "museum", "restaurant", "church",
                 "nature", "waterfall", "waterfalls", "historical", "historic", "heritage", "place",
-                "spot", "activity", "attraction", "attractions", "seafood", "food", "dining", "culture", "monument",
-                "good", "famous", "local", "dinner", "lunch", "breakfast", "cafe", "meal", "sightseeing",
-                "visit", "something", "things", "to", "do", "see", "at", "in", "for", "or", "and"
+                "spot", "spots", "stop", "stops", "activity", "activities", "attraction", "attractions",
+                "seafood", "food", "dining", "culture", "monument", "lake", "river", "viewpoint", "view",
+                "point", "scenic", "good", "famous", "local", "dinner", "lunch", "breakfast", "cafe",
+                "meal", "sightseeing", "visit", "something", "things", "to", "do", "see", "at", "in", "for", "or", "and"
             }
             if words and not all(w.lower() in generic_words for w in words):
                 replacement_name = raw_repl.title()
