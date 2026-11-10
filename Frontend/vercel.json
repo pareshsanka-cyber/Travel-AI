@@ -1,4 +1,3 @@
-# Vercel configuration for TravelAI Frontend
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
