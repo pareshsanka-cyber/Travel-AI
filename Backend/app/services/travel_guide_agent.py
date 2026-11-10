@@ -455,7 +455,7 @@ GUIDE_SYNTHESIS_PROMPT = ChatPromptTemplate.from_messages([
         "You are TravelAI's expert, friendly, and reliable Travel Guide Agent. "
         "Your mission is to provide accurate, personalized, and practical travel guidance for the requested destination ({destination}).\n\n"
         "RULES:\n"
-        "- Focus strictly on {destination}. Never divert to or mention unrelated cities (such as Goa) unless explicitly asked by the traveler.\n"
+        "- Focus on providing direct, accurate recommendations for {destination}.\n"
         "- Be concise, warm, and highly informative (2 to 4 sentences).\n"
         "- Explain WHY the recommended places match the traveler's interests or query.\n"
         "- Never fabricate opening status, coordinates, reviews, or prices.\n"
@@ -856,50 +856,52 @@ def handle_travel_guide_query(
     Main entry point for the Travel Guide Agent.
     Routes queries to specialized factual discovery, personalized ranking, and structured response construction.
     """
-    # 1. Resolve Destination
-    dest = (
-        destination or
-        travel_context.get("destination") or
-        (active_trip.get("destination") if active_trip else None)
-    )
-    if isinstance(dest, list):
-        dest = dest[0] if dest else None
-    if isinstance(dest, str):
-        dest = dest.split(',')[0].strip()
+    # 1. Resolve Destination: Clean message first by stripping [Context: ...] trailer
+    clean_user_msg = re.sub(r'\[Context:.*?\]', '', user_message, flags=re.DOTALL | re.IGNORECASE).strip()
+    msg_words = clean_user_msg.lower()
 
-    dest = normalize_destination_name(dest)
-
-    # Extract destination from user message if query mentions a specific city (e.g. "famous places in hyderanad", "places in hyd")
-    dest_match = re.search(r'\b(?:in|at|for|to|visiting)\s+([A-Za-z\s]{2,20})\b', user_message, re.IGNORECASE)
+    explicit_dest = None
+    # Check if query explicitly mentions a destination city (e.g. "famous places in goa", "places in hyd")
+    dest_match = re.search(r'\b(?:in|at|for|to|visiting|near|around)\s+([A-Za-z\s]{2,20})\b', clean_user_msg, re.IGNORECASE)
     if dest_match:
         cand_dest = dest_match.group(1).strip()
-        # Ensure it's not a general word or relative location
         if cand_dest.lower() not in (
             "the city", "the area", "my location", "here", "india", "today", "tomorrow",
             "this place", "my current stop", "my stop", "current stop", "our stop", "the stop"
         ) and not cand_dest.lower().startswith(("my ", "our ", "current ")):
-            normalized = normalize_destination_name(cand_dest)
-            if normalized:
-                dest = normalized
+            explicit_dest = normalize_destination_name(cand_dest)
 
-    # Also scan for known destination aliases anywhere in user message (e.g. "give me famous places hyd")
-    msg_words = user_message.lower()
-    for alias, canonical in DESTINATION_ALIASES.items():
-        if re.search(r'\b' + re.escape(alias) + r'\b', msg_words):
-            dest = canonical
-            break
-
-    # Scan for known landmark references (e.g. "Why is Hawa Mahal famous?" -> Jaipur)
-    if not dest:
-        for landmark, l_dest in LANDMARK_DESTINATIONS.items():
-            if re.search(r'\b' + re.escape(landmark) + r'\b', msg_words):
-                dest = l_dest
+    # Scan clean user message for known destination aliases (e.g. "give me famous places goa")
+    if not explicit_dest:
+        for alias, canonical in DESTINATION_ALIASES.items():
+            if re.search(r'\b' + re.escape(alias) + r'\b', msg_words):
+                explicit_dest = canonical
                 break
 
-    if not dest:
-        inferred = resolve_destination_from_query(user_message)
-        if inferred:
-            dest = inferred
+    # Scan for known landmark references (e.g. "Why is Baga Beach famous?" -> Goa)
+    if not explicit_dest:
+        for landmark, l_dest in LANDMARK_DESTINATIONS.items():
+            if re.search(r'\b' + re.escape(landmark) + r'\b', msg_words):
+                explicit_dest = l_dest
+                break
+
+    if not explicit_dest:
+        explicit_dest = resolve_destination_from_query(clean_user_msg)
+
+    # Explicit destination mentioned by user takes highest precedence!
+    if explicit_dest:
+        dest = explicit_dest
+    else:
+        dest = (
+            destination or
+            travel_context.get("destination") or
+            (active_trip.get("destination") if active_trip else None)
+        )
+        if isinstance(dest, list):
+            dest = dest[0] if dest else None
+        if isinstance(dest, str):
+            dest = dest.split(',')[0].strip()
+        dest = normalize_destination_name(dest)
 
     # 2. Extract Interests
     interests = extract_interest_tags(user_message, travel_context)

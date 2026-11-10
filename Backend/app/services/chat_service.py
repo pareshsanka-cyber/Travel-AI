@@ -277,6 +277,7 @@ def process_chat_message(
         }
 
     elif intent == "TRAVEL_QA":
+        resolved_guide_dest = slots.get("destination") or destination or current_context.get("destination")
         guide_res = handle_travel_guide_query(
             user_message=user_message,
             travel_context=current_context,
@@ -285,7 +286,7 @@ def process_chat_message(
             current_lon=current_lon,
             current_day=current_day,
             active_segment_id=active_segment_id,
-            destination=destination,
+            destination=resolved_guide_dest,
             user_id=user_id,
             conversation_id=conv_id,
             has_current_trip=bool(active_trip_doc),
