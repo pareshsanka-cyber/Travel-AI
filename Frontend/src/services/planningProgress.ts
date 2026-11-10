@@ -28,7 +28,12 @@ const storageKey = () => `TRAVELAI_PENDING_PLANNING:${owner()}`;
 export function readPendingPlanning(): PendingPlanningRequest | null {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null');
-    return saved?.owner === owner() && typeof saved?.id === 'string' && typeof saved?.prompt === 'string' ? saved : null;
+    if (!saved || saved?.owner !== owner() || typeof saved?.id !== 'string' || typeof saved?.prompt !== 'string') return null;
+    if (saved.endpoint && saved.endpoint !== getApiBaseUrl()) {
+      sessionStorage.removeItem(storageKey());
+      return null;
+    }
+    return saved;
   } catch { return null; }
 }
 export function savePendingPlanning(request: PendingPlanningRequest) { sessionStorage.setItem(storageKey(), JSON.stringify(request)); }

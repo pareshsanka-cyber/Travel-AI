@@ -676,13 +676,16 @@ export function useTravelApi() {
     return () => { window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', reconnect); };
   }, [planningProgress?.status]);
   const handleDismissPlanning = async () => {
-    if (!planningProgress || !['failed', 'interrupted', 'succeeded'].includes(planningProgress.status) || sendInFlight.current) return;
-    if (planningProgress.trip_id) {
+    if (sendController.current) { sendController.current.abort(); sendController.current = null; }
+    sendInFlight.current = false;
+    if (planningProgress?.trip_id) {
       try { syncTripState(await fetchTrip(planningProgress.trip_id)); setPlannerView('trip'); }
       catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to open the saved trip.'); return; }
     } else if (pendingPlanning.current) setPromptInput(pendingPlanning.current.text);
-    clearPendingPlanning(planningProgress.request_id); pendingPlanning.current = null; setPlanningProgress(null);
-    if (!planningProgress.trip_id) requestAnimationFrame(() => document.getElementById('chatPromptInput')?.focus());
+    if (planningProgress?.request_id) clearPendingPlanning(planningProgress.request_id);
+    if (pendingPlanning.current?.id) clearPendingPlanning(pendingPlanning.current.id);
+    pendingPlanning.current = null; setPlanningProgress(null); setIsSendingMessage(false);
+    requestAnimationFrame(() => document.getElementById('chatPromptInput')?.focus());
   };
   useEffect(() => {
     if (isLoadingConversations || isLoadingTrips || recoveryStarted.current || !pendingPlanning.current) return;
@@ -853,7 +856,12 @@ export function useTravelApi() {
 
   // Handler: Start a fresh new chat session without sending any default prompt
   const handleNewChat = useCallback(() => {
-    if (sendInFlight.current || pendingPlanning.current) { setErrorMessage('Check the current request before starting another chat.'); return; }
+    if (sendController.current) { sendController.current.abort(); sendController.current = null; }
+    sendInFlight.current = false;
+    if (pendingPlanning.current?.id) clearPendingPlanning(pendingPlanning.current.id);
+    pendingPlanning.current = null;
+    setPlanningProgress(null);
+    setIsSendingMessage(false);
     ++conversationLoad.current;
     setPlannerView('plan');
     setCurrentConversationId(null);

@@ -375,15 +375,15 @@ export function PlanningProgressCard({
           </button>
         )}
 
-        {/* Dismiss / Return Button */}
-        {stopped && onDismiss && (
+        {/* Dismiss / Return / Cancel Button */}
+        {onDismiss && (
           <button
             type="button"
             onClick={onDismiss}
             disabled={checking}
             className="rounded-xl border border-primary/30 hover:bg-primary/5 text-primary px-3.5 py-2 text-xs font-semibold disabled:opacity-50 cursor-pointer transition-colors"
           >
-            {progress.trip_id ? 'View saved trip' : 'Return to planning'}
+            {isCompleted ? 'Close' : stopped ? (progress.trip_id ? 'View saved trip' : 'Return to planning') : 'Cancel request'}
           </button>
         )}
       </div>
