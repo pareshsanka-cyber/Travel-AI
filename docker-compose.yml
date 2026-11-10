@@ -1,0 +1,75 @@
+version: '3.9'
+
+# TravelAI — Full-stack local deployment via Docker Compose
+# Usage: docker-compose up --build
+#
+# Requires Backend/.env to be populated with:
+#   GROQ_API_KEY, SERPAPI_API_KEY (see Backend/.env.example)
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama
+    restart: always
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # Pull nomic-embed-text on first startup
+    entrypoint: >
+      sh -c "ollama serve &
+             sleep 5 &&
+             ollama pull nomic-embed-text &&
+             wait"
+
+  backend:
+    build:
+      context: ./Backend
+    restart: always
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    env_file:
+      - ./Backend/.env
+    environment:
+      # Override local values with Docker service hostnames
+      - MONGODB_URI=mongodb://mongodb:27017
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./Frontend
+      args:
+        VITE_FASTAPI_URL: http://localhost:8000
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  mongo_data:
+  ollama_data:

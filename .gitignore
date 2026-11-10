@@ -1,12 +1,12 @@
-﻿# Virtual Environment
+# Virtual Environment
 .venv/
 venv/
 env/
 ENV/
 
-# Environment Variables (Private Keys)
+# Environment Variables (Private Keys - NEVER commit these)
 .env
-*.env
+.env.*
 !.env.example
 Backend/.env
 Frontend/.env
@@ -40,6 +40,7 @@ dist/
 *.tsbuildinfo
 chromadb_storage/
 **/chromadb_storage/
+chromadb_storage_backup/
 *.sqlite3
 *.bin
 *.pickle
@@ -51,5 +52,12 @@ benchmark_result.json
 # Generated browser reports
 test-results/
 playwright-report/
+
+# Archives & backups - never commit
 *.zip
-chromadb_storage_backup/
+*.tar.gz
+*.tar
+
+# SRS document generation artifacts (not project source code)
+docs/academic/__pycache__/
+docs/academic/*.pyc

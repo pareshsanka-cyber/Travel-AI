@@ -98,7 +98,7 @@
       "bytes": 0
     },
     "Backend/app/ai/agents/attraction_agent.py": {
-      "sha256": "a61c093cae00924f12df9e1ed91e90c714d8154c037d9f7b57c6137f3e57eea4",
+      "sha256": "a61c093c[REDACTED_SERPAPI_KEY]",
       "bytes": 24410
     },
     "Backend/app/ai/agents/budget_agent.py": {
@@ -150,7 +150,7 @@
       "bytes": 1130
     },
     "Backend/app/ai/orchestrator/state.py": {
-      "sha256": "f73be8cae5ed20f07dd49587516f92eee91854f17aec771d214d8eb45c0b0327",
+      "sha256": "f73be8c[REDACTED_SERPAPI_KEY]",
       "bytes": 1843
     },
     "Backend/app/ai/rag/__init__.py": {
@@ -194,7 +194,7 @@
       "bytes": 32068
     },
     "Backend/app/ai/rag/knowledge/delhi_guide.txt": {
-      "sha256": "3daf6c53ae098e8f4c2301191ed338feebf18656d36f7047c5c26acdafe7bf30",
+      "sha256": "3daf6c53[REDACTED_SERPAPI_KEY]",
       "bytes": 61314
     },
     "Backend/app/ai/rag/knowledge/goa_guide.txt": {
@@ -286,7 +286,7 @@
       "bytes": 406
     },
     "Backend/app/models/trip.py": {
-      "sha256": "d2eaae3705b87a4231bb12b1a9c9716753b9d818d0e144eb20aa5fd92c2c1c77",
+      "sha256": "d2ea[REDACTED_SERPAPI_KEY]",
       "bytes": 1213
     },
     "Backend/app/schemas/__init__.py": {
@@ -386,7 +386,7 @@
       "bytes": 349
     },
     "Frontend/src/vite-env.d.ts": {
-      "sha256": "3cb02caefe3f0e7ac7a120e17eb8d2389c694a02f40b56bf88e6a7b260622444",
+      "sha256": "3cb02c[REDACTED_SERPAPI_KEY]",
       "bytes": 206
     },
     "Frontend/src/components/ApiConfigModal.tsx": {
@@ -406,7 +406,7 @@
       "bytes": 3575
     },
     "Frontend/src/components/Header.tsx": {
-      "sha256": "ec9cf595aebfc40092c58cf60b1cf49a1dab97fd584cbd970f9b49f3eaf78d91",
+      "sha256": "ec9cf595[REDACTED_SERPAPI_KEY]",
       "bytes": 14289
     },
     "Frontend/src/components/Sidebar.tsx": {
@@ -418,7 +418,7 @@
       "bytes": 10221
     },
     "Frontend/src/components/preferences/InterestsPopover.tsx": {
-      "sha256": "71e8538ae1167d87f2a2b503a1bcd47675b2a8f26945eaa52cf59b70ed60c490",
+      "sha256": "71e8538[REDACTED_SERPAPI_KEY]",
       "bytes": 5876
     },
     "Frontend/src/components/preferences/TravelPreferenceBar.tsx": {
