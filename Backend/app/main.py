@@ -37,17 +37,20 @@ import uuid
 @asynccontextmanager
 async def lifespan(app):
     client.admin.command("ping")
-    setup_indexes()
-    from app.services.planning_progress import setup_indexes as setup_planning_indexes
-    setup_planning_indexes()
-    db.users.create_index("email", unique=True)
-    db.sessions.create_index("token_hash", unique=True)
-    db.sessions.create_index("expires_at", expireAfterSeconds=0)
-    db.reroute_proposals.create_index("expires_at", expireAfterSeconds=0)
-    db.trips.create_index([("user_id", 1), ("created_at", -1)])
-    from app.services.booking_service import setup_indexes as setup_payment_indexes
-    setup_payment_indexes(db)
-    db.conversations.create_index([("user_id", 1), ("updated_at", -1)])
+    try:
+        setup_indexes()
+        from app.services.planning_progress import setup_indexes as setup_planning_indexes
+        setup_planning_indexes()
+        db.users.create_index("email", unique=True)
+        db.sessions.create_index("token_hash", unique=True)
+        db.sessions.create_index("expires_at", expireAfterSeconds=0)
+        db.reroute_proposals.create_index("expires_at", expireAfterSeconds=0)
+        db.trips.create_index([("user_id", 1), ("created_at", -1)])
+        from app.services.booking_service import setup_indexes as setup_payment_indexes
+        setup_payment_indexes(db)
+        db.conversations.create_index([("user_id", 1), ("updated_at", -1)])
+    except Exception as index_err:
+        logging.getLogger('travelai.api').warning("Optional index creation deferred: %s", index_err)
     yield
     client.close()
 
